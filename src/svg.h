@@ -260,6 +260,70 @@ public:
 
 namespace shapes {
 
+    template <typename Owner>
+    class PathProps {
+    public:
+        Owner& SetFillColor(svg::Color color) {
+            fill_color_ = std::move(color);
+            return AsOwner();
+        }
+        Owner& SetStrokeColor(svg::Color color) {
+            stroke_color_ = std::move(color);
+            return AsOwner();
+        }
+
+        Owner& SetStrokeWidth(double width) {
+            stroke_width_ = width;
+            return AsOwner();
+        }
+        Owner& SetStrokeLineCap(svg::StrokeLineCap line_cap) {
+            stroke_linecap_ = line_cap;
+            return AsOwner();
+        }
+        Owner& SetStrokeLineJoin(svg::StrokeLineJoin line_join) {
+            stroke_linejoin_ = line_join;
+            return AsOwner();
+        }
+
+    protected:
+        ~PathProps() = default;
+
+        template<typename T>
+        void SetAttrs(svg::PathProps<T>& prop) const {
+            using namespace std::literals;
+
+            if (fill_color_) {
+                prop.SetFillColor(*fill_color_);
+            }
+            if (stroke_color_) {
+                prop.SetStrokeColor(*stroke_color_);
+            }
+
+            if (stroke_width_) {
+                prop.SetStrokeWidth(*stroke_width_);
+            }
+            if (stroke_linecap_) {
+                prop.SetStrokeLineCap(*stroke_linecap_);
+            }
+            if (stroke_linejoin_) {
+                prop.SetStrokeLineJoin(*stroke_linejoin_);
+            }
+        }
+
+    private:
+        Owner& AsOwner() {
+            // static_cast безопасно преобразует *this к Owner&,
+            // если класс Owner — наследник PathProps
+            return static_cast<Owner&>(*this);
+        }
+
+        std::optional<svg::Color> fill_color_;
+        std::optional<svg::Color> stroke_color_;
+        std::optional<double> stroke_width_;
+        std::optional<svg::StrokeLineCap> stroke_linecap_;
+        std::optional<svg::StrokeLineJoin> stroke_linejoin_;
+    };
+
 class Triangle : public svg::Drawable {
 public:
     Triangle(svg::Point p1, svg::Point p2, svg::Point p3);
@@ -293,15 +357,23 @@ class Snowman: public svg::Drawable{
     
 };
 
-class Hexagon : public svg::Drawable {
+class Hexagon : public svg::Drawable, public PathProps<Hexagon> {
 public:
     Hexagon(svg::Point center, double edge, double angle);
-    Hexagon& SetColor(svg::Color color);
     void Draw(svg::ObjectContainer& container) const override;
 private:
     svg::Point center_;
     double edge_;
     double angle_;
-    std::optional<svg::Color> color_;
+};
+
+class Road : public svg::Drawable, public PathProps<Road> {
+public:
+    Road(svg::Point center, double scale, double angle);
+    void Draw(svg::ObjectContainer& container) const override;
+private:
+    svg::Point center_;
+    double scale_;
+    double angle_;
 };
 } // namespace shapes

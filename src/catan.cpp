@@ -64,12 +64,15 @@ namespace ivv{
 					randPair.second = (randPair.second + 1) % 6)
 			{
 				dices[dice_ind[i]].insert(&gexs[bigCircle[randPair.first]]);
+				gexs[bigCircle[randPair.first]].setDice(dice_ind[i]);
+
 				dices[dice_ind[i + 1]].insert(&gexs[bigCircle[randPair.first + 1]]);
+				gexs[bigCircle[randPair.first + 1]].setDice(dice_ind[i + 1]);
+
 				auto gex_index = smallCircle[randPair.second];
 				dices[dice_ind[i / 2 + 12]].insert(&gexs[gex_index]);
+				gexs[gex_index].setDice(dice_ind[i / 2 + 12]);
 			}
-
-
 		}
 
 		void Map::initNodes()
@@ -457,8 +460,20 @@ namespace ivv{
 			}
 		}
 
+		std::array<Gex, Map::gexs_count>& Map::GetGexes() {
+			return gexs;
+		}
+
 		const std::array<Gex, Map::gexs_count>& Map::GetGexes() const {
 			return gexs;
+		}
+
+		const std::array<Node, 54> Map::GetNodes() const {
+			return nodes;
+		}
+
+		const std::array<Facet, 72> Map::GetFacets() const {
+			return facets;
 		}
 
 		std::pair<unsigned int, unsigned int> Game::diceDrop()
@@ -471,7 +486,7 @@ namespace ivv{
 
 		}
 
-		Resurse Gex::getType()
+		Resurse Gex::getType() const
 		{
 			return resurse;
 		}
@@ -492,6 +507,30 @@ namespace ivv{
 			{
 				node->diceEvent(resurse);
 			}
+		}
+
+		void Gex::setDice(int dice) {
+			dice_ = dice;
+		}
+
+		int Gex::getDice() const {
+			return dice_;
+		}
+
+		void Gex::setBandit(Bandit& b) {
+			if (&b == bandit_) {
+				return;
+			}
+			Gex* gex = b.getGex();
+			if (gex) {
+				gex->bandit_ = nullptr;
+			}
+			b.setGex(this);
+			bandit_ = &b;
+		}
+
+		bool Gex::isBandit() const {
+			return bandit_ != nullptr;
 		}
 
 		void Node::diceEvent(Resurse r)
@@ -529,6 +568,10 @@ namespace ivv{
 				building->setFree();
 			b->setBusy();
 			building = b;
+		}
+
+		const Building* Node::getBuilding() const {
+			return building;
 		}
 
 		std::set<Gex*> Node::getNeighborGexs()
@@ -608,9 +651,10 @@ namespace ivv{
 			assert(playerQueue.size() == players.size());
 
 			//for(auto& [d, name]: playerQueue)
+			size_t id = 0;
 			for(auto it = playerQueue.rbegin(); it != playerQueue.rend(); ++it)
 			{
-				this->players.push_back(Player{(*it).second});
+				this->players.push_back(Player{(*it).second, id++});
 				//std::cout << "push_back " << (*it).second << std::endl;
 			}
 
@@ -620,10 +664,16 @@ namespace ivv{
 
 			currentPlayer = 0;
 
+			map.GetGexes()[9].setBandit(bandit_);
+
 			startPlace();
 
-			renderer::MapRenderer renderer{ map };
+			renderer::MapRenderer renderer{ map , svg::Point{3.0, 3.0}, 10.0 };
 			renderer.Render(std::cout);
+			std::cout << std::endl;
+			for (auto& player : this->players) {
+				std::cout << player << std::endl;
+			}
 		}
 
 		void Game::startPlace()
@@ -675,7 +725,7 @@ namespace ivv{
 			return d.first + d.second;
 		}
 
-		Player::Player(std::string n): name{n}
+		Player::Player(std::string n, size_t id): name{n}, id_{id}
 		{
 		}
 
@@ -721,6 +771,56 @@ namespace ivv{
 					return &road;
 				}
 			return nullptr;
+		}
+
+		size_t Player::getId() const {
+			return id_;
+		}
+
+		size_t Player::getFreeSettlementCount() const {
+			size_t ret = 0;
+			for (const auto& element : settlements) {
+				if (element.isFree()) {
+					++ret;
+				}
+			}
+			return ret;
+		}
+		size_t Player::getFreeCastleCount() const {
+			size_t ret = 0;
+			for (const auto& element : castles) {
+				if (element.isFree()) {
+					++ret;
+				}
+			}
+			return ret;
+		}
+		size_t Player::getFreeRoadCount() const {
+			size_t ret = 0;
+			for (const auto& element : roads) {
+				if (element.isFree()) {
+					++ret;
+				}
+			}
+			return ret;
+		}
+
+		void Player::Print(std::ostream&os ) const {
+			os << "Player " << name << std::endl
+				<< "Id: " << id_ << std::endl
+				<< "Free settlements: " << getFreeSettlementCount() << std::endl
+				<< "Free castles: " << getFreeCastleCount() << std::endl
+				<< "Free roads: " << getFreeRoadCount() << std::endl
+				<< "Wood: " << (resurses.count(Resurse::Wood) ? resurses.at(Resurse::Wood) : 0) << std::endl
+				<< "Clay: " << (resurses.count(Resurse::Clay) ? resurses.at(Resurse::Clay) : 0) << std::endl
+				<< "Hay: " << (resurses.count(Resurse::Hay) ? resurses.at(Resurse::Hay) : 0) << std::endl
+				<< "Sheep: " << (resurses.count(Resurse::Sheep) ? resurses.at(Resurse::Sheep) : 0) << std::endl
+				<< "Stone: " << (resurses.count(Resurse::Stone) ? resurses.at(Resurse::Stone) : 0) << std::endl;
+		}
+
+		std::ostream& operator<<(std::ostream& os, const Player& player) {
+			player.Print(os);
+			return os;
 		}
 
 		void Construction::setBusy()
@@ -798,6 +898,10 @@ namespace ivv{
 			r->setBusy();
 		}
 
+		const Road* Facet::getRoad() const {
+			return road;
+		}
+
 		void Facet::addNeighbor(Facet* f)
 		{
 			facet_neighbor.insert(f);
@@ -805,6 +909,13 @@ namespace ivv{
 		void Facet::addNeighbor(Node* n)
 		{
 			node_neighbor.insert(n);
+		}
+
+		void Bandit::setGex(Gex* gex) {
+			gex_ = gex;
+		}
+		Gex* Bandit::getGex() {
+			return gex_;
 		}
 
 	}

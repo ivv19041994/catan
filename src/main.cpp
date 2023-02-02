@@ -26,12 +26,12 @@ int main() {
 	}*/
 
 
-	{
+	/* {
 		ivv::catan::Map map;
 		ivv::catan::renderer::MapRenderer renderer{ map , {0.0, 0.0}, 10.0 };
 		renderer.Render(std::cout);
 		return 0;
-	}
+	}*/
 
 
 	unsigned int player_count;

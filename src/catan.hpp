@@ -34,6 +34,14 @@ namespace ivv{
 			Not
 		};
 
+		class Bandit {
+		public:
+			void setGex(Gex* gex);
+			Gex* getGex();
+		private:
+			Gex* gex_;
+		};
+
 		class Construction
 		{
 		protected:
@@ -71,16 +79,20 @@ namespace ivv{
 		class Gex
 		{
 			std::set<Node*> node_neighbor{};
-			Bandit *bandit = nullptr;
-			Resurse resurse;
+			Bandit *bandit_ = nullptr;
+			Resurse resurse{};
+			int dice_{};
 		public:
 			Gex();
 			void addNeighbor(Node* node);
-			void setBandit(Bandit *b);
+			void setBandit(Bandit& b);
 			void setType(Resurse r);
-			Resurse getType();
+			Resurse getType() const;
+			void setDice(int dice);
+			int getDice() const;
 
 			void diceEvent();
+			bool isBandit() const;
 		};
 
 		class Facet
@@ -99,6 +111,7 @@ namespace ivv{
 			void setRoad(Road *r);
 			bool haveNeighborFacetWith(Player *p) const;
 			bool haveNeighborNodeWith(Player *p) const;
+			const Road* getRoad() const;
 		};
 
 		class Node
@@ -117,6 +130,7 @@ namespace ivv{
 
 			void diceEvent(Resurse r);
 			void setBuilding(Building* b);
+			const Building* getBuilding() const;
 
 			bool neighborsNodeIsFree() const;
 			bool isFree() const;
@@ -160,7 +174,10 @@ namespace ivv{
 			std::set<Facet*> getFacetsByNodeId(unsigned int nodeId);
 			bool isNodeAndFacetNeighbor(unsigned int nodeId, unsigned int facetId);
 
+			std::array<Gex, gexs_count>& GetGexes();
 			const std::array<Gex, gexs_count>& GetGexes() const;
+			const std::array<Node, 54> GetNodes() const;
+			const std::array<Facet, 72> GetFacets() const;
 		};
 
 		class Game
@@ -170,6 +187,8 @@ namespace ivv{
 			std::random_device rd;
 			std::default_random_engine rng;
 			Map map;
+
+			Bandit bandit_;
 
 			void startPlace();
 		public:
@@ -181,6 +200,9 @@ namespace ivv{
 
 		};
 
+
+		std::ostream& operator<<(std::ostream& os, const Player& player);
+
 		class Player
 		{
 			std::string name;
@@ -188,14 +210,22 @@ namespace ivv{
 			std::array<Settlement, 5> settlements;
 			std::array<Castle, 4> castles;
 			std::array<Road, 15 > roads;
+			size_t id_;
 		public:
-			explicit Player(std::string name);
+			explicit Player(std::string name, size_t id);
 			std::string getName();
+			size_t getId() const;
 			void addResurse(Resurse resurse, unsigned int count = 1);
 
 			Settlement *getFreeSettlement();
 			Castle *getFreeCastle();
 			Road *getFreeRoad();
+
+			size_t getFreeSettlementCount() const;
+			size_t getFreeCastleCount() const;
+			size_t getFreeRoadCount() const;
+
+			void Print(std::ostream&) const;
 		};
 
 		class out_of_range: public std::out_of_range

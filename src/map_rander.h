@@ -19,6 +19,15 @@ namespace renderer {
 		double scale_;
 		
 		svg::Color GexTypeToColor(Resurse type) const;
+		svg::Color PlayerIdToColor(size_t id) const;
+
+		void RenderGex(svg::Document& doc, const Gex& gex, svg::Point center) const;
+		void RenderGexs(svg::Document& doc) const;
+		void RenderBuilding(svg::Document& doc, const Building& building, svg::Point center) const;
+		void RenderBuildings(svg::Document& doc) const;
+
+		void RenderRoad(svg::Document& doc, const Road& road, svg::Point center, double angele) const;
+		void RenderRoads(svg::Document& doc) const;
 	};
 }//namespace renderer {
 }//namespace catan {

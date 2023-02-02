@@ -257,9 +257,7 @@ Hexagon::Hexagon(svg::Point center, double edge, double angle)
 void Hexagon::Draw(svg::ObjectContainer& container) const {
     auto hexagon = svg::Polyline();
 
-    if (color_) {
-        hexagon.SetFillColor(*color_);
-    }
+    SetAttrs(hexagon);
 
     constexpr std::array<double, 7> angles{0, 60, 120, 180, 240, 300, 360 };
 
@@ -270,12 +268,41 @@ void Hexagon::Draw(svg::ObjectContainer& container) const {
 
     container.Add(std::move(hexagon));
 }
-
+/*
 Hexagon& Hexagon::SetColor(svg::Color color) {
     color_ = std::move(color);
     return *this;
 }
 
+Hexagon& Hexagon::SetStrokeColor(svg::Color color) {
+    stroke_ = std::move(color);
+    return *this;
+}
+Hexagon& Hexagon::SetStrokeWidth(double width) {
+    stroke_width_ = width;
+    return *this;
+}*/
+
+Road::Road(svg::Point center, double scale, double angle)
+    : center_{ center }
+    , scale_{ scale }
+    , angle_{angle} {
+
+}
+void Road::Draw(svg::ObjectContainer& container) const {
+    auto polyline = svg::Polyline();
+
+    SetAttrs(polyline);
+
+    constexpr std::array<double, 5> angles{ 30, 150, 210, 330, 30 };
+
+    for (double angle : angles) {
+        double a = (angle / 180.0) * std::numbers::pi;
+        polyline.AddPoint({ std::cos(a - angle_) * scale_ + center_.x, std::sin(a - angle_) * scale_ + center_.y });
+    }
+
+    container.Add(std::move(polyline));
+}
 
 
 }//namespace shapes
