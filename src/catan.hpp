@@ -12,6 +12,13 @@
 namespace ivv{
 	namespace catan{
 
+		class logic_error : public std::logic_error {
+		public:
+			logic_error(std::string what) : std::logic_error{ std::move(what) } {
+
+			}
+		};
+
 		class Gex;
 		class Facet;
 		class Node;
@@ -22,7 +29,7 @@ namespace ivv{
 		class Castle;
 		class Road;
 		class Map;
-		class Game;
+		class GameController;
 
 		enum class Resurse
 		{
@@ -167,7 +174,8 @@ namespace ivv{
 
 			bool canPlaceStartBuilding(unsigned int nodeId);
 			void placeStartBuilding(unsigned int nodeId, Player* p);
-			bool canPlaceBuilding(unsigned int nodeId);
+			void placeSettlement(unsigned int nodeId, Player* p);
+			bool canPlaceBuilding(unsigned int nodeId, const Player& player);
 			bool canPlaceRoad(unsigned int facetId, Player* p) const;
 			void placeRoad(unsigned int id, Player* p);
 			std::set<Gex*> getGexsByNodeId(unsigned int nodeId);
@@ -178,26 +186,6 @@ namespace ivv{
 			const std::array<Gex, gexs_count>& GetGexes() const;
 			const std::array<Node, 54> GetNodes() const;
 			const std::array<Facet, 72> GetFacets() const;
-		};
-
-		class Game
-		{
-			std::vector <Player> players;
-			unsigned int currentPlayer;
-			std::random_device rd;
-			std::default_random_engine rng;
-			Map map;
-
-			Bandit bandit_;
-
-			void startPlace();
-		public:
-			Game(std::initializer_list<std::string> players);
-			Game(std::vector<std::string> players);
-
-			std::pair<unsigned int, unsigned int> diceDrop();
-			static unsigned int diceToUInt(std::pair<unsigned int, unsigned int> d);
-
 		};
 
 
@@ -213,7 +201,7 @@ namespace ivv{
 			size_t id_;
 		public:
 			explicit Player(std::string name, size_t id);
-			std::string getName();
+			const std::string& getName() const;
 			size_t getId() const;
 			void addResurse(Resurse resurse, unsigned int count = 1);
 
@@ -224,6 +212,12 @@ namespace ivv{
 			size_t getFreeSettlementCount() const;
 			size_t getFreeCastleCount() const;
 			size_t getFreeRoadCount() const;
+
+			bool HaveSettlemenResurses() const;
+			void FreeSettlemenResurses();
+
+			bool HaveRoadResurses() const;
+			void FreeRoadResurses();
 
 			void Print(std::ostream&) const;
 		};

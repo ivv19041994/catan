@@ -11,6 +11,7 @@
 #include "catan.hpp"
 #include "svg.h"
 #include "map_rander.h"
+#include "game_controller.hpp"
 using namespace std;
 
 int main() {
@@ -34,22 +35,39 @@ int main() {
 	}*/
 
 
-	unsigned int player_count;
+	//unsigned int player_count;
 
-	cout << "Enter count of players:";
+	//cout << "Enter count of players:";
 
-	cin >> player_count;
-	std::vector<std::string> players(player_count);
-	{
+	//cin >> player_count;
+	std::vector<std::string> players{"player1", "player2", "player3", "player4" };
+	/* {
 		size_t i = 1;
 		for (auto& p : players) {
 			cout << "Set player " << i++ << " name: ";
 			cin >> p;
 		}
-	}
+	}*/
 		
 
-	ivv::catan::Game game{players};
+	ivv::catan::GameController game{players};
+	game.BuildSettlement(game.GetCurrentPlayer(), 1);
+	game.BuildRoad(game.GetCurrentPlayer(), 1);
+	game.BuildSettlement(game.GetCurrentPlayer(), 3);
+	game.BuildRoad(game.GetCurrentPlayer(), 3);
+	game.BuildSettlement(game.GetCurrentPlayer(), 5);
+	game.BuildRoad(game.GetCurrentPlayer(), 5);
+	game.BuildSettlement(game.GetCurrentPlayer(), 7);
+	game.BuildRoad(game.GetCurrentPlayer(), 10);
+
+	game.BuildSettlement(game.GetCurrentPlayer(), 9);
+	game.BuildRoad(game.GetCurrentPlayer(), 12);
+	game.BuildSettlement(game.GetCurrentPlayer(), 11);
+	game.BuildRoad(game.GetCurrentPlayer(), 14);
+	game.BuildSettlement(game.GetCurrentPlayer(), 13);
+	game.BuildRoad(game.GetCurrentPlayer(), 16);
+	game.BuildSettlement(game.GetCurrentPlayer(), 42);
+	game.BuildRoad(game.GetCurrentPlayer(), 57);
 
 	cout << "!!!Hello World!!!" << endl; // prints !!!Hello World!!!
 

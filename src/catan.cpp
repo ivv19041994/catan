@@ -375,11 +375,40 @@ namespace ivv{
 			return n.neighborsNodeIsFree();
 		}
 
+		bool Map::canPlaceBuilding(unsigned int nodeId, const Player& player)
+		{
+			if (!canPlaceStartBuilding(nodeId)) {
+				return false;
+			}
+			Node& n = nodes[nodeId];
+
+			for(auto& facet: n.getNeighborFacets()) {
+				if (facet->getRoad()->getPlayer()->getId() == player.getId()) {
+					return true;
+				}
+			}
+			return false;
+		}
+		
+
 		void Map::placeStartBuilding(unsigned int nodeId, Player* p)
 		{
 			Node &n = nodes[nodeId];
 			if(!n.neighborsNodeIsFree())
 				throw invalid_argument{"Node is busy"};
+			n.setBuilding(p->getFreeSettlement());
+		}
+
+		void Map::placeSettlement(unsigned int nodeId, Player* p)
+		{
+			using namespace std::string_literals;
+			Node& n = nodes[nodeId];
+			if (!n.neighborsNodeIsFree())
+				throw invalid_argument{ "Node is busy" };
+			Building* b = p->getFreeSettlement();
+			if (!b) {
+				throw logic_error("Player "s + p->getName() + " haven't free settlement!");
+			}
 			n.setBuilding(p->getFreeSettlement());
 		}
 
@@ -476,10 +505,7 @@ namespace ivv{
 			return facets;
 		}
 
-		std::pair<unsigned int, unsigned int> Game::diceDrop()
-		{
-			return {(rng() % 6) + 1, (rng() % 6) + 1};
-		}
+
 
 		Gex::Gex()
 		{
@@ -607,126 +633,19 @@ namespace ivv{
 			player->addResurse(r, 2);
 		}
 
-		Game::Game(std::initializer_list<std::string> players_il): Game(std::vector<std::string>(players_il.begin(), players_il.end()))
-		{
-
-		}
-
-		Game::Game(std::vector<std::string> players): rng(rd())
-		{
-
-			if(players.size() > 4 || players.size() < 2)
-				throw out_of_range("Players must by 2 - 4");
-
-			std::vector<std::pair<unsigned int, unsigned int>> diceForPlayer(players.size());
 
 
-			{
-				std::set<unsigned int> lset;
-				while(lset.size() != players.size())
-				{
-					int i = 0;
-					lset.clear();
 
-					for(auto& dfp: diceForPlayer)
-					{
-						dfp = diceDrop();
-						lset.insert(diceToUInt(dfp));
-						std::cout << "Player " << players.at(i) << " drop " << dfp.first << " and " << dfp.second << std::endl;
-						i++;
-					}
-				}
 
-				std::cout << "lset.size() " << lset.size() << std::endl;
-			}
 
-			std::map<unsigned int, std::string> playerQueue;
-			for(unsigned int i = 0; i < players.size(); i++)
-			{
-				playerQueue[diceToUInt(diceForPlayer[i])] = players[i];
-			}
-
-			std::cout << "playerQueue.size() " << playerQueue.size() << std::endl;
-
-			assert(playerQueue.size() == players.size());
-
-			//for(auto& [d, name]: playerQueue)
-			size_t id = 0;
-			for(auto it = playerQueue.rbegin(); it != playerQueue.rend(); ++it)
-			{
-				this->players.push_back(Player{(*it).second, id++});
-				//std::cout << "push_back " << (*it).second << std::endl;
-			}
-
-			//std::cout << "revStart" << std::endl;
-			//std::reverse(this->players.begin(), this->players.end());
-			//std::cout << "revEnd" << std::endl;
-
-			currentPlayer = 0;
-
-			map.GetGexes()[9].setBandit(bandit_);
-
-			startPlace();
-
-			renderer::MapRenderer renderer{ map , svg::Point{3.0, 3.0}, 10.0 };
-			renderer.Render(std::cout);
-			std::cout << std::endl;
-			for (auto& player : this->players) {
-				std::cout << player << std::endl;
-			}
-		}
-
-		void Game::startPlace()
-		{
-			for(size_t i = 0; i < players.size(); ++i)
-			{
-				unsigned int id;
-				do
-				{
-					std::cout << players[i].getName() << " place first building:" << std::endl;
-					std::cin >> id;
-				}while(!map.canPlaceStartBuilding(id));
-				map.placeStartBuilding(id, &players[i]);
-
-				do
-				{
-					std::cout << players[i].getName() << " place first road:" << std::endl;
-					std::cin >> id;
-				}while(!map.canPlaceRoad(id, &players[i]));
-				map.placeRoad(id, &players[i]);
-			}
-
-			for(size_t i = 0, j = players.size() - 1; i < players.size(); ++i, --j)
-			{
-				unsigned int building_id;
-				do
-				{
-					std::cout << players[j].getName() << " place second building:" << std::endl;
-					std::cin >> building_id;
-				}while(!map.canPlaceStartBuilding(building_id));
-				map.placeStartBuilding(building_id, &players[j]);
-
-				for(const auto pgex: map.getGexsByNodeId(building_id))
-					players[j].addResurse(pgex->getType());
-
-				unsigned int road_id;
-				do
-				{
-					std::cout << players[j].getName() << " place second road:" << std::endl;
-					std::cin >> road_id;
-
-				}while(!map.isNodeAndFacetNeighbor(building_id, road_id) || !map.canPlaceRoad(road_id, &players[j]));
-				map.placeRoad(road_id, &players[j]);
-			}
-		}
-
-		unsigned int Game::diceToUInt(std::pair<unsigned int, unsigned int> d)
-		{
-			return d.first + d.second;
-		}
 
 		Player::Player(std::string n, size_t id): name{n}, id_{id}
 		{
+			resurses[Resurse::Wood] = 0;
+			resurses[Resurse::Clay] = 0;
+			resurses[Resurse::Hay] = 0;
+			resurses[Resurse::Sheep] = 0;
+			resurses[Resurse::Stone] = 0;
 		}
 
 		void Player::addResurse(Resurse resurse, unsigned int count)
@@ -737,8 +656,31 @@ namespace ivv{
 			std::cout << "resurses["<< static_cast<int>(resurse) << "] = " << resurses[resurse] << std::endl;
 		}
 
-		std::string Player::getName()
-		{
+		bool Player::HaveSettlemenResurses() const {
+			return
+				resurses.at(Resurse::Wood) >= 1 &&
+				resurses.at(Resurse::Clay) >= 1 &&
+				resurses.at(Resurse::Hay) >= 1 &&
+				resurses.at(Resurse::Sheep) >= 1;
+		}
+		void Player::FreeSettlemenResurses() {
+			--resurses.at(Resurse::Wood);
+			--resurses.at(Resurse::Clay);
+			--resurses.at(Resurse::Hay);
+			--resurses.at(Resurse::Sheep);
+		}
+
+		bool Player::HaveRoadResurses() const {
+			return
+				resurses.at(Resurse::Wood) >= 1 &&
+				resurses.at(Resurse::Clay) >= 1;
+		}
+		void Player::FreeRoadResurses() {
+			--resurses.at(Resurse::Wood);
+			--resurses.at(Resurse::Clay);
+		}
+
+		const std::string& Player::getName() const {
 			return name;
 		}
 
