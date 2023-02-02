@@ -181,8 +181,6 @@ void GameController::BuildRoad(Player& player, size_t road_id) {
 		} else {
 			if (current_player_ == 0) {
 				step_ = GameStep::DiceDrop;
-				ivv::catan::renderer::MapRenderer renderer{ map , {0.0, 0.0}, 10.0 };
-				renderer.Render(std::cout);
 				return;
 			}
 			--current_player_;
@@ -204,6 +202,64 @@ void GameController::BuildRoad(Player& player, size_t road_id) {
 	else {
 		throw logic_error("Build road is not aviable on this game step!"s);
 	}
+}
+
+void GameController::Dice(std::string_view player) {
+	using namespace std::string_literals;
+	
+	if (step_ != GameStep::DiceDrop) {
+		throw logic_error("Dice drop is not aviable on this game step!"s);
+	}
+
+	CheckCurrentPlayer(player);
+
+	auto dice = dice_.Drop();
+	map.diceEvent(dice.result);
+	last_dice_ = { dice.each[0], dice.each[1] };
+
+	step_ = GameStep::CommonPlay;
+}
+std::pair<size_t, size_t> GameController::GetLastDice() const {
+	return last_dice_;
+}
+
+void GameController::Pass(std::string_view player) {
+	using namespace std::string_literals;
+	if (step_ != GameStep::CommonPlay) {
+		throw logic_error("Pass is not aviable on this game step!"s);
+	}
+
+	CheckCurrentPlayer(player);
+	current_player_ = (++current_player_) % players_.size();
+	step_ = GameStep::DiceDrop;
+}
+
+const Map& GameController::GetMap() const {
+	return map;
+}
+
+bool GameController::Finish() {
+	return winner_.has_value();
+}
+
+void GameController::PrintPlayer(std::ostream& os, std::string_view player) {
+	os << CheckCurrentPlayer(player);
+}
+
+void GameController::PrintStep(std::ostream& os) {
+	os << step_ << " by " << GetCurrentPlayer();
+}
+
+std::ostream& operator<<(std::ostream& os, GameController::GameStep step) {
+	switch (step) {
+	case GameController::GameStep::ForwardBuildingSettlement: return os << "ForwardBuildingSettlement";
+	case GameController::GameStep::ForwardBuildingRoad: return os << "ForwardBuildingRoad";
+	case GameController::GameStep::BackwardBuildingSettlement: return os << "BackwardBuildingSettlement";
+	case GameController::GameStep::BackwardBuildingRoad: return os << "BackwardBuildingRoad";
+	case GameController::GameStep::DiceDrop: return os << "DiceDrop";
+	case GameController::GameStep::CommonPlay: return os << "CommonPlay";
+	}
+	return os << "unknown";
 }
 
 }//namespace ivv::catan {

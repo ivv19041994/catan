@@ -12,6 +12,7 @@
 #include "svg.h"
 #include "map_rander.h"
 #include "game_controller.hpp"
+#include "console_interface.hpp"
 using namespace std;
 
 int main() {
@@ -49,7 +50,7 @@ int main() {
 		}
 	}*/
 		
-
+	/*
 	ivv::catan::GameController game{players};
 	game.BuildSettlement(game.GetCurrentPlayer(), 1);
 	game.BuildRoad(game.GetCurrentPlayer(), 1);
@@ -69,8 +70,34 @@ int main() {
 	game.BuildSettlement(game.GetCurrentPlayer(), 42);
 	game.BuildRoad(game.GetCurrentPlayer(), 57);
 
-	cout << "!!!Hello World!!!" << endl; // prints !!!Hello World!!!
+	for (size_t i = 0; i < 1000; ++i) {
+		game.Dice(game.GetCurrentPlayer());
+		game.Pass(game.GetCurrentPlayer());
+	}
 
+	{
+		ivv::catan::renderer::MapRenderer renderer{ game.GetMap() , {0.0, 0.0}, 10.0 };
+		renderer.Render(std::cout);
+		cout << "current " << game.GetCurrentPlayer() << endl;
+	}
+
+	game.Dice(game.GetCurrentPlayer());
+	game.BuildRoad(game.GetCurrentPlayer(), 56);
+	game.BuildSettlement(game.GetCurrentPlayer(), 40);
+	game.BuildRoad(game.GetCurrentPlayer(), 55);
+	game.BuildRoad(game.GetCurrentPlayer(), 54);
+	game.BuildSettlement(game.GetCurrentPlayer(), 38);
+
+	{
+		ivv::catan::renderer::MapRenderer renderer{ game.GetMap() , {0.0, 0.0}, 10.0 };
+		renderer.Render(std::cout);
+	}
+
+
+	cout << "!!!Hello World!!!" << endl; // prints !!!Hello World!!!
+	*/
+
+	ivv::catan::console::Play play{ cout, cin };
 
 	return 0;
 }

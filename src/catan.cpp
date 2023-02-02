@@ -361,7 +361,15 @@ namespace ivv{
 
 		void Map::diceEvent(std::pair<unsigned int, unsigned int> d)
 		{
-			for(const auto gex: dices[d.first + d.second])
+			diceEvent(d.first + d.second);
+		}
+
+		void Map::diceEvent(size_t val)
+		{
+			if (val == 7) {
+				return;
+			}
+			for (const auto gex : dices.at(val))
 			{
 				gex->diceEvent();
 			}
@@ -383,7 +391,7 @@ namespace ivv{
 			Node& n = nodes[nodeId];
 
 			for(auto& facet: n.getNeighborFacets()) {
-				if (facet->getRoad()->getPlayer()->getId() == player.getId()) {
+				if (facet->getRoad() && facet->getRoad()->getPlayer()->getId() == player.getId()) {
 					return true;
 				}
 			}
@@ -653,7 +661,7 @@ namespace ivv{
 			if(Resurse::Not == resurse)
 				return;
 			resurses[resurse] += count;
-			std::cout << "resurses["<< static_cast<int>(resurse) << "] = " << resurses[resurse] << std::endl;
+			//std::cout << "resurses["<< static_cast<int>(resurse) << "] = " << resurses[resurse] << std::endl;
 		}
 
 		bool Player::HaveSettlemenResurses() const {

@@ -166,11 +166,13 @@ namespace ivv{
 			void initNodes();
 			void initRandomTypeForGexs();
 
+
 		public:
 
 			Map();
 
 			void diceEvent(std::pair<unsigned int, unsigned int> d);
+			void diceEvent(size_t val);
 
 			bool canPlaceStartBuilding(unsigned int nodeId);
 			void placeStartBuilding(unsigned int nodeId, Player* p);
