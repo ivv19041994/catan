@@ -17,15 +17,18 @@ private:
 
 	void Command(std::string&& command);
 	void CommandSettlement(const std::vector<std::string_view>& args);
+	void CommandCastle(const std::vector<std::string_view>& args);
+	void CommandRoad(const std::vector<std::string_view>& args);
 
 	void CommandDice(const std::vector<std::string_view>& args);
-	void CommandRoad(const std::vector<std::string_view>& args);
+	
 	void CommandPlayer(const std::vector<std::string_view>& args);
 	void CommandMap(const std::vector<std::string_view>& args);
 	void CommandPass(const std::vector<std::string_view>& args);
 	void CommandStep(const std::vector<std::string_view>& args);
 	void CommandLastDice(const std::vector<std::string_view>& args);
 	void CommandDrop(const std::vector<std::string_view>& args);
+	
 };
 
 }//namespace ivv::catan::console {

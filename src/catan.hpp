@@ -177,9 +177,14 @@ namespace ivv{
 			bool canPlaceStartBuilding(unsigned int nodeId);
 			void placeStartBuilding(unsigned int nodeId, Player* p);
 			void placeSettlement(unsigned int nodeId, Player* p);
+
+			bool canPlaceCastle(unsigned int nodeId, const Player& p) const;
+			void placeCastle(unsigned int nodeId, Player& p);
+
 			bool canPlaceBuilding(unsigned int nodeId, const Player& player);
 			bool canPlaceRoad(unsigned int facetId, Player* p) const;
 			void placeRoad(unsigned int id, Player* p);
+
 			std::set<Gex*> getGexsByNodeId(unsigned int nodeId);
 			std::set<Facet*> getFacetsByNodeId(unsigned int nodeId);
 			bool isNodeAndFacetNeighbor(unsigned int nodeId, unsigned int facetId);
@@ -220,6 +225,9 @@ namespace ivv{
 
 			bool HaveRoadResurses() const;
 			void FreeRoadResurses();
+
+			bool HaveCastleResurses() const;
+			void FreeCastleResurses();
 
 			size_t getCountResurses() const;
 

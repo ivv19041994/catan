@@ -397,6 +397,29 @@ namespace ivv{
 			}
 			return false;
 		}
+
+		bool Map::canPlaceCastle(unsigned int nodeId, const Player& p) const {
+			const Node& n = nodes[nodeId];
+			const Building* building = n.getBuilding();
+			if (building == nullptr || building->getPlayer() != &p) {
+				return false;
+			}
+			const Settlement* settlement = dynamic_cast<const Settlement*>(building);
+			return (settlement) ? true : false;
+		}
+
+		void Map::placeCastle(unsigned int nodeId, Player& p) {
+			using namespace std::string_literals;
+			if (!canPlaceCastle(nodeId, p)) {
+				throw invalid_argument{ "Node must be settlement of "s + p.getName()  + "!"s};
+			}
+			Castle* castle = p.getFreeCastle();
+			if (!castle) {
+				throw invalid_argument{ p.getName() + " haven't free castles!"};
+			}
+
+			nodes[nodeId].setBuilding(castle);
+		}
 		
 
 		void Map::placeStartBuilding(unsigned int nodeId, Player* p)
@@ -686,6 +709,16 @@ namespace ivv{
 		void Player::FreeRoadResurses() {
 			--resurses_.at(Resurse::Wood);
 			--resurses_.at(Resurse::Clay);
+		}
+
+		bool Player::HaveCastleResurses() const {
+			return
+				resurses_.at(Resurse::Hay) >= 2 &&
+				resurses_.at(Resurse::Stone) >= 3;
+		}
+		void Player::FreeCastleResurses() {
+			resurses_.at(Resurse::Hay) -= 2;
+			resurses_.at(Resurse::Stone) -= 3;
 		}
 
 		size_t Player::getCountResurses() const {

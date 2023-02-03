@@ -76,6 +76,7 @@ private:
 
 	void BuildSettlement(Player& player, size_t settlement_id);
 	void BuildRoad(Player& player, size_t road_id);
+	void BuildCastle(Player& player, size_t settlement_id);
 
 	Player& CheckCurrentPlayer(std::string_view player);
 

@@ -67,7 +67,9 @@ void Play::Command(std::string&& command) {
 		else if (args[0] == "Drop"sv) {
 			CommandDrop(args);
 		}
-		
+		else if (args[0] == "Castle"sv) {
+			CommandCastle(args);
+		}
 
 		std::fstream file("D:\\Users\\Vadim\\yandex_ws\\catan\\test.svg", std::fstream::trunc | std::fstream::out);
 		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {10.0, 10.0}, 100.0 };
@@ -100,6 +102,19 @@ void Play::CommandSettlement(const std::vector<std::string_view>& args) {
 	}
 
 	game_controller_->BuildSettlement(args[1], *id);
+}
+
+void Play::CommandCastle(const std::vector<std::string_view>& args) {
+	if (args.size() != 3) {
+		throw logic_error("Error format");
+	}
+
+	auto id = to_int(args[2]);
+	if (!id) {
+		throw logic_error("Error format");
+	}
+
+	game_controller_->BuildCastle(args[1], *id);
 }
 
 void Play::CommandDice(const std::vector<std::string_view>& args) {

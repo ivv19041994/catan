@@ -163,6 +163,33 @@ void GameController::BuildRoad(std::string_view player, size_t road_id) {
 	BuildRoad(p, road_id);
 }
 
+void GameController::BuildCastle(std::string_view player, size_t settlement_id) {
+	using namespace std::string_literals;
+	Player& p = CheckCurrentPlayer(player);
+	if (settlement_id >= map.GetNodes().size()) {
+		throw logic_error("Settlement id "s + std::to_string(settlement_id) + " >= "s + std::to_string(map.GetNodes().size()) + "!");
+	}
+	BuildCastle(p, settlement_id);
+}
+
+void GameController::BuildCastle(Player& player, size_t settlement_id) {
+	using namespace std::string_literals;
+
+	if (step_ != GameStep::CommonPlay) {
+		throw logic_error("Build castle is not aviable on this game step!"s);
+	}
+
+	if (!map.canPlaceCastle(settlement_id, player)) {
+		throw logic_error("Castle id "s + std::to_string(settlement_id) + " is not ready!"s);
+	}
+	if (!player.HaveCastleResurses()) {
+		throw logic_error("Build castle fail: "s + player.getName() + " haven't resurses!"s);
+	}
+
+	map.placeCastle(settlement_id, player);
+	player.FreeCastleResurses();
+}
+
 std::string GameController::GetCurrentPlayer() const {
 	return players_.at(current_player_).getName();
 }
