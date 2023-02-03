@@ -50,6 +50,8 @@ public:
 	void PrintStep(std::ostream& os);
 
 	void DropCards(std::string_view player, const std::map<Resurse, unsigned int>& resurses);
+
+	void Market(std::string_view player, Resurse from, Resurse to);
 	
 
 private:

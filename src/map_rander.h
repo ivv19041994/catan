@@ -26,6 +26,8 @@ namespace renderer {
 		void RenderBuilding(svg::Document& doc, const Building& building, svg::Point center) const;
 		void RenderBuildings(svg::Document& doc) const;
 
+		void RenderPort(svg::Document& doc, Resurse resurse, svg::Point center) const;
+
 		void RenderRoad(svg::Document& doc, const Road& road, svg::Point center, double angele) const;
 		void RenderRoads(svg::Document& doc) const;
 	};

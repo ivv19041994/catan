@@ -77,6 +77,20 @@ void MapRenderer::RenderBuilding(svg::Document& doc, const Building& building, s
 	}
 }
 
+void MapRenderer::RenderPort(svg::Document& doc, Resurse resurse, svg::Point center) const {
+	svg::Point scale_center{
+	center.x * scale_ + offset_.x, center.y * scale_ + offset_.y
+	};
+
+		shapes::Hexagon(
+			scale_center,
+			scale_ / 5, degreeToRad(30))
+		.SetFillColor(GexTypeToColor(resurse))
+		.SetStrokeColor("black")
+		.SetStrokeWidth(scale_ / 20)
+		.Draw(doc);
+}
+
 static std::vector<svg::Point> getGexCenters() {
 	double left_to_center = std::cos(degreeToRad(30));
 	double horizont_offset = 1.0 + std::sin(degreeToRad(30));
@@ -310,6 +324,37 @@ void MapRenderer::RenderGexs(svg::Document& doc) const {
 
 void MapRenderer::RenderBuildings(svg::Document& doc) const {
 	auto centers = getNodesCenters();
+
+
+	const double modifer = 0.20;
+
+	RenderPort(doc, Resurse::Not, { centers[0].x - modifer , centers[0].y - modifer });
+	RenderPort(doc, Resurse::Not, { centers[1].x , centers[1].y - modifer });
+
+	RenderPort(doc, Resurse::Sheep, { centers[3].x  , centers[3].y - modifer });
+	RenderPort(doc, Resurse::Sheep, { centers[4].x  , centers[4].y - modifer });
+
+	RenderPort(doc, Resurse::Not, { centers[14].x + modifer , centers[14].y - modifer });
+	RenderPort(doc, Resurse::Not, { centers[15].x + modifer , centers[15].y - modifer });
+
+	RenderPort(doc, Resurse::Not, { centers[26].x + modifer , centers[26].y });
+	RenderPort(doc, Resurse::Not, { centers[37].x + modifer , centers[37].y });
+
+	RenderPort(doc, Resurse::Clay, { centers[45].x + modifer , centers[45].y + modifer });
+	RenderPort(doc, Resurse::Clay, { centers[46].x + modifer , centers[46].y });
+
+	RenderPort(doc, Resurse::Not, { centers[47].x - modifer , centers[47].y + modifer });
+	RenderPort(doc, Resurse::Not, { centers[48].x , centers[48].y + modifer });
+
+	RenderPort(doc, Resurse::Wood, { centers[50].x , centers[50].y + modifer });
+	RenderPort(doc, Resurse::Wood, { centers[51].x , centers[51].y + modifer });
+
+	RenderPort(doc, Resurse::Hay, { centers[28].x - modifer , centers[28].y + modifer });
+	RenderPort(doc, Resurse::Hay, { centers[38].x - modifer , centers[38].y });
+
+	RenderPort(doc, Resurse::Stone, { centers[ 7].x - modifer , centers[ 7].y - modifer });
+	RenderPort(doc, Resurse::Stone, { centers[17].x - modifer , centers[17].y - modifer });
+
 	auto& nodes = map_.GetNodes();
 	for (size_t i = 0; i < centers.size(); ++i) {
 		const Building* b = nodes[i].getBuilding();

@@ -315,6 +315,15 @@ void GameController::DropCards(Player& player, const std::map<Resurse, unsigned 
 	return;
 }
 
+void GameController::Market(std::string_view player, Resurse from, Resurse to) {
+	using namespace std::string_literals;
+	if (step_ != GameStep::CommonPlay) {
+		throw logic_error("Market is not aviable on this game step!"s);
+	}
+
+	CheckCurrentPlayer(player).Market(from, to);
+}
+
 std::pair<size_t, size_t> GameController::GetLastDice() const {
 	return last_dice_;
 }

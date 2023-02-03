@@ -8,6 +8,8 @@
 #include <random>
 #include <stdexcept>
 #include <span>
+#include <functional>
+#include <optional>
 
 namespace ivv{
 	namespace catan{
@@ -128,6 +130,8 @@ namespace ivv{
 			std::set<Node*> node_neighbor{};
 			Building *building = nullptr;
 
+			std::function<void(Player*)> change_builder_func_;
+
 		public:
 			int index;
 			Node() = default;
@@ -145,7 +149,15 @@ namespace ivv{
 
 			std::set<Gex*> getNeighborGexs();
 			std::set<Facet*> getNeighborFacets();
+
+			template<typename Func>
+			void SetBuilderChanger(Func func);
 		};
+
+		template<typename Func>
+		void Node::SetBuilderChanger(Func func) {
+			change_builder_func_ = func;
+		}
 
 		class Map
 		{
@@ -165,6 +177,7 @@ namespace ivv{
 			void initNode(int node, std::vector<int> nodes, std::vector<int> roads, std::vector<int> gexs);
 			void initNodes();
 			void initRandomTypeForGexs();
+			void initPorts();
 
 
 		public:
@@ -206,6 +219,13 @@ namespace ivv{
 			std::array<Castle, 4> castles;
 			std::array<Road, 15 > roads;
 			size_t id_;
+			std::map<Resurse, size_t> resurses_market_price_ = {
+				{ Resurse::Wood, 4 },
+				{ Resurse::Clay, 4 },
+				{ Resurse::Hay, 4 },
+				{ Resurse::Sheep, 4 },
+				{ Resurse::Stone, 4 }
+			};
 		public:
 			explicit Player(std::string name, size_t id);
 			const std::string& getName() const;
@@ -235,6 +255,10 @@ namespace ivv{
 
 			bool Have(const std::map<Resurse, unsigned int>& resurses) const;
 			void Drop(const std::map<Resurse, unsigned int>& resurses);
+
+			void Market(Resurse from, Resurse to);
+
+			void DownPriceOnMarket(Resurse resurse, size_t price);
 		};
 
 		class out_of_range: public std::out_of_range

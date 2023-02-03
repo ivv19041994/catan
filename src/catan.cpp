@@ -127,7 +127,7 @@ namespace ivv{
 
 			initNode(9,
 					{8, 10, 19},//nodes
-					{10, 12, 19},//facets
+					{11, 12, 19},//facets
 					{0, 3, 4});  //gexs
 
 			initNode(10,
@@ -351,12 +351,55 @@ namespace ivv{
 								{18});  //gexs
 		}
 
+		void Map::initPorts() {
+			using namespace std::placeholders;
+			auto specialized_port = [](Resurse resurse, Player* player) {
+				player->DownPriceOnMarket(resurse, 2);
+			};
+			auto common_port = [](Player* player) {
+				player->DownPriceOnMarket(Resurse::Wood, 3);
+				player->DownPriceOnMarket(Resurse::Clay, 3);
+				player->DownPriceOnMarket(Resurse::Sheep, 3);
+				player->DownPriceOnMarket(Resurse::Hay, 3);
+				player->DownPriceOnMarket(Resurse::Stone, 3);
+			};
+
+			nodes[0].SetBuilderChanger(common_port);
+			nodes[1].SetBuilderChanger(common_port);
+
+			nodes[3].SetBuilderChanger(std::bind(specialized_port, Resurse::Sheep, _1));
+			nodes[4].SetBuilderChanger(std::bind(specialized_port, Resurse::Sheep, _1));
+
+			nodes[14].SetBuilderChanger(common_port);
+			nodes[15].SetBuilderChanger(common_port);
+
+			nodes[26].SetBuilderChanger(common_port);
+			nodes[37].SetBuilderChanger(common_port);
+
+			nodes[45].SetBuilderChanger(std::bind(specialized_port, Resurse::Clay, _1));
+			nodes[46].SetBuilderChanger(std::bind(specialized_port, Resurse::Clay, _1));
+
+			nodes[47].SetBuilderChanger(common_port);
+			nodes[48].SetBuilderChanger(common_port);
+
+			nodes[50].SetBuilderChanger(std::bind(specialized_port, Resurse::Wood, _1));
+			nodes[51].SetBuilderChanger(std::bind(specialized_port, Resurse::Wood, _1));
+
+			nodes[28].SetBuilderChanger(std::bind(specialized_port, Resurse::Hay, _1));
+			nodes[38].SetBuilderChanger(std::bind(specialized_port, Resurse::Hay, _1));
+
+			nodes[7].SetBuilderChanger(std::bind(specialized_port, Resurse::Stone, _1));
+			nodes[17].SetBuilderChanger(std::bind(specialized_port, Resurse::Stone, _1));
+		}
+
 		Map::Map() :rng(rd())
 		{
 			initNodes();
 			initNodes();//нужно вызвать дважды для образования всех связей между Facets
 
 			initRandomTypeForGexs();
+
+			initPorts();
 		}
 
 		void Map::diceEvent(std::pair<unsigned int, unsigned int> d)
@@ -625,6 +668,9 @@ namespace ivv{
 				building->setFree();
 			b->setBusy();
 			building = b;
+			if (change_builder_func_) {
+				change_builder_func_(b->getPlayer());
+			}
 		}
 
 		const Building* Node::getBuilding() const {
@@ -754,6 +800,17 @@ namespace ivv{
 			}
 		}
 
+		void Player::Market(Resurse from, Resurse to) {
+			using namespace std::string_literals;
+			auto price = resurses_market_price_.at(from);
+
+			if (resurses_.at(from) < price) {
+				throw logic_error("Player "s + this->name + " haven't resurses for market!"s);
+			}
+			++resurses_.at(to);
+			resurses_.at(from) -= price;
+		}
+
 		const std::string& Player::getName() const {
 			return name;
 		}
@@ -831,7 +888,19 @@ namespace ivv{
 				<< "Clay: " << (resurses_.count(Resurse::Clay) ? resurses_.at(Resurse::Clay) : 0) << std::endl
 				<< "Hay: " << (resurses_.count(Resurse::Hay) ? resurses_.at(Resurse::Hay) : 0) << std::endl
 				<< "Sheep: " << (resurses_.count(Resurse::Sheep) ? resurses_.at(Resurse::Sheep) : 0) << std::endl
-				<< "Stone: " << (resurses_.count(Resurse::Stone) ? resurses_.at(Resurse::Stone) : 0) << std::endl;
+				<< "Stone: " << (resurses_.count(Resurse::Stone) ? resurses_.at(Resurse::Stone) : 0) << std::endl
+				<< "Price Wood: " << (resurses_market_price_.count(Resurse::Wood) ? resurses_market_price_.at(Resurse::Wood) : 0) << std::endl
+				<< "Price Clay: " << (resurses_market_price_.count(Resurse::Clay) ? resurses_market_price_.at(Resurse::Clay) : 0) << std::endl
+				<< "Price Hay: " << (resurses_market_price_.count(Resurse::Hay) ? resurses_market_price_.at(Resurse::Hay) : 0) << std::endl
+				<< "Price Sheep: " << (resurses_market_price_.count(Resurse::Sheep) ? resurses_market_price_.at(Resurse::Sheep) : 0) << std::endl
+				<< "Price Stone: " << (resurses_market_price_.count(Resurse::Stone) ? resurses_market_price_.at(Resurse::Stone) : 0) << std::endl;
+		}
+
+		void Player::DownPriceOnMarket(Resurse resurse, size_t price) {
+			size_t& price_ = resurses_market_price_[resurse];
+			if (price_ > price) {
+				price_ = price;
+			}
 		}
 
 		std::ostream& operator<<(std::ostream& os, const Player& player) {

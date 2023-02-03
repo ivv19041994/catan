@@ -17,7 +17,7 @@ Dice::DropResult Dice::Drop() const {
 		res.each.push_back(drop);
 		res.result += drop;
 	}
-	return {7,  {3,4}};
+	return res;// {7, { 3,4 }};
 }
 
 }//namespace ivv::game {

@@ -70,9 +70,12 @@ void Play::Command(std::string&& command) {
 		else if (args[0] == "Castle"sv) {
 			CommandCastle(args);
 		}
+		else if (args[0] == "Market"sv) {
+			CommandMarket(args);
+		}
 
 		std::fstream file("C:/Users/user04134/Desktop/catan/test.svg", std::fstream::trunc | std::fstream::out);
-		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {10.0, 10.0}, 100.0 };
+		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {40.0, 40.0}, 100.0 };
 		renderer.Render(file);
 	}
 	catch(logic_error& e) {
@@ -163,6 +166,28 @@ void Play::CommandLastDice(const std::vector<std::string_view>& args) {
 	os_ << "Last dice " << dice.first << " / " << dice.second << std::endl;
 }
 
+static Resurse StringToResurse(std::string_view resurse) {
+	using namespace std::string_view_literals;
+	if (resurse == "w"sv) {
+		return Resurse::Wood;
+	}
+	else if (resurse == "c"sv) {
+		return Resurse::Clay;
+	}
+	else if (resurse == "h"sv) {
+		return Resurse::Hay;
+	}
+	else if (resurse == "s"sv) {
+		return Resurse::Sheep;
+	}
+	else if (resurse == "r"sv) {
+		return Resurse::Stone;
+	} 
+	else {
+		throw logic_error("Error format");
+	}
+}
+
 void Play::CommandDrop(const std::vector<std::string_view>& args) {
 	using namespace std::string_view_literals;
 	if (args.size() % 2) {
@@ -179,24 +204,18 @@ void Play::CommandDrop(const std::vector<std::string_view>& args) {
 			throw logic_error("Error format");
 		}
 
-		if (args[i] == "w"sv) {
-			resurses[Resurse::Wood] += *count;
-		}
-		else if (args[i] == "c"sv) {
-			resurses[Resurse::Clay] += *count;
-		}
-		else if (args[i] == "h"sv) {
-			resurses[Resurse::Hay] += *count;
-		}
-		else if (args[i] == "s"sv) {
-			resurses[Resurse::Sheep] += *count;
-		}
-		else if (args[i] == "r"sv) {
-			resurses[Resurse::Stone] += *count;
-		}
+		resurses[StringToResurse(args[i])] += *count;
 	}
 
 	game_controller_->DropCards(args[1], resurses);
+}
+
+void Play::CommandMarket(const std::vector<std::string_view>& args) {
+	using namespace std::string_view_literals;
+	if (args.size() != 4) {
+		throw logic_error("Error format");
+	}
+	game_controller_->Market(args[1], StringToResurse(args[2]), StringToResurse(args[3]));
 }
 
 Play::Play(std::ostream& os, std::istream& is) 
