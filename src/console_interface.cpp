@@ -71,7 +71,7 @@ void Play::Command(std::string&& command) {
 			CommandCastle(args);
 		}
 
-		std::fstream file("D:\\Users\\Vadim\\yandex_ws\\catan\\test.svg", std::fstream::trunc | std::fstream::out);
+		std::fstream file("C:/Users/user04134/Desktop/catan/test.svg", std::fstream::trunc | std::fstream::out);
 		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {10.0, 10.0}, 100.0 };
 		renderer.Render(file);
 	}

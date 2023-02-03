@@ -54,14 +54,27 @@ void MapRenderer::RenderBuilding(svg::Document& doc, const Building& building, s
 		center.x * scale_ + offset_.x, center.y * scale_ + offset_.y
 	};
 
-	shapes::Hexagon(
-		scale_center,
-		scale_ / 4, degreeToRad(30))
-		.SetFillColor(PlayerIdToColor(building.getPlayer()->getId()))
-		.SetStrokeColor("black")
-		.SetStrokeWidth(scale_ / 20)
-		.Draw(doc);
-	double font_size = scale_ / 1.3;
+	const Castle* castle = dynamic_cast<const Castle*> (&building);
+
+	if (castle) {
+		shapes::Hexagon(
+			scale_center,
+			scale_ / 3, degreeToRad(0))
+			.SetFillColor(PlayerIdToColor(building.getPlayer()->getId()))
+			.SetStrokeColor("black")
+			.SetStrokeWidth(scale_ / 20)
+			.SetStrokeLineCap(svg::StrokeLineCap::ROUND)
+			.Draw(doc);
+	}
+	else {
+		shapes::Hexagon(
+			scale_center,
+			scale_ / 4, degreeToRad(30))
+			.SetFillColor(PlayerIdToColor(building.getPlayer()->getId()))
+			.SetStrokeColor("black")
+			.SetStrokeWidth(scale_ / 20)
+			.Draw(doc);
+	}
 }
 
 static std::vector<svg::Point> getGexCenters() {

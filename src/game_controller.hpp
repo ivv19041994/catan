@@ -81,6 +81,7 @@ private:
 	Player& CheckCurrentPlayer(std::string_view player);
 
 	void DropCards(Player& player, const std::map<Resurse, unsigned int>& resurses);
+
 };
 
 std::ostream& operator<<(std::ostream& os, GameController::GameStep step);

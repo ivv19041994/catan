@@ -191,6 +191,9 @@ void GameController::BuildCastle(Player& player, size_t settlement_id) {
 }
 
 std::string GameController::GetCurrentPlayer() const {
+	if (step_ == GameStep::DropCards) {
+		return players_.at(current_drop_cards_player_).getName();
+	}
 	return players_.at(current_player_).getName();
 }
 
@@ -266,7 +269,7 @@ void GameController::DropCards(std::string_view player, const std::map<Resurse, 
 
 	using namespace std::string_literals;
 	if (step_ == GameStep::DropCards) {
-		auto p = CheckCurrentPlayer(player);
+		auto& p = CheckCurrentPlayer(player);
 		DropCards(p, resurses);
 	}
 	else {
@@ -275,14 +278,37 @@ void GameController::DropCards(std::string_view player, const std::map<Resurse, 
 }
 
 void GameController::DropCards(Player& player, const std::map<Resurse, unsigned int>& resurses) {
+	using namespace std::string_literals;
 	size_t total = player.getCountResurses();
-	if (total >= 8) {
-		player.Drop(resurses);
+
+	if (total < 8) {
+		++current_drop_cards_player_;
+		if (current_drop_cards_player_ >= players_.size()) {
+			step_ == GameStep::CommonPlay;
+			return;
+		}
+		DropCards(players_[current_drop_cards_player_], {});
+		return;
 	}
-	
+
+	size_t need_drop = total / 2;
+
+	size_t drop_count = 0;
+	for (auto& [name, count] : resurses) {
+		drop_count += count;
+	}
+
+	if (need_drop != drop_count) {
+		if (drop_count) {
+			throw logic_error("Drop count mast be half of total cards!"s);
+		}
+		return;
+	}
+
+	player.Drop(resurses);
 	++current_drop_cards_player_;
-	if (current_drop_cards_player_ == players_.size()) {
-		step_ == GameStep::CommonPlay;
+	if (current_drop_cards_player_ >= players_.size()) {
+		step_ = GameStep::CommonPlay;
 		return;
 	}
 	DropCards(players_[current_drop_cards_player_], {});

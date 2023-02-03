@@ -672,11 +672,11 @@ namespace ivv{
 
 		Player::Player(std::string n, size_t id): name{n}, id_{id}
 		{
-			resurses_[Resurse::Wood] = 0;
-			resurses_[Resurse::Clay] = 0;
-			resurses_[Resurse::Hay] = 0;
-			resurses_[Resurse::Sheep] = 0;
-			resurses_[Resurse::Stone] = 0;
+			resurses_[Resurse::Wood] = 100;
+			resurses_[Resurse::Clay] = 100;
+			resurses_[Resurse::Hay] = 100;
+			resurses_[Resurse::Sheep] = 100;
+			resurses_[Resurse::Stone] = 100;
 		}
 
 		void Player::addResurse(Resurse resurse, unsigned int count)
