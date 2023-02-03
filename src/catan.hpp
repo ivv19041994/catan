@@ -102,6 +102,8 @@ namespace ivv{
 
 			void diceEvent();
 			bool isBandit() const;
+
+			const std::set<Node*>& GetNodes() const;
 		};
 
 		class Facet
@@ -259,6 +261,8 @@ namespace ivv{
 			void Market(Resurse from, Resurse to);
 
 			void DownPriceOnMarket(Resurse resurse, size_t price);
+
+			std::optional<Resurse> Still();
 		};
 
 		class out_of_range: public std::out_of_range

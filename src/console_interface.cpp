@@ -73,6 +73,9 @@ void Play::Command(std::string&& command) {
 		else if (args[0] == "Market"sv) {
 			CommandMarket(args);
 		}
+		else if (args[0] == "BanditMove"sv) {
+			CommandBanditMove(args);
+		}
 
 		std::fstream file("C:/Users/user04134/Desktop/catan/test.svg", std::fstream::trunc | std::fstream::out);
 		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {40.0, 40.0}, 100.0 };
@@ -166,6 +169,24 @@ void Play::CommandLastDice(const std::vector<std::string_view>& args) {
 	os_ << "Last dice " << dice.first << " / " << dice.second << std::endl;
 }
 
+void Play::CommandBanditMove(const std::vector<std::string_view>& args) {
+	if (args.size() == 3) {
+		auto id = to_int(args[2]);
+		if (id) {
+			game_controller_->BanditMove(args[1], *id, "");
+		}
+	}
+	else if (args.size() == 4) {
+		auto id = to_int(args[2]);
+		if (id) {
+			game_controller_->BanditMove(args[1], *id, args[3]);
+		}
+	}
+
+	throw logic_error("Error format");
+	
+}
+
 static Resurse StringToResurse(std::string_view resurse) {
 	using namespace std::string_view_literals;
 	if (resurse == "w"sv) {
@@ -241,6 +262,8 @@ Play::Play(std::ostream& os, std::istream& is)
 		Command(std::move(temp));
 	}
 }
+
+
 
 }//namespace ivv::catan::console {
 }//namespace ivv::catan {

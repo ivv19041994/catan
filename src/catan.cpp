@@ -601,6 +601,10 @@ namespace ivv{
 			node_neighbor.insert(n);;
 		}
 
+		const std::set<Node*>& Gex::GetNodes() const {
+			return node_neighbor;
+		}
+
 		void Gex::diceEvent()
 		{
 			for(auto& node: node_neighbor)
@@ -901,6 +905,28 @@ namespace ivv{
 			if (price_ > price) {
 				price_ = price;
 			}
+		}
+
+		std::optional<Resurse> Player::Still() {
+			size_t total = getCountResurses();
+			if (!total) {
+				return {};
+			}
+
+			std::random_device rd{};
+			std::default_random_engine rng{ rd() };
+
+			size_t r = rng() % total;
+
+			for (auto& [name, count] : resurses_) {
+				if (r < count) {
+					--count;
+					return name;
+				}
+				r -= count;
+			}
+			assert(false);
+			return {};
 		}
 
 		std::ostream& operator<<(std::ostream& os, const Player& player) {

@@ -25,7 +25,8 @@ public:
 		BackwardBuildingRoad,
 		DiceDrop,
 		CommonPlay,
-		DropCards
+		DropCards,
+		BanditMove,
 	};
 
 	GameController(std::initializer_list<std::string> players);
@@ -50,9 +51,11 @@ public:
 	void PrintStep(std::ostream& os);
 
 	void DropCards(std::string_view player, const std::map<Resurse, unsigned int>& resurses);
+	void CheckNextDropCard();
 
 	void Market(std::string_view player, Resurse from, Resurse to);
 	
+	void BanditMove(std::string_view player, size_t gex_id, std::string_view other_payer = "");
 
 private:
 	std::vector <Player> players_;
@@ -67,6 +70,7 @@ private:
 	std::pair<size_t, size_t> last_dice_;
 
 	GameStep step_ = GameStep::ForwardBuildingSettlement;
+	GameStep step_after_bandit_ = GameStep::CommonPlay;
 
 	std::optional<std::string> winner_;
 
@@ -81,9 +85,11 @@ private:
 	void BuildCastle(Player& player, size_t settlement_id);
 
 	Player& CheckCurrentPlayer(std::string_view player);
+	Player& CheckAnyPlayer(std::string_view player);
 
 	void DropCards(Player& player, const std::map<Resurse, unsigned int>& resurses);
 
+	void BanditMove(Player& player, Gex& gex, Player* other_payer);
 };
 
 std::ostream& operator<<(std::ostream& os, GameController::GameStep step);

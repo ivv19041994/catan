@@ -110,6 +110,16 @@ Player& GameController::CheckCurrentPlayer(std::string_view player) {
 	return players_[current_player_];
 }
 
+Player& GameController::CheckAnyPlayer(std::string_view player) {
+	using namespace std::string_literals;
+	auto pplayer = player_by_name_.find(player);
+	if (pplayer == player_by_name_.end()) {
+		throw logic_error("Player "s + std::string(player) + " is not created!"s);
+	}
+
+	return *(pplayer->second);
+}
+
 void GameController::BuildSettlement(std::string_view player, size_t settlement_id) {
 	using namespace std::string_literals;
 	Player& p = CheckCurrentPlayer(player);
@@ -277,17 +287,77 @@ void GameController::DropCards(std::string_view player, const std::map<Resurse, 
 	}
 }
 
+void GameController::CheckNextDropCard() {
+	++current_drop_cards_player_;
+	if (current_drop_cards_player_ >= players_.size()) {
+		step_after_bandit_ = GameStep::CommonPlay;
+		step_ = GameStep::BanditMove;
+		return;
+	}
+	DropCards(players_[current_drop_cards_player_], {});
+}
+
+void GameController::BanditMove(std::string_view player, size_t gex_id, std::string_view other_payer) {
+	using namespace std::string_literals;
+	
+	if (step_ != GameStep::BanditMove) {
+		throw logic_error("Bandit move is not aviable on this game step!"s);
+	}
+
+	if (player == other_payer) {
+		throw logic_error("Can't still yourself!"s);
+	}
+
+	Player& current = CheckCurrentPlayer(player);
+
+	if (gex_id >= map.GetGexes().size()) {
+		throw logic_error("Gex id "s + std::to_string(gex_id) + " >= "s + std::to_string(map.GetGexes().size()) + "!");
+	}
+
+	auto pplayer = player_by_name_.find(other_payer);
+	if (pplayer == player_by_name_.end()) {
+		BanditMove(current, map.GetGexes()[gex_id], nullptr);
+		return;
+	}
+
+	BanditMove(current, map.GetGexes()[gex_id], pplayer->second);
+}
+
+void GameController::BanditMove(Player& player, Gex& gex, Player* other_payer) {
+
+	size_t count_building = 0;
+	bool find = false;
+	for (auto& node : gex.GetNodes()) {
+		const Building* building = node->getBuilding();
+		if (building) {
+			++count_building;
+
+			if (other_payer && building->getPlayer() == other_payer) {
+				find = true;
+				break;
+			}
+		}
+	}
+
+	if (find) {
+		auto still = other_payer->Still();
+		if (still) {
+			player.addResurse(*still);
+		}
+	}else if (count_building) {
+		throw logic_error("Can't still on this gex");
+	}
+	gex.setBandit(bandit_);
+	step_ = step_after_bandit_;
+	return;
+}
+
 void GameController::DropCards(Player& player, const std::map<Resurse, unsigned int>& resurses) {
 	using namespace std::string_literals;
 	size_t total = player.getCountResurses();
 
 	if (total < 8) {
-		++current_drop_cards_player_;
-		if (current_drop_cards_player_ >= players_.size()) {
-			step_ == GameStep::CommonPlay;
-			return;
-		}
-		DropCards(players_[current_drop_cards_player_], {});
+		CheckNextDropCard();
 		return;
 	}
 
@@ -306,12 +376,7 @@ void GameController::DropCards(Player& player, const std::map<Resurse, unsigned 
 	}
 
 	player.Drop(resurses);
-	++current_drop_cards_player_;
-	if (current_drop_cards_player_ >= players_.size()) {
-		step_ = GameStep::CommonPlay;
-		return;
-	}
-	DropCards(players_[current_drop_cards_player_], {});
+	CheckNextDropCard();
 	return;
 }
 
@@ -372,6 +437,7 @@ std::ostream& operator<<(std::ostream& os, GameController::GameStep step) {
 	case GameController::GameStep::DiceDrop: return os << "DiceDrop";
 	case GameController::GameStep::CommonPlay: return os << "CommonPlay";
 	case GameController::GameStep::DropCards: return os << "DropCards";
+	case GameController::GameStep::BanditMove: return os << "BanditMove";
 	}
 	return os << "unknown";
 }
