@@ -61,8 +61,11 @@ void Play::Command(std::string&& command) {
 		else if (args[0] == "Step"sv) {
 			CommandStep(args);
 		}
+		else if (args[0] == "LastDice"sv) {
+			CommandLastDice(args);
+		}
 
-		std::fstream file("C:\\Users\\user04134\\Desktop\\catan\\test.svg", std::fstream::trunc | std::fstream::out);
+		std::fstream file("D:\\Users\\Vadim\\yandex_ws\\catan\\test.svg", std::fstream::trunc | std::fstream::out);
 		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {10.0, 10.0}, 100.0 };
 		renderer.Render(file);
 	}
@@ -134,6 +137,11 @@ void Play::CommandPass(const std::vector<std::string_view>& args) {
 void Play::CommandStep(const std::vector<std::string_view>& args) {
 	game_controller_->PrintStep(os_);
 	os_ << std::endl;
+}
+
+void Play::CommandLastDice(const std::vector<std::string_view>& args) {
+	auto dice = game_controller_->GetLastDice();
+	os_ << "Last dice " << dice.first << " / " << dice.second << std::endl;
 }
 
 Play::Play(std::ostream& os, std::istream& is) 
