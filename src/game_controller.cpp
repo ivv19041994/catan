@@ -96,6 +96,14 @@ Player& GameController::CheckCurrentPlayer(std::string_view player) {
 	if (pplayer == player_by_name_.end()) {
 		throw logic_error("Player "s + std::string(player) + " is not created!"s);
 	}
+
+	if (GameStep::DropCards == step_) {
+		if (&players_[current_drop_cards_player_] != pplayer->second) {
+			throw logic_error("Player "s + std::string(player) + " out of turn!"s);
+		}
+		return players_[current_drop_cards_player_];
+	}
+
 	if (&players_[current_player_] != pplayer->second) {
 		throw logic_error("Player "s + std::string(player) + " out of turn!"s);
 	}
@@ -217,8 +225,43 @@ void GameController::Dice(std::string_view player) {
 	map.diceEvent(dice.result);
 	last_dice_ = { dice.each[0], dice.each[1] };
 
-	step_ = GameStep::CommonPlay;
+	if (dice.result == 7) {
+		step_ = GameStep::DropCards;
+		current_drop_cards_player_ = 0;
+		DropCards(players_[0], {});
+	}
+	else {
+		step_ = GameStep::CommonPlay;
+	}
 }
+
+void GameController::DropCards(std::string_view player, const std::map<Resurse, unsigned int>& resurses) {
+
+	using namespace std::string_literals;
+	if (step_ == GameStep::DropCards) {
+		auto p = CheckCurrentPlayer(player);
+		DropCards(p, resurses);
+	}
+	else {
+		throw logic_error("Drop cards is not aviable on this game step!"s);
+	}
+}
+
+void GameController::DropCards(Player& player, const std::map<Resurse, unsigned int>& resurses) {
+	size_t total = player.getCountResurses();
+	if (total >= 8) {
+		player.Drop(resurses);
+	}
+	
+	++current_drop_cards_player_;
+	if (current_drop_cards_player_ == players_.size()) {
+		step_ == GameStep::CommonPlay;
+		return;
+	}
+	DropCards(players_[current_drop_cards_player_], {});
+	return;
+}
+
 std::pair<size_t, size_t> GameController::GetLastDice() const {
 	return last_dice_;
 }
@@ -243,7 +286,15 @@ bool GameController::Finish() {
 }
 
 void GameController::PrintPlayer(std::ostream& os, std::string_view player) {
-	os << CheckCurrentPlayer(player);
+
+
+	using namespace std::string_literals;
+	auto pplayer = player_by_name_.find(player);
+	if (pplayer == player_by_name_.end()) {
+		throw logic_error("Player "s + std::string(player) + " is not created!"s);
+	}
+
+	os << *pplayer->second;
 }
 
 void GameController::PrintStep(std::ostream& os) {
@@ -258,6 +309,7 @@ std::ostream& operator<<(std::ostream& os, GameController::GameStep step) {
 	case GameController::GameStep::BackwardBuildingRoad: return os << "BackwardBuildingRoad";
 	case GameController::GameStep::DiceDrop: return os << "DiceDrop";
 	case GameController::GameStep::CommonPlay: return os << "CommonPlay";
+	case GameController::GameStep::DropCards: return os << "DropCards";
 	}
 	return os << "unknown";
 }

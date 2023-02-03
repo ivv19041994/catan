@@ -25,7 +25,7 @@ private:
 	void CommandPass(const std::vector<std::string_view>& args);
 	void CommandStep(const std::vector<std::string_view>& args);
 	void CommandLastDice(const std::vector<std::string_view>& args);
-	
+	void CommandDrop(const std::vector<std::string_view>& args);
 };
 
 }//namespace ivv::catan::console {

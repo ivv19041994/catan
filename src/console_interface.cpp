@@ -64,6 +64,10 @@ void Play::Command(std::string&& command) {
 		else if (args[0] == "LastDice"sv) {
 			CommandLastDice(args);
 		}
+		else if (args[0] == "Drop"sv) {
+			CommandDrop(args);
+		}
+		
 
 		std::fstream file("D:\\Users\\Vadim\\yandex_ws\\catan\\test.svg", std::fstream::trunc | std::fstream::out);
 		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {10.0, 10.0}, 100.0 };
@@ -142,6 +146,42 @@ void Play::CommandStep(const std::vector<std::string_view>& args) {
 void Play::CommandLastDice(const std::vector<std::string_view>& args) {
 	auto dice = game_controller_->GetLastDice();
 	os_ << "Last dice " << dice.first << " / " << dice.second << std::endl;
+}
+
+void Play::CommandDrop(const std::vector<std::string_view>& args) {
+	using namespace std::string_view_literals;
+	if (args.size() % 2) {
+		throw logic_error("Error format");
+	}
+
+	std::map<Resurse, unsigned int> resurses;
+
+	for (size_t i = 2; i < args.size(); i += 2) {
+
+		std::optional<int> count = to_int(args[i + 1]);
+
+		if (!count) {
+			throw logic_error("Error format");
+		}
+
+		if (args[i] == "w"sv) {
+			resurses[Resurse::Wood] += *count;
+		}
+		else if (args[i] == "c"sv) {
+			resurses[Resurse::Clay] += *count;
+		}
+		else if (args[i] == "h"sv) {
+			resurses[Resurse::Hay] += *count;
+		}
+		else if (args[i] == "s"sv) {
+			resurses[Resurse::Sheep] += *count;
+		}
+		else if (args[i] == "r"sv) {
+			resurses[Resurse::Stone] += *count;
+		}
+	}
+
+	game_controller_->DropCards(args[1], resurses);
 }
 
 Play::Play(std::ostream& os, std::istream& is) 

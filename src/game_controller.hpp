@@ -24,7 +24,8 @@ public:
 		BackwardBuildingSettlement,
 		BackwardBuildingRoad,
 		DiceDrop,
-		CommonPlay
+		CommonPlay,
+		DropCards
 	};
 
 	GameController(std::initializer_list<std::string> players);
@@ -47,10 +48,15 @@ public:
 
 	void PrintPlayer(std::ostream& os, std::string_view player);
 	void PrintStep(std::ostream& os);
+
+	void DropCards(std::string_view player, const std::map<Resurse, unsigned int>& resurses);
+	
+
 private:
 	std::vector <Player> players_;
 	std::unordered_map<std::string_view, Player*> player_by_name_;
 	unsigned int current_player_;
+	unsigned int current_drop_cards_player_;
 	Map map;
 
 	Bandit bandit_;
@@ -62,7 +68,7 @@ private:
 
 	std::optional<std::string> winner_;
 
-	void startPlace();
+	//void startPlace();
 
 	void MixPlayers();
 
@@ -73,7 +79,7 @@ private:
 
 	Player& CheckCurrentPlayer(std::string_view player);
 
-
+	void DropCards(Player& player, const std::map<Resurse, unsigned int>& resurses);
 };
 
 std::ostream& operator<<(std::ostream& os, GameController::GameStep step);

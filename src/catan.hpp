@@ -196,7 +196,7 @@ namespace ivv{
 		class Player
 		{
 			std::string name;
-			std::map<Resurse, unsigned int> resurses;
+			std::map<Resurse, unsigned int> resurses_;
 			std::array<Settlement, 5> settlements;
 			std::array<Castle, 4> castles;
 			std::array<Road, 15 > roads;
@@ -221,7 +221,12 @@ namespace ivv{
 			bool HaveRoadResurses() const;
 			void FreeRoadResurses();
 
+			size_t getCountResurses() const;
+
 			void Print(std::ostream&) const;
+
+			bool Have(const std::map<Resurse, unsigned int>& resurses) const;
+			void Drop(const std::map<Resurse, unsigned int>& resurses);
 		};
 
 		class out_of_range: public std::out_of_range

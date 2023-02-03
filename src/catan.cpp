@@ -649,43 +649,76 @@ namespace ivv{
 
 		Player::Player(std::string n, size_t id): name{n}, id_{id}
 		{
-			resurses[Resurse::Wood] = 0;
-			resurses[Resurse::Clay] = 0;
-			resurses[Resurse::Hay] = 0;
-			resurses[Resurse::Sheep] = 0;
-			resurses[Resurse::Stone] = 0;
+			resurses_[Resurse::Wood] = 0;
+			resurses_[Resurse::Clay] = 0;
+			resurses_[Resurse::Hay] = 0;
+			resurses_[Resurse::Sheep] = 0;
+			resurses_[Resurse::Stone] = 0;
 		}
 
 		void Player::addResurse(Resurse resurse, unsigned int count)
 		{
 			if(Resurse::Not == resurse)
 				return;
-			resurses[resurse] += count;
+			resurses_[resurse] += count;
 			//std::cout << "resurses["<< static_cast<int>(resurse) << "] = " << resurses[resurse] << std::endl;
 		}
 
 		bool Player::HaveSettlemenResurses() const {
 			return
-				resurses.at(Resurse::Wood) >= 1 &&
-				resurses.at(Resurse::Clay) >= 1 &&
-				resurses.at(Resurse::Hay) >= 1 &&
-				resurses.at(Resurse::Sheep) >= 1;
+				resurses_.at(Resurse::Wood) >= 1 &&
+				resurses_.at(Resurse::Clay) >= 1 &&
+				resurses_.at(Resurse::Hay) >= 1 &&
+				resurses_.at(Resurse::Sheep) >= 1;
 		}
 		void Player::FreeSettlemenResurses() {
-			--resurses.at(Resurse::Wood);
-			--resurses.at(Resurse::Clay);
-			--resurses.at(Resurse::Hay);
-			--resurses.at(Resurse::Sheep);
+			--resurses_.at(Resurse::Wood);
+			--resurses_.at(Resurse::Clay);
+			--resurses_.at(Resurse::Hay);
+			--resurses_.at(Resurse::Sheep);
 		}
 
 		bool Player::HaveRoadResurses() const {
 			return
-				resurses.at(Resurse::Wood) >= 1 &&
-				resurses.at(Resurse::Clay) >= 1;
+				resurses_.at(Resurse::Wood) >= 1 &&
+				resurses_.at(Resurse::Clay) >= 1;
 		}
 		void Player::FreeRoadResurses() {
-			--resurses.at(Resurse::Wood);
-			--resurses.at(Resurse::Clay);
+			--resurses_.at(Resurse::Wood);
+			--resurses_.at(Resurse::Clay);
+		}
+
+		size_t Player::getCountResurses() const {
+			size_t ret = 0;
+			for (const auto& [name, count] : resurses_) {
+				ret += count;
+			}
+			return ret;
+		}
+
+		bool Player::Have(const std::map<Resurse, unsigned int>& resurses) const {
+			for (auto& [name, count] : resurses) {
+				auto resurse = resurses_.find(name);
+				if (resurse == resurses_.end()) {
+					return false;
+				}
+				if (resurse->second < count) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		void Player::Drop(const std::map<Resurse, unsigned int>& resurses) {
+			using namespace std::string_literals;
+
+			if (!Have(resurses)) {
+				throw logic_error("Player "s + this->name + " haven't resurses for drop!"s);
+			}
+
+			for (auto& [name, count] : resurses) {
+				resurses_[name] -= count;
+			}
 		}
 
 		const std::string& Player::getName() const {
@@ -761,11 +794,11 @@ namespace ivv{
 				<< "Free settlements: " << getFreeSettlementCount() << std::endl
 				<< "Free castles: " << getFreeCastleCount() << std::endl
 				<< "Free roads: " << getFreeRoadCount() << std::endl
-				<< "Wood: " << (resurses.count(Resurse::Wood) ? resurses.at(Resurse::Wood) : 0) << std::endl
-				<< "Clay: " << (resurses.count(Resurse::Clay) ? resurses.at(Resurse::Clay) : 0) << std::endl
-				<< "Hay: " << (resurses.count(Resurse::Hay) ? resurses.at(Resurse::Hay) : 0) << std::endl
-				<< "Sheep: " << (resurses.count(Resurse::Sheep) ? resurses.at(Resurse::Sheep) : 0) << std::endl
-				<< "Stone: " << (resurses.count(Resurse::Stone) ? resurses.at(Resurse::Stone) : 0) << std::endl;
+				<< "Wood: " << (resurses_.count(Resurse::Wood) ? resurses_.at(Resurse::Wood) : 0) << std::endl
+				<< "Clay: " << (resurses_.count(Resurse::Clay) ? resurses_.at(Resurse::Clay) : 0) << std::endl
+				<< "Hay: " << (resurses_.count(Resurse::Hay) ? resurses_.at(Resurse::Hay) : 0) << std::endl
+				<< "Sheep: " << (resurses_.count(Resurse::Sheep) ? resurses_.at(Resurse::Sheep) : 0) << std::endl
+				<< "Stone: " << (resurses_.count(Resurse::Stone) ? resurses_.at(Resurse::Stone) : 0) << std::endl;
 		}
 
 		std::ostream& operator<<(std::ostream& os, const Player& player) {
