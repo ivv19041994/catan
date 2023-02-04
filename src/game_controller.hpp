@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <stdexcept>
 #include <optional>
+#include <deque>
+#include <variant>
 
 namespace ivv {
 namespace catan {
@@ -27,6 +29,13 @@ public:
 		CommonPlay,
 		DropCards,
 		BanditMove,
+		RoadBuilding, 
+		Finish
+	};
+
+	struct Deal {
+		std::map<Resurse, size_t> sell;
+		std::map<Resurse, size_t> buy;
 	};
 
 	GameController(std::initializer_list<std::string> players);
@@ -47,15 +56,29 @@ public:
 
 	bool Finish();
 
+	std::optional<std::string> GetWinner();
+
 	void PrintPlayer(std::ostream& os, std::string_view player);
 	void PrintStep(std::ostream& os);
 
-	void DropCards(std::string_view player, const std::map<Resurse, unsigned int>& resurses);
+	void DropCards(std::string_view player, const std::map<Resurse, size_t>& resurses);
 	void CheckNextDropCard();
 
 	void Market(std::string_view player, Resurse from, Resurse to);
 	
 	void BanditMove(std::string_view player, size_t gex_id, std::string_view other_payer = "");
+
+	void DevCard(std::string_view player);
+
+	using UseDevCardParam = std::optional<std::variant<
+			std::array<Resurse, 2>, //YearOfPlenty: resurses[2]
+			Resurse //Monopoly: 
+		>>;
+
+	void UseDevCard(std::string_view player, DevelopmentCard card, UseDevCardParam param);
+	void SetDeal(std::string_view player, std::map<Resurse, size_t> sell, std::map<Resurse, size_t> buy);
+
+	const std::optional<Deal>& GetActivDeal() const;
 
 private:
 	std::vector <Player> players_;
@@ -69,16 +92,26 @@ private:
 	const game::Dice dice_{ 2 };
 	std::pair<size_t, size_t> last_dice_;
 
+	std::deque<DevelopmentCard> cards_deque_;
+	Player* player_knights_{};//владелец карты рыцарей
+	Player* player_roads_{};//владелец карты длинная дорога
+
 	GameStep step_ = GameStep::ForwardBuildingSettlement;
 	GameStep step_after_bandit_ = GameStep::CommonPlay;
 
+	size_t road_building_count_;
+
 	std::optional<std::string> winner_;
+
+	std::optional<Deal> activ_deal_;
 
 	//void startPlace();
 
 	void MixPlayers();
 
 	void BindPlayers();
+
+	void InitCardsDeque();
 
 	void BuildSettlement(Player& player, size_t settlement_id);
 	void BuildRoad(Player& player, size_t road_id);
@@ -87,9 +120,13 @@ private:
 	Player& CheckCurrentPlayer(std::string_view player);
 	Player& CheckAnyPlayer(std::string_view player);
 
-	void DropCards(Player& player, const std::map<Resurse, unsigned int>& resurses);
+	void DropCards(Player& player, const std::map<Resurse, size_t>& resurses);
 
 	void BanditMove(Player& player, Gex& gex, Player* other_payer);
+
+	void CheckKnightsCard();
+
+	void CheckWinner();
 };
 
 std::ostream& operator<<(std::ostream& os, GameController::GameStep step);

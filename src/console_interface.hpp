@@ -30,6 +30,15 @@ private:
 	void CommandDrop(const std::vector<std::string_view>& args);
 	void CommandMarket(const std::vector<std::string_view>& args);
 	void CommandBanditMove(const std::vector<std::string_view>& args);
+
+	void CommandBuyDevCard(const std::vector<std::string_view>& args);
+	void CommandKnights(const std::vector<std::string_view>& args);
+	void CommandRoadBuilding(const std::vector<std::string_view>& args);
+	void CommandYearOfPlenty(const std::vector<std::string_view>& args);
+	void CommandMonopoly(const std::vector<std::string_view>& args);
+	void CommandWinCard(const std::vector<std::string_view>& args);
+
+	void CommandDeal(const std::vector<std::string_view>& args);
 };
 
 }//namespace ivv::catan::console {

@@ -29,6 +29,28 @@ std::vector<StringImpl> SplitIntoWords(const StringImpl& text) {
 	return words;
 }
 
+static Resurse StringToResurse(std::string_view resurse) {
+	using namespace std::string_view_literals;
+	if (resurse == "w"sv) {
+		return Resurse::Wood;
+	}
+	else if (resurse == "c"sv) {
+		return Resurse::Clay;
+	}
+	else if (resurse == "h"sv) {
+		return Resurse::Hay;
+	}
+	else if (resurse == "s"sv) {
+		return Resurse::Sheep;
+	}
+	else if (resurse == "r"sv) {
+		return Resurse::Stone;
+	}
+	else {
+		throw logic_error("Error format");
+	}
+}
+
 void Play::Command(std::string&& command) {
 	using namespace std::string_view_literals;
 	auto args = SplitIntoWords(std::string_view(command));
@@ -39,7 +61,7 @@ void Play::Command(std::string&& command) {
 	}
 
 	try {
-		if (args[0] == "Settlement"sv) {
+		if (args[0] == "Sett"sv) {
 
 			CommandSettlement(args);
 		}
@@ -76,8 +98,30 @@ void Play::Command(std::string&& command) {
 		else if (args[0] == "BanditMove"sv) {
 			CommandBanditMove(args);
 		}
+		else if (args[0] == "BuyDevCard"sv) {
+			CommandBuyDevCard(args);
+		}
+		else if (args[0] == "Knights"sv) {
+			CommandKnights(args);
+		}
+		else if (args[0] == "RoadBuilding"sv) {
+			CommandRoadBuilding(args);
+		}
+		else if (args[0] == "YearOfPlenty"sv) {
+			CommandYearOfPlenty(args);
+		}
+		else if (args[0] == "Monopoly"sv) {
+			CommandMonopoly(args);
+		}
+		else if (args[0] == "WinCard"sv) {
+			CommandWinCard(args);
+		}
+		else if (args[0] == "Deal"sv) {
+			CommandDeal(args);
+		}
+		
 
-		std::fstream file("C:/Users/user04134/Desktop/catan/test.svg", std::fstream::trunc | std::fstream::out);
+		std::fstream file("D:/Users/Vadim/yandex_ws/catan/test.svg", std::fstream::trunc | std::fstream::out);
 		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {40.0, 40.0}, 100.0 };
 		renderer.Render(file);
 	}
@@ -182,32 +226,90 @@ void Play::CommandBanditMove(const std::vector<std::string_view>& args) {
 			game_controller_->BanditMove(args[1], *id, args[3]);
 		}
 	}
-
-	throw logic_error("Error format");
-	
-}
-
-static Resurse StringToResurse(std::string_view resurse) {
-	using namespace std::string_view_literals;
-	if (resurse == "w"sv) {
-		return Resurse::Wood;
-	}
-	else if (resurse == "c"sv) {
-		return Resurse::Clay;
-	}
-	else if (resurse == "h"sv) {
-		return Resurse::Hay;
-	}
-	else if (resurse == "s"sv) {
-		return Resurse::Sheep;
-	}
-	else if (resurse == "r"sv) {
-		return Resurse::Stone;
-	} 
 	else {
 		throw logic_error("Error format");
 	}
 }
+
+void Play::CommandBuyDevCard(const std::vector<std::string_view>& args) {
+	if (args.size() != 2) {
+		throw logic_error("Error format");
+	}
+	game_controller_->DevCard(args[1]);
+}
+
+void Play::CommandKnights(const std::vector<std::string_view>& args) {
+	if (args.size() != 2) {
+		throw logic_error("Error format");
+	}
+	game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::Knights, {});
+}
+
+void Play::CommandRoadBuilding(const std::vector<std::string_view>& args) {
+	if (args.size() != 2) {
+		throw logic_error("Error format");
+	}
+	game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::RoadBuilding, {});
+}
+void Play::CommandYearOfPlenty(const std::vector<std::string_view>& args) {
+	if (args.size() != 4) {
+		throw logic_error("Error format");
+	}
+	game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::YearOfPlenty, std::array<Resurse,2>{ StringToResurse (args[2]), StringToResurse(args[3]) });
+}
+
+void Play::CommandMonopoly(const std::vector<std::string_view>& args) {
+	if (args.size() != 3) {
+		throw logic_error("Error format");
+	}
+	game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::Monopoly,  StringToResurse(args[2]));
+}
+void Play::CommandWinCard(const std::vector<std::string_view>& args) {
+	if (args.size() != 2) {
+		throw logic_error("Error format");
+	}
+
+	try {game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::University, {});}
+	catch (logic_error& e) {}
+	try { game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::Market, {}); }
+	catch (logic_error& e) {}
+	try { game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::GreatHall, {}); }
+	catch (logic_error& e) {}
+	try { game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::Chapel, {}); }
+	catch (logic_error& e) {}
+	try { game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::Library, {}); }
+	catch (logic_error& e) {}
+}
+
+void Play::CommandDeal(const std::vector<std::string_view>& args) {
+	using namespace std::string_view_literals;
+	if (args.size() % 2 == 0) {
+		throw logic_error("Error format");
+	}
+	std::map<Resurse, size_t> sell;
+	std::map<Resurse, size_t> buy;
+	size_t i = 2;
+	for (; i < args.size() && args[i] != "/"sv; i += 2) {
+		std::optional<int> count = to_int(args[i + 1]);
+		if (!count) {
+			throw logic_error("Error format");
+		}
+		sell[StringToResurse(args[i])] += *count;
+	}
+	++i;
+	for (; i < args.size() && args[i] != "/"sv; i += 2) {
+		std::optional<int> count = to_int(args[i + 1]);
+		if (!count) {
+			throw logic_error("Error format");
+		}
+		buy[StringToResurse(args[i])] += *count;
+	}
+
+
+	game_controller_->SetDeal(args[1], std::move(sell), std::move(buy));
+}
+
+
 
 void Play::CommandDrop(const std::vector<std::string_view>& args) {
 	using namespace std::string_view_literals;
@@ -215,7 +317,7 @@ void Play::CommandDrop(const std::vector<std::string_view>& args) {
 		throw logic_error("Error format");
 	}
 
-	std::map<Resurse, unsigned int> resurses;
+	std::map<Resurse, size_t> resurses;
 
 	for (size_t i = 2; i < args.size(); i += 2) {
 
@@ -261,6 +363,8 @@ Play::Play(std::ostream& os, std::istream& is)
 		std::getline(is_, temp);
 		Command(std::move(temp));
 	}
+
+	os_ << "Winner is " << *(game_controller_->GetWinner()) << std::endl;
 }
 
 

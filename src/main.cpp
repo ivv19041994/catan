@@ -97,7 +97,10 @@ int main() {
 	cout << "!!!Hello World!!!" << endl; // prints !!!Hello World!!!
 	*/
 
-	ivv::catan::console::Play play{ cout, cin };
+	{
+		ivv::catan::console::Play play{ cout, cin };
+	}
+	cout << "End programm" << endl;
 
 	return 0;
 }

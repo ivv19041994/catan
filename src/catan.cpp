@@ -607,6 +607,9 @@ namespace ivv{
 
 		void Gex::diceEvent()
 		{
+			if (bandit_) {
+				return;
+			}
 			for(auto& node: node_neighbor)
 			{
 				node->diceEvent(resurse);
@@ -727,14 +730,53 @@ namespace ivv{
 			resurses_[Resurse::Hay] = 100;
 			resurses_[Resurse::Sheep] = 100;
 			resurses_[Resurse::Stone] = 100;
+
+			cards_[DevelopmentCard::Knights] = 0;
+			cards_[DevelopmentCard::RoadBuilding] = 0;
+			cards_[DevelopmentCard::YearOfPlenty] = 0;
+			cards_[DevelopmentCard::Monopoly] = 0;
+			cards_[DevelopmentCard::University] = 0;
+			cards_[DevelopmentCard::Market] = 0;
+			cards_[DevelopmentCard::GreatHall] = 0;
+			cards_[DevelopmentCard::Chapel] = 0;
+			cards_[DevelopmentCard::Library] = 0;
+			cards_[DevelopmentCard::Knights] = 0;
+
+			cards_buy_on_this_turn_[DevelopmentCard::Knights] = 0;
+			cards_buy_on_this_turn_[DevelopmentCard::RoadBuilding] = 0;
+			cards_buy_on_this_turn_[DevelopmentCard::YearOfPlenty] = 0;
+			cards_buy_on_this_turn_[DevelopmentCard::Monopoly] = 0;
+			cards_buy_on_this_turn_[DevelopmentCard::University] = 0;
+			cards_buy_on_this_turn_[DevelopmentCard::Market] = 0;
+			cards_buy_on_this_turn_[DevelopmentCard::GreatHall] = 0;
+			cards_buy_on_this_turn_[DevelopmentCard::Chapel] = 0;
+			cards_buy_on_this_turn_[DevelopmentCard::Library] = 0;
+			cards_buy_on_this_turn_[DevelopmentCard::Knights] = 0;
+
+			cards_used_[DevelopmentCard::Knights] = 0;
+			cards_used_[DevelopmentCard::RoadBuilding] = 0;
+			cards_used_[DevelopmentCard::YearOfPlenty] = 0;
+			cards_used_[DevelopmentCard::Monopoly] = 0;
+			cards_used_[DevelopmentCard::University] = 0;
+			cards_used_[DevelopmentCard::Market] = 0;
+			cards_used_[DevelopmentCard::GreatHall] = 0;
+			cards_used_[DevelopmentCard::Chapel] = 0;
+			cards_used_[DevelopmentCard::Library] = 0;
+			cards_used_[DevelopmentCard::Knights] = 0;
 		}
 
-		void Player::addResurse(Resurse resurse, unsigned int count)
+		void Player::addResurse(Resurse resurse, size_t count)
 		{
 			if(Resurse::Not == resurse)
 				return;
 			resurses_[resurse] += count;
 			//std::cout << "resurses["<< static_cast<int>(resurse) << "] = " << resurses[resurse] << std::endl;
+		}
+
+		void Player::addResurse(const std::map<Resurse, size_t>& resurses) {
+			for (auto& [name, count] : resurses) {
+				addResurse(name, count);
+			}
 		}
 
 		bool Player::HaveSettlemenResurses() const {
@@ -761,6 +803,18 @@ namespace ivv{
 			--resurses_.at(Resurse::Clay);
 		}
 
+		bool Player::HaveDevCardResurses() const {
+			return
+				resurses_.at(Resurse::Hay) >= 1 &&
+				resurses_.at(Resurse::Sheep) >= 1 &&
+				resurses_.at(Resurse::Stone) >= 1;
+		}
+		void Player::FreeDevCardResurses() {
+			--resurses_.at(Resurse::Hay);
+			--resurses_.at(Resurse::Sheep);
+			--resurses_.at(Resurse::Stone);
+		}
+
 		bool Player::HaveCastleResurses() const {
 			return
 				resurses_.at(Resurse::Hay) >= 2 &&
@@ -779,7 +833,7 @@ namespace ivv{
 			return ret;
 		}
 
-		bool Player::Have(const std::map<Resurse, unsigned int>& resurses) const {
+		bool Player::Have(const std::map<Resurse, size_t>& resurses) const {
 			for (auto& [name, count] : resurses) {
 				auto resurse = resurses_.find(name);
 				if (resurse == resurses_.end()) {
@@ -792,7 +846,7 @@ namespace ivv{
 			return true;
 		}
 
-		void Player::Drop(const std::map<Resurse, unsigned int>& resurses) {
+		void Player::Drop(const std::map<Resurse, size_t>& resurses) {
 			using namespace std::string_literals;
 
 			if (!Have(resurses)) {
@@ -897,7 +951,18 @@ namespace ivv{
 				<< "Price Clay: " << (resurses_market_price_.count(Resurse::Clay) ? resurses_market_price_.at(Resurse::Clay) : 0) << std::endl
 				<< "Price Hay: " << (resurses_market_price_.count(Resurse::Hay) ? resurses_market_price_.at(Resurse::Hay) : 0) << std::endl
 				<< "Price Sheep: " << (resurses_market_price_.count(Resurse::Sheep) ? resurses_market_price_.at(Resurse::Sheep) : 0) << std::endl
-				<< "Price Stone: " << (resurses_market_price_.count(Resurse::Stone) ? resurses_market_price_.at(Resurse::Stone) : 0) << std::endl;
+				<< "Price Stone: " << (resurses_market_price_.count(Resurse::Stone) ? resurses_market_price_.at(Resurse::Stone) : 0) << std::endl
+				<< "Win points: " << GetWinPoints() << std::endl
+				<< "Knights: " << cards_.at(DevelopmentCard::Knights) << "/" << cards_buy_on_this_turn_.at(DevelopmentCard::Knights) << "/" << cards_used_.at(DevelopmentCard::Knights) << std::endl
+				<< "RoadBuilding: " << cards_.at(DevelopmentCard::RoadBuilding) << "/" << cards_buy_on_this_turn_.at(DevelopmentCard::RoadBuilding) << "/" << cards_used_.at(DevelopmentCard::RoadBuilding) << std::endl
+				<< "YearOfPlenty: " << cards_.at(DevelopmentCard::YearOfPlenty) << "/" << cards_buy_on_this_turn_.at(DevelopmentCard::YearOfPlenty) << "/" << cards_used_.at(DevelopmentCard::YearOfPlenty) << std::endl
+				<< "Monopoly: " << cards_.at(DevelopmentCard::Monopoly) << "/" << cards_buy_on_this_turn_.at(DevelopmentCard::Monopoly) << "/" << cards_used_.at(DevelopmentCard::Monopoly) << std::endl
+				<< "University: " << cards_.at(DevelopmentCard::University) << "/" << cards_buy_on_this_turn_.at(DevelopmentCard::University) << "/" << cards_used_.at(DevelopmentCard::University) << std::endl
+				<< "Market: " << cards_.at(DevelopmentCard::Market) << "/" << cards_buy_on_this_turn_.at(DevelopmentCard::Market) << "/" << cards_used_.at(DevelopmentCard::Market) << std::endl
+				<< "GreatHall: " << cards_.at(DevelopmentCard::GreatHall) << "/" << cards_buy_on_this_turn_.at(DevelopmentCard::GreatHall) << "/" << cards_used_.at(DevelopmentCard::GreatHall) << std::endl
+				<< "Chapel: " << cards_.at(DevelopmentCard::Chapel) << "/" << cards_buy_on_this_turn_.at(DevelopmentCard::Chapel) << "/" << cards_used_.at(DevelopmentCard::Chapel) << std::endl
+				<< "Library: " << cards_.at(DevelopmentCard::Library) << "/" << cards_buy_on_this_turn_.at(DevelopmentCard::Library) << "/" << cards_used_.at(DevelopmentCard::Library) << std::endl;
+
 		}
 
 		void Player::DownPriceOnMarket(Resurse resurse, size_t price) {
@@ -927,6 +992,86 @@ namespace ivv{
 			}
 			assert(false);
 			return {};
+		}
+
+		void Player::PutCard(DevelopmentCard card) {
+			++cards_buy_on_this_turn_[card];
+		}
+
+		void Player::OnEndTurn() {
+			already_use_dev_card_on_this_turn_ = false;
+
+			for (auto& [name, count] : cards_buy_on_this_turn_) {
+				cards_[name] += count;
+				cards_count_ += count;
+				count = 0;
+			}
+		}
+
+		size_t Player::StillAll(Resurse resurse) {
+			size_t& count = resurses_[resurse];
+			size_t ret = count;
+			count = 0;
+			return ret;
+		}
+
+		size_t Player::GetUsedCardCount(DevelopmentCard card) const {
+			auto find = cards_used_.find(card);
+			if (find == cards_used_.end()) {
+				return 0;
+			}
+			return find->second;
+		}
+
+		void Player::SetKnightCard() {
+			knight_card_ = true;
+		}
+		void Player::ResetKnightCard() {
+			knight_card_ = false;
+		}
+
+		size_t Player::GetWinPoints() const {
+			size_t res = 0;
+			res += 5 - getFreeSettlementCount();
+			res += (4 - getFreeCastleCount()) * 2;
+			res += win_cards_used_;
+			if (knight_card_) {
+				res += 2;
+			}
+			if (road_card_) {
+				res += 2;
+			}
+			return res;
+		}
+
+		void Player::Use(DevelopmentCard card) {
+			using namespace std::string_literals;
+			auto& count = cards_[card];
+			if (count == 0) {
+				throw logic_error("Player "s + this->name + " haven't this card!"s);
+			}
+
+			switch (card) {
+			case DevelopmentCard::Knights:
+			case DevelopmentCard::RoadBuilding:
+			case DevelopmentCard::YearOfPlenty:
+			case DevelopmentCard::Monopoly:
+				if (already_use_dev_card_on_this_turn_) {
+					throw logic_error("Player "s + this->name + " already use card in this turn!"s);
+				}
+				already_use_dev_card_on_this_turn_ = true;
+				break;
+			case DevelopmentCard::University:
+			case DevelopmentCard::Market:
+			case DevelopmentCard::GreatHall:
+			case DevelopmentCard::Chapel:
+			case DevelopmentCard::Library:
+					++win_cards_used_;
+					break;
+			}
+			++cards_used_[card];
+			--count;
+			--cards_count_;
 		}
 
 		std::ostream& operator<<(std::ostream& os, const Player& player) {
