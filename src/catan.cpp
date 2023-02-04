@@ -833,6 +833,14 @@ namespace ivv{
 			return ret;
 		}
 
+		size_t Player::getCountResurses(Resurse reusrse) const {
+			auto find = resurses_.find(reusrse);
+			if (find == resurses_.end()) {
+				return 0;
+			}
+			return find->second;
+		}
+
 		bool Player::Have(const std::map<Resurse, size_t>& resurses) const {
 			for (auto& [name, count] : resurses) {
 				auto resurse = resurses_.find(name);
@@ -994,8 +1002,33 @@ namespace ivv{
 			return {};
 		}
 
+		static bool IsWinnerCard(DevelopmentCard card) {
+			switch (card) {
+			case DevelopmentCard::Knights:
+			case DevelopmentCard::RoadBuilding:
+			case DevelopmentCard::YearOfPlenty:
+			case DevelopmentCard::Monopoly:
+				return false;
+			case DevelopmentCard::University:
+			case DevelopmentCard::Market:
+			case DevelopmentCard::GreatHall:
+			case DevelopmentCard::Chapel:
+			case DevelopmentCard::Library:
+				return true;
+			}
+			return false;
+		}
+
 		void Player::PutCard(DevelopmentCard card) {
-			++cards_buy_on_this_turn_[card];
+			if (IsWinnerCard(card)) {
+				++cards_[card];
+			}
+			else {
+				++cards_buy_on_this_turn_[card];
+			}
+			
+
+			
 		}
 
 		void Player::OnEndTurn() {
@@ -1015,12 +1048,23 @@ namespace ivv{
 			return ret;
 		}
 
-		size_t Player::GetUsedCardCount(DevelopmentCard card) const {
-			auto find = cards_used_.find(card);
-			if (find == cards_used_.end()) {
+		size_t Player::GetCardCount(DevelopmentCard card, const std::map<DevelopmentCard, size_t>& card_deque) const {
+			auto find = card_deque.find(card);
+			if (find == card_deque.end()) {
 				return 0;
 			}
 			return find->second;
+		}
+
+		size_t Player::GetReadyForUseCardCount(DevelopmentCard card) const {
+			return GetCardCount(card, cards_);
+		}
+		size_t Player::GetPurchasedCardCount(DevelopmentCard card) const {
+			return GetCardCount(card, cards_buy_on_this_turn_);
+		}
+
+		size_t Player::GetUsedCardCount(DevelopmentCard card) const {
+			return GetCardCount(card, cards_used_);
 		}
 
 		void Player::SetKnightCard() {

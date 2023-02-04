@@ -1,6 +1,7 @@
 #include "console_interface.hpp"
 #include "catan.hpp"
 #include "map_rander.h"
+#include "player_randerer.hpp"
 #include <string>
 #include <string_view>
 #include <charconv>
@@ -121,9 +122,7 @@ void Play::Command(std::string&& command) {
 		}
 		
 
-		std::fstream file("D:/Users/Vadim/yandex_ws/catan/test.svg", std::fstream::trunc | std::fstream::out);
-		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {40.0, 40.0}, 100.0 };
-		renderer.Render(file);
+
 	}
 	catch(logic_error& e) {
 		os_ << e.what() << std::endl;
@@ -357,9 +356,21 @@ Play::Play(std::ostream& os, std::istream& is)
 		players.push_back(std::move(temp));
 	}
 
-	game_controller_ = std::make_unique<GameController>(std::move(players));
+	game_controller_ = std::make_unique<GameController>(players);
 
 	while (!game_controller_->Finish()) {
+
+		std::fstream file("D:/Users/Vadim/yandex_ws/catan/test.svg", std::fstream::trunc | std::fstream::out);
+		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {40.0, 40.0}, 100.0 };
+		renderer.Render(file);
+
+		for (auto& p : players) {
+			using namespace std::string_literals;
+			std::fstream file("D:/Users/Vadim/yandex_ws/catan/"s + p +".svg"s, std::fstream::trunc | std::fstream::out);
+			ivv::catan::renderer::PlayerRanderer player_renderer{ game_controller_->GetPlayer(p) , {0, 0}, 50 };
+			player_renderer.Render(file);
+		}
+
 		std::getline(is_, temp);
 		Command(std::move(temp));
 	}

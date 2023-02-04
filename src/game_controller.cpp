@@ -180,6 +180,10 @@ void GameController::SetDeal(std::string_view player, std::map<Resurse, size_t> 
 	activ_deal_.reset();
 }
 
+const Player& GameController::GetPlayer(std::string_view player) const {
+	return *(player_by_name_.at(player));
+}
+
 const std::optional<GameController::Deal>& GameController::GetActivDeal() const {
 	return activ_deal_;
 }

@@ -248,6 +248,8 @@ namespace ivv{
 				{ Resurse::Sheep, 4 },
 				{ Resurse::Stone, 4 }
 			};
+
+			size_t GetCardCount(DevelopmentCard card, const std::map<DevelopmentCard, size_t>& card_deque) const;
 		public:
 			explicit Player(std::string name, size_t id);
 			const std::string& getName() const;
@@ -276,6 +278,7 @@ namespace ivv{
 			void FreeCastleResurses();
 
 			size_t getCountResurses() const;
+			size_t getCountResurses(Resurse reusrse) const;
 
 			void Print(std::ostream&) const;
 
@@ -295,6 +298,8 @@ namespace ivv{
 
 			size_t StillAll(Resurse resurse);
 
+			size_t GetReadyForUseCardCount(DevelopmentCard card) const;
+			size_t GetPurchasedCardCount(DevelopmentCard card) const;
 			size_t GetUsedCardCount(DevelopmentCard card) const;
 
 			void SetKnightCard();

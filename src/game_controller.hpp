@@ -79,6 +79,7 @@ public:
 	void SetDeal(std::string_view player, std::map<Resurse, size_t> sell, std::map<Resurse, size_t> buy);
 
 	const std::optional<Deal>& GetActivDeal() const;
+	const Player& GetPlayer(std::string_view player) const;
 
 private:
 	std::vector <Player> players_;
