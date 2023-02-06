@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <cassert>
+#include <numeric>
 
 #include "player.hpp"
 #include "exception.hpp"
@@ -9,40 +10,8 @@
 namespace ivv {
 namespace catan {
 
-void Map::initRandomTypeForGexs()
-{
-	std::deque<Resurse> types{
-		Resurse::Wood,
-		Resurse::Wood,
-		Resurse::Wood,
-		Resurse::Wood,
-		Resurse::Sheep,
-		Resurse::Sheep,
-		Resurse::Sheep,
-		Resurse::Sheep,
-		Resurse::Hay,
-		Resurse::Hay,
-		Resurse::Hay,
-		Resurse::Hay,
-		Resurse::Clay,
-		Resurse::Clay,
-		Resurse::Clay,
-		Resurse::Stone,
-		Resurse::Stone,
-		Resurse::Stone
-	};
-
-	assert(types.size() == (gexs_count - 1));
-	gexs[9].setType(Resurse::Not);
-	for (unsigned int i = 0; i < gexs_count; ++i)
-	{
-		if (i == 9)
-			continue;
-
-		int idx = rng() % types.size();
-		gexs[i].setType(types[idx]);
-		types.erase(types.begin() + idx);
-	}
+void Map::initGexs() {
+	initRandomTypeForGexs();
 
 	const std::array<unsigned int, 12> bigCircle = { 0, 1, 2, 6, 11, 15, 18, 17, 16, 12, 7, 3 };
 	const std::array<unsigned int, 6> smallCircle = { 4, 5, 10, 14, 13, 8 };
@@ -70,6 +39,80 @@ void Map::initRandomTypeForGexs()
 		dices[dice_ind[i / 2 + 12]].insert(&gexs[gex_index]);
 		gexs[gex_index].setDice(dice_ind[i / 2 + 12]);
 	}
+}
+
+void Map::initRandomTypeForGexs()
+{
+	//Метод с отвратительным перебором, можно будет переделать
+	do {
+		std::array<Resurse, 18> types{
+			Resurse::Wood,
+			Resurse::Wood,
+			Resurse::Wood,
+			Resurse::Wood,
+			Resurse::Sheep,
+			Resurse::Sheep,
+			Resurse::Sheep,
+			Resurse::Sheep,
+			Resurse::Hay,
+			Resurse::Hay,
+			Resurse::Hay,
+			Resurse::Hay,
+			Resurse::Clay,
+			Resurse::Clay,
+			Resurse::Clay,
+			Resurse::Stone,
+			Resurse::Stone,
+			Resurse::Stone
+		};
+
+		std::random_device rd;
+		std::mt19937 g(rd());
+		std::shuffle(types.begin(), types.end(), g);
+
+		assert(types.size() == (gexs_count - 1));
+		gexs[9].setType(Resurse::Not);
+		unsigned int idx = 0;
+		for (unsigned int i = 0; i < gexs_count; ++i)
+		{
+			if (i == 9)
+				continue;
+
+			gexs[i].setType(types[idx++]);
+		}
+	} while (badGexConfiguration());
+}
+
+bool Map::badGexConfiguration() {
+	for (auto& gex : gexs) {
+		for (auto& node : gex.GetNodes()) {
+			size_t counter = 0;
+			for (auto& neighbor : node->getNeighborGexs()) {
+				counter += (neighbor->getType() == gex.getType()) ? 1 : 0;
+			}
+			if (counter != 1) {
+				return true;
+			}
+		}
+	}
+
+	if (gexs[1].getType() == Resurse::Sheep ||
+		gexs[2].getType() == Resurse::Sheep ||
+
+		gexs[3].getType() == Resurse::Stone ||
+		gexs[7].getType() == Resurse::Stone ||
+
+		gexs[17].getType() == Resurse::Wood ||
+		gexs[18].getType() == Resurse::Wood ||
+
+		gexs[15].getType() == Resurse::Clay ||
+		gexs[18].getType() == Resurse::Clay ||
+
+		gexs[7].getType() == Resurse::Hay ||
+		gexs[12].getType() == Resurse::Hay) {
+		return true;
+	}
+	return false;
 }
 
 void Map::initNodes()
@@ -394,7 +437,7 @@ Map::Map() :rng(rd())
 	initNodes();
 	initNodes();//нужно вызвать дважды для образования всех связей между Facets
 
-	initRandomTypeForGexs();
+	initGexs();
 
 	initPorts();
 }

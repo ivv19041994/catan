@@ -28,6 +28,9 @@ namespace catan {
 
 		void initNode(int node, std::vector<int> nodes, std::vector<int> roads, std::vector<int> gexs);
 		void initNodes();
+
+		void initGexs();
+		bool badGexConfiguration();
 		void initRandomTypeForGexs();
 		void initPorts();
 
