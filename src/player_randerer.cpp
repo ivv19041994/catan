@@ -88,6 +88,22 @@ void PlayerRanderer::RenderCastle(svg::Document& doc, svg::Point center) const {
 	);
 }
 
+void PlayerRanderer::RenderWinPoint(svg::Document& doc, svg::Point center) const {
+	svg::Point scale_center{
+		center.x * scale_ + offset_.x, center.y * scale_ + offset_.y
+	};
+	double font_size = scale_ / 1.3;
+
+	doc.Add(
+		svg::Text()
+		.SetFontSize(static_cast<uint32_t>(font_size))
+		.SetFillColor("black")
+		.SetData("W: " + std::to_string(player_.GetWinPoints()))
+		.SetPosition(scale_center)
+		.SetOffset({ -font_size / 2, font_size / 2 })
+	);
+}
+
 void PlayerRanderer::RenderResurse(svg::Document& doc, svg::Point center, Resurse resurse) const {
 	size_t count = player_.getCountResurses(resurse);
 
@@ -177,6 +193,7 @@ void PlayerRanderer::Render(std::ostream& os) const {
 	RenderRoad(doc, { 1.0, 1.0 });
 	RenderSett(doc, { 1.0, 2.0 });
 	RenderCastle(doc, { 1.0, 3.0 });
+	RenderWinPoint(doc, { 1.0, 4.0 });
 
 	RenderResurse(doc, { 3.0, 1.0 }, Resurse::Wood);
 	RenderResurse(doc, { 3.0, 2.0 }, Resurse::Clay);
@@ -194,8 +211,9 @@ void PlayerRanderer::Render(std::ostream& os) const {
 	RenderDevCard(doc, { 9.0, 3.0 }, DevelopmentCard::GreatHall);
 	RenderDevCard(doc, { 9.0, 4.0 }, DevelopmentCard::Chapel);
 	RenderDevCard(doc, { 9.0, 5.0 }, DevelopmentCard::Library);
-	doc.Render(os);
 
+
+	doc.Render(os);
 };
 
 svg::Color PlayerRanderer::GexTypeToColor(Resurse type) const {

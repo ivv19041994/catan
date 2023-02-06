@@ -22,6 +22,8 @@ private:
 	void RenderRoad(svg::Document& doc, svg::Point center) const;
 	void RenderSett(svg::Document& doc, svg::Point center) const;
 	void RenderCastle(svg::Document& doc, svg::Point center) const;
+	void RenderWinPoint(svg::Document& doc, svg::Point center) const;
+	
 	void RenderResurse(svg::Document& doc, svg::Point center, Resurse resurse) const;
 	void RenderDevCard(svg::Document& doc, svg::Point center, DevelopmentCard card) const;
 };

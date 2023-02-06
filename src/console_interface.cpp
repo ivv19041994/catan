@@ -374,11 +374,7 @@ Play::Play(std::ostream& os, std::istream& is)
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 58);
 
 	game_controller_->Dice(game_controller_->GetCurrentPlayer());
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 25);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 34);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 41);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 42);
-	//game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 35);
+	//
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 26);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 27);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 28);
@@ -387,6 +383,10 @@ Play::Play(std::ostream& os, std::istream& is)
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 43);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 45);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 46);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 29);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 42);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 30);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 37);
 	game_controller_->PrintPlayer(os_, game_controller_->GetCurrentPlayer());
 
 	while (!game_controller_->Finish()) {
@@ -394,12 +394,14 @@ Play::Play(std::ostream& os, std::istream& is)
 		std::fstream file("D:/Users/Vadim/yandex_ws/catan/test.svg", std::fstream::trunc | std::fstream::out);
 		ivv::catan::renderer::MapRenderer renderer{ game_controller_->GetMap() , {40.0, 40.0}, 100.0 };
 		renderer.Render(file);
+		file.flush();
 
 		for (auto& p : players) {
 			using namespace std::string_literals;
 			std::fstream file("D:/Users/Vadim/yandex_ws/catan/"s + p +".svg"s, std::fstream::trunc | std::fstream::out);
 			ivv::catan::renderer::PlayerRanderer player_renderer{ game_controller_->GetPlayer(p) , {0, 0}, 50 };
 			player_renderer.Render(file);
+			file.flush();
 		}
 
 		std::getline(is_, temp);
