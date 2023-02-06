@@ -584,7 +584,7 @@ namespace ivv{
 			size_t res = 0;
 			for (const Facet& facet : facets) {
 				if (facet.getRoad() && facet.getRoad()->getPlayer() == player) {
-					size_t current = GetLongWay(&facet, player, {}, {}).size();
+					size_t current = GetLongWay(&facet, player).size();
 					std::cout << "current = " << current << std::endl;
 					res = std::max(res, current);
 				}
@@ -657,17 +657,22 @@ namespace ivv{
 
 		std::set<const Facet*> Map::GetLongWay(const Facet* from, const Player* player, std::set<const Node*> ban_node, std::set<const Facet*> already, size_t deep)  const {
 
-			std::set<std::pair< const Facet*, const Node*>> neighbors;
-			const std::set<Node*>& nodes = from->GetNeighborNodes();
+			std::vector<const Node*> nodes{};
+			std::vector<std::vector<const Facet*>> neighbors{};
+			size_t neighbors_count = 0;
+			
 			std::cout << std::string(deep, '\t') << "Current facet = " << std::distance(facets.data(), from) << std::endl;
 
-			for (const auto& node : nodes) {
+			for (const Node* node: from->GetNeighborNodes()) {
 				if (ban_node.count(node) == 0 &&
 					(node->getBuilding() == nullptr || node->getBuilding()->getPlayer() == player)) {
+					nodes.push_back(node);
+					neighbors.push_back({});
 					auto& node_facets = node->getNeighborFacets();
 					for (const Facet* f : node_facets) {
 						if (f != from && already.count(f) == 0 && f->getRoad() && f->getRoad()->getPlayer() == player) {
-							neighbors.insert({ f, node });
+							neighbors.back().push_back(f);
+							++neighbors_count;
 						}
 					}
 				}
@@ -675,63 +680,81 @@ namespace ivv{
 
 			already.insert(from);
 
-			if (neighbors.size() == 0) {
+			if (neighbors_count == 0) {
 				std::cout << std::string(deep, '\t') << "return " << already.size() << " " << SetFacetToString(facets.data(), already) << std::endl;
 				return std::move(already);
 			}
 
-			if (neighbors.size() == 1) {
-				ban_node.insert(neighbors.begin()->second);
-				auto ret = GetLongWay(neighbors.begin()->first, player, std::move(ban_node), std::move(already), deep + 1);
-				std::cout << std::string(deep, '\t') << "return " << ret.size() << " " << SetFacetToString(facets.data(), ret) << std::endl;
-				return ret;
+			if (neighbors_count == 1) {
+				for (size_t i = 0; i < neighbors.size(); ++i) {
+					if (neighbors[i].size()) {
+						ban_node.insert(nodes[i]);
+						auto ret = GetLongWay(neighbors[i][0], player, std::move(ban_node), std::move(already), deep + 1);
+						std::cout << std::string(deep, '\t') << "return " << ret.size() << " " << SetFacetToString(facets.data(), ret) << std::endl;
+						return ret;
+					}
+				}
+				assert(false);
 			}
 
-			std::map< const Node* ,std::vector<std::set< const Facet*>>> result_by_neighbors;
-			for (auto& neighbor : neighbors) {
-				auto ban_node_copy = ban_node;
-				ban_node_copy.insert(neighbor.second);
-				result_by_neighbors[neighbor.second].push_back(GetLongWay(neighbor.first, player, std::move(ban_node_copy), {from}, deep + 1));
-				result_by_neighbors[neighbor.second].back().erase(from);
+			std::vector< std::vector<std::set< const Facet*>>> result_by_neighbors(neighbors.size());
+			for (size_t i = 0; i < neighbors.size(); ++i) {
+				for (const Facet* facet : neighbors[i]) {
+					auto ban_node_copy = ban_node;
+					ban_node_copy.insert(nodes[i]);
+					result_by_neighbors[i].push_back(GetLongWay(facet, player, std::move(ban_node_copy), { from }, deep + 1));
+					result_by_neighbors[i].back().erase(from);
+				}
 			}
 
-			for (auto& [name, rbn] : result_by_neighbors) {
-				std::sort(rbn.begin(), rbn.end(), [](const auto& lhs, const auto& rhs) {
+			//теперь надо найти лучшую комбинацию
+			assert(result_by_neighbors.size() <= 2 && result_by_neighbors.size() != 0);
+
+			if (result_by_neighbors.size() == 1) {
+				//тут все просто, кто длиннее тот и лучше
+				std::sort(result_by_neighbors[0].begin(), result_by_neighbors[0].end(), [](const auto& lhs, const auto& rhs) {
 					return lhs.size() > rhs.size();
 					}
 				);
-				if (rbn.begin()->size()) {
 
-					std::set< const Facet*>& result_by_neighbor = *rbn.begin();
-					bool not_inter = std::none_of(already.begin(), already.end(),
-						[&result_by_neighbor](const Facet* facet) {
-							return result_by_neighbor.count(facet) ? true : false;
+				already.insert(result_by_neighbors[0][0].begin(), result_by_neighbors[0][0].end());
+				std::cout << std::string(deep, '\t') << "return(1) " << already.size() << " " << SetFacetToString(facets.data(), already) << std::endl;
+				return std::move(already);
+			}
+			//result_by_neighbors.size() == 2
+			//тут надо перебрать пары и найти лучшую не пересекающуюся сумму
+			std::set<const Facet*> condidate;
+
+			for (size_t i = 0; i < result_by_neighbors[0].size(); ++i) {
+				for (size_t j = 0; j < result_by_neighbors[1].size(); ++j) {
+					std::set<const Facet*> current;
+
+					bool not_inter = std::none_of(result_by_neighbors[0][i].begin(), result_by_neighbors[0][i].end(),
+						[&result_by_neighbors, j](const Facet* facet) {
+							return result_by_neighbors[1][j].count(facet) ? true : false;
 						});
-					std::cout << std::string(deep, '\t') << SetFacetToString(facets.data(), result_by_neighbor) << " and " << SetFacetToString(facets.data(), already) << " not_inter = " << not_inter << std::endl;
 					if (not_inter) {
-						already.insert(result_by_neighbor.begin(), result_by_neighbor.end());
-						//++counter;
+						current.insert(result_by_neighbors[0][i].begin(), result_by_neighbors[0][i].end());
+						current.insert(result_by_neighbors[1][j].begin(), result_by_neighbors[1][j].end());
+					}
+					else {
+						if (result_by_neighbors[0][i].size() >= result_by_neighbors[1][j].size()) {
+							current = result_by_neighbors[0][i];
+						}
+						else {
+							current = result_by_neighbors[1][j];
+						}
 					}
 
-					//already.insert(rbn.begin()->begin(), rbn.begin()->end());
+					if (current.size() > condidate.size()) {
+						std::swap(current, condidate);
+					}
 				}
 			}
 
-			/*for (size_t i = 0; i < result_by_neighbors.size() && counter < 2; ++i) {
-				std::set< const Facet*>& result_by_neighbor = result_by_neighbors[i];
-				bool not_inter = std::none_of(already.begin(), already.end(),
-					[&result_by_neighbor](const Facet* facet) {
-						return result_by_neighbor.count(facet) ? true : false;
-					});
-				std::cout << std::string(deep, '\t') << SetFacetToString(facets.data(), result_by_neighbor) << " and " << SetFacetToString(facets.data(), already) << " not_inter = " << not_inter << std::endl;
-				if (not_inter) {
-					already.insert(result_by_neighbor.begin(), result_by_neighbor.end());
-					++counter;
-				}
+			already.insert(condidate.begin(), condidate.end());
 
-			}*/
-
-			std::cout << std::string(deep, '\t') << "return " << already.size() << " " << SetFacetToString(facets.data(), already) << std::endl;
+			std::cout << std::string(deep, '\t') << "return(2) " << already.size() << " " << SetFacetToString(facets.data(), already) << std::endl;
 			return std::move(already);
 		}
 

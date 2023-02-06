@@ -378,15 +378,15 @@ Play::Play(std::ostream& os, std::istream& is)
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 34);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 41);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 42);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 43);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 35);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 26);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 27);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 28);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 36);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 44);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 43);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 45);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 52);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 59);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 12);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 7);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 1);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 0);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 46);
 	game_controller_->PrintPlayer(os_, game_controller_->GetCurrentPlayer());
 
 	while (!game_controller_->Finish()) {

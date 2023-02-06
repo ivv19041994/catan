@@ -223,7 +223,12 @@ namespace ivv{
 			const std::array<Facet, 72> GetFacets() const;
 
 			//std::set<const Facet*> GetLongWay(const Facet* from, const Player* player, std::set<const Facet*> already) const;
-			std::set<const Facet*> GetLongWay(const Facet* from, const Player* player, std::set<const Node*> ban_node, std::set<const Facet*> already, size_t deep = 0)  const;
+			std::set<const Facet*> GetLongWay(
+				const Facet* from, 
+				const Player* player, 
+				std::set<const Node*> ban_node = std::set<const Node*>{}, 
+				std::set<const Facet*> already = std::set<const Facet*>{}, 
+				size_t deep = 0)  const;
 			size_t GetRoadSize(const Player* player) const;
 		};
 
