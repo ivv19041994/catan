@@ -271,15 +271,15 @@ void Play::CommandWinCard(const std::vector<std::string_view>& args) {
 	}
 
 	try {game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::University, {});}
-	catch (logic_error& e) {}
+	catch (logic_error&) {}
 	try { game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::Market, {}); }
-	catch (logic_error& e) {}
+	catch (logic_error&) {}
 	try { game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::GreatHall, {}); }
-	catch (logic_error& e) {}
+	catch (logic_error&) {}
 	try { game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::Chapel, {}); }
-	catch (logic_error& e) {}
+	catch (logic_error&) {}
 	try { game_controller_->UseDevCard(args[1], ivv::catan::DevelopmentCard::Library, {}); }
-	catch (logic_error& e) {}
+	catch (logic_error&) {}
 }
 
 void Play::CommandDeal(const std::vector<std::string_view>& args) {

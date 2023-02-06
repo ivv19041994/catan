@@ -415,7 +415,7 @@ void Map::diceEvent(size_t val)
 	}
 }
 
-bool Map::canPlaceStartBuilding(unsigned int nodeId)
+bool Map::canPlaceStartBuilding(size_t nodeId)
 {
 	Node& n = nodes[nodeId];
 	if (!n.isFree())
@@ -423,7 +423,7 @@ bool Map::canPlaceStartBuilding(unsigned int nodeId)
 	return n.neighborsNodeIsFree();
 }
 
-bool Map::canPlaceBuilding(unsigned int nodeId, const Player& player)
+bool Map::canPlaceBuilding(size_t nodeId, const Player& player)
 {
 	if (!canPlaceStartBuilding(nodeId)) {
 		return false;
@@ -438,7 +438,7 @@ bool Map::canPlaceBuilding(unsigned int nodeId, const Player& player)
 	return false;
 }
 
-bool Map::canPlaceCastle(unsigned int nodeId, const Player& p) const {
+bool Map::canPlaceCastle(size_t nodeId, const Player& p) const {
 	const Node& n = nodes[nodeId];
 	const Building* building = n.getBuilding();
 	if (building == nullptr || building->getPlayer() != &p) {
@@ -448,7 +448,7 @@ bool Map::canPlaceCastle(unsigned int nodeId, const Player& p) const {
 	return (settlement) ? true : false;
 }
 
-void Map::placeCastle(unsigned int nodeId, Player& p) {
+void Map::placeCastle(size_t nodeId, Player& p) {
 	using namespace std::string_literals;
 	if (!canPlaceCastle(nodeId, p)) {
 		throw invalid_argument{ "Node must be settlement of "s + p.getName() + "!"s };
@@ -462,7 +462,7 @@ void Map::placeCastle(unsigned int nodeId, Player& p) {
 }
 
 
-void Map::placeStartBuilding(unsigned int nodeId, Player* p)
+void Map::placeStartBuilding(size_t nodeId, Player* p)
 {
 	Node& n = nodes[nodeId];
 	if (!n.neighborsNodeIsFree())
@@ -470,7 +470,7 @@ void Map::placeStartBuilding(unsigned int nodeId, Player* p)
 	n.setBuilding(p->getFreeSettlement());
 }
 
-void Map::placeSettlement(unsigned int nodeId, Player* p)
+void Map::placeSettlement(size_t nodeId, Player* p)
 {
 	using namespace std::string_literals;
 	Node& n = nodes[nodeId];
@@ -483,7 +483,7 @@ void Map::placeSettlement(unsigned int nodeId, Player* p)
 	n.setBuilding(p->getFreeSettlement());
 }
 
-bool Map::canPlaceRoad(unsigned int facetId, Player* p) const
+bool Map::canPlaceRoad(size_t facetId, Player* p) const
 {
 	if (facetId >= facets.size()) {
 		return false;
@@ -507,7 +507,7 @@ bool Map::canPlaceRoad(unsigned int facetId, Player* p) const
 	return true;
 }
 
-void Map::placeRoad(unsigned int facetId, Player* p)
+void Map::placeRoad(size_t facetId, Player* p)
 {
 	Facet& f = facets[facetId];
 	if (!canPlaceRoad(facetId, p))
@@ -519,19 +519,19 @@ void Map::placeRoad(unsigned int facetId, Player* p)
 	r->SetFacet(&f);
 }
 
-std::set<Gex*> Map::getGexsByNodeId(unsigned int nodeId)
+std::set<Gex*> Map::getGexsByNodeId(size_t nodeId)
 {
 	Node& n = nodes[nodeId];
 	return n.getNeighborGexs();
 }
 
-std::set<Facet*> Map::getFacetsByNodeId(unsigned int nodeId)
+std::set<Facet*> Map::getFacetsByNodeId(size_t nodeId)
 {
 	Node& n = nodes[nodeId];
 	return n.getNeighborFacets();
 }
 
-bool Map::isNodeAndFacetNeighbor(unsigned int nodeId, unsigned int facetId)
+bool Map::isNodeAndFacetNeighbor(size_t nodeId, size_t facetId)
 {
 	if (nodes[nodeId].getNeighborFacets().count(&facets[facetId]))
 		return true;

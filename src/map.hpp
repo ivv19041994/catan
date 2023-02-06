@@ -39,20 +39,20 @@ namespace catan {
 		void diceEvent(std::pair<unsigned int, unsigned int> d);
 		void diceEvent(size_t val);
 
-		bool canPlaceStartBuilding(unsigned int nodeId);
-		void placeStartBuilding(unsigned int nodeId, Player* p);
-		void placeSettlement(unsigned int nodeId, Player* p);
+		bool canPlaceStartBuilding(size_t nodeId);
+		void placeStartBuilding(size_t nodeId, Player* p);
+		void placeSettlement(size_t nodeId, Player* p);
 
-		bool canPlaceCastle(unsigned int nodeId, const Player& p) const;
-		void placeCastle(unsigned int nodeId, Player& p);
+		bool canPlaceCastle(size_t nodeId, const Player& p) const;
+		void placeCastle(size_t nodeId, Player& p);
 
-		bool canPlaceBuilding(unsigned int nodeId, const Player& player);
-		bool canPlaceRoad(unsigned int facetId, Player* p) const;
-		void placeRoad(unsigned int id, Player* p);
+		bool canPlaceBuilding(size_t nodeId, const Player& player);
+		bool canPlaceRoad(size_t facetId, Player* p) const;
+		void placeRoad(size_t id, Player* p);
 
-		std::set<Gex*> getGexsByNodeId(unsigned int nodeId);
-		std::set<Facet*> getFacetsByNodeId(unsigned int nodeId);
-		bool isNodeAndFacetNeighbor(unsigned int nodeId, unsigned int facetId);
+		std::set<Gex*> getGexsByNodeId(size_t nodeId);
+		std::set<Facet*> getFacetsByNodeId(size_t nodeId);
+		bool isNodeAndFacetNeighbor(size_t nodeId, size_t facetId);
 
 		std::array<Gex, gexs_count>& GetGexes();
 		const std::array<Gex, gexs_count>& GetGexes() const;
