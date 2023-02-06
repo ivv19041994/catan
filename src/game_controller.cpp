@@ -641,7 +641,8 @@ void GameController::PrintPlayer(std::ostream& os, std::string_view player) {
 		throw logic_error("Player "s + std::string(player) + " is not created!"s);
 	}
 
-	os << *pplayer->second;
+	os << *pplayer->second << std::endl;
+	os << "Road len = " << std::endl  << map.GetRoadSize(pplayer->second);
 }
 
 void GameController::PrintStep(std::ostream& os) {

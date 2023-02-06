@@ -39,7 +39,7 @@ void MapRenderer::RenderGex(svg::Document& doc, const Gex& gex, svg::Point cente
 
 	doc.Add(
 		svg::Text()
-		.SetFontSize(font_size)
+		.SetFontSize(static_cast<uint32_t>(font_size))
 		.SetFillColor("black")
 		.SetData(gex_text)
 		.SetPosition(scale_center)
@@ -404,6 +404,7 @@ svg::Color MapRenderer::GexTypeToColor(Resurse type) const {
 	case Resurse::Stone: return "rgb(201, 201, 201)";
 	case Resurse::Wood: return "rgb(0,160,0)";
 	}
+	return "black";
 }
 
 svg::Color MapRenderer::PlayerIdToColor(size_t id) const {

@@ -135,6 +135,7 @@ namespace ivv{
 			bool haveNeighborFacetWith(Player *p) const;
 			bool haveNeighborNodeWith(Player *p) const;
 			const Road* getRoad() const;
+			const std::set<Node*>& GetNeighborNodes() const;
 		};
 
 		class Node
@@ -144,7 +145,7 @@ namespace ivv{
 			std::set<Node*> node_neighbor{};
 			Building *building = nullptr;
 
-			std::function<void(Player*)> change_builder_func_;
+			std::function<void(Player*)> change_builder_func_{};
 
 		public:
 			int index;
@@ -162,7 +163,7 @@ namespace ivv{
 			bool isBusyBy(Player *p) const;
 
 			std::set<Gex*> getNeighborGexs();
-			std::set<Facet*> getNeighborFacets();
+			const std::set<Facet*>& getNeighborFacets() const;
 
 			template<typename Func>
 			void SetBuilderChanger(Func func);
@@ -186,7 +187,7 @@ namespace ivv{
 			std::array<Facet, 72> facets;
 			std::array<Node, 54> nodes;
 
-			std::map<unsigned int, std::set<Gex*>> dices;
+			std::map<size_t, std::set<Gex*>> dices;
 
 			void initNode(int node, std::vector<int> nodes, std::vector<int> roads, std::vector<int> gexs);
 			void initNodes();
@@ -220,6 +221,10 @@ namespace ivv{
 			const std::array<Gex, gexs_count>& GetGexes() const;
 			const std::array<Node, 54> GetNodes() const;
 			const std::array<Facet, 72> GetFacets() const;
+
+			//std::set<const Facet*> GetLongWay(const Facet* from, const Player* player, std::set<const Facet*> already) const;
+			std::set<const Facet*> GetLongWay(const Facet* from, const Player* player, std::set<const Node*> ban_node, std::set<const Facet*> already, size_t deep = 0)  const;
+			size_t GetRoadSize(const Player* player) const;
 		};
 
 
@@ -306,6 +311,8 @@ namespace ivv{
 			void ResetKnightCard();
 
 			size_t GetWinPoints() const;
+
+			
 		};
 
 		class out_of_range: public std::out_of_range

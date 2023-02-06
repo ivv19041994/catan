@@ -343,9 +343,9 @@ void Play::CommandMarket(const std::vector<std::string_view>& args) {
 Play::Play(std::ostream& os, std::istream& is) 
 	: os_{ os }
 	, is_{ is } {
-	int players_count;
+	int players_count = 2;
 	
-	while (!(is_ >> players_count)) {
+	/*while (!(is_ >> players_count)) {
 		std::cin.clear(std::istream::failbit);
 	}
 	std::string temp;
@@ -354,9 +354,40 @@ Play::Play(std::ostream& os, std::istream& is)
 	for (int i = 0; i < players_count; i++) {
 		std::getline(is_, temp);
 		players.push_back(std::move(temp));
-	}
+	}*/
+
+	std::string temp;
+	std::vector<std::string> players = { "1", "2" };
 
 	game_controller_ = std::make_unique<GameController>(players);
+
+	game_controller_->BuildSettlement(game_controller_->GetCurrentPlayer(), 9);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 19);
+
+	game_controller_->BuildSettlement(game_controller_->GetCurrentPlayer(), 11);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 14);
+
+	game_controller_->BuildSettlement(game_controller_->GetCurrentPlayer(), 13);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 16);
+
+	game_controller_->BuildSettlement(game_controller_->GetCurrentPlayer(), 42);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 58);
+
+	game_controller_->Dice(game_controller_->GetCurrentPlayer());
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 25);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 34);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 41);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 42);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 43);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 44);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 45);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 52);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 59);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 12);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 7);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 1);
+	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 0);
+	game_controller_->PrintPlayer(os_, game_controller_->GetCurrentPlayer());
 
 	while (!game_controller_->Finish()) {
 

@@ -8,6 +8,7 @@
 #include <iostream>
 #include <algorithm>
 
+
 namespace ivv{
 	namespace catan{
 
@@ -579,6 +580,166 @@ namespace ivv{
 			return facets;
 		}
 
+		size_t Map::GetRoadSize(const Player* player) const {
+			size_t res = 0;
+			for (const Facet& facet : facets) {
+				if (facet.getRoad() && facet.getRoad()->getPlayer() == player) {
+					size_t current = GetLongWay(&facet, player, {}, {}).size();
+					std::cout << "current = " << current << std::endl;
+					res = std::max(res, current);
+				}
+			}
+			return res;
+		}
+		/*
+		std::set<const Facet*> Map::GetLongWay(const Facet* from, const Player* player, std::set<const Facet*> already) const {
+
+			std::set< const Facet*> neighbors;
+			const std::set<Node*>& nodes = from->GetNeighborNodes();
+			std::cout << "Current facet = " << std::distance(facets.data(), from) << std::endl;
+			
+			for (const auto& node : nodes) {
+				if (node->getBuilding() == nullptr || node->getBuilding()->getPlayer() == player) {
+					auto& node_facets = node->getNeighborFacets();
+					for (const Facet* f : node_facets) {
+						if (f != from && already.count(f) == 0 && f->getRoad() && f->getRoad()->getPlayer() == player) {
+							neighbors.insert(f);
+						}
+					}
+				}
+			}
+
+			already.insert(from);
+
+			if (neighbors.size() == 0) {
+				return std::move(already);
+			}
+
+			if (neighbors.size() == 1) {
+				return GetLongWay(*neighbors.begin(), player, std::move(already));
+			}
+
+			std::vector<std::set< const Facet*>> result_by_neighbors;
+			for (auto& neighbor : neighbors) {
+				result_by_neighbors.push_back(GetLongWay(neighbor, player, { from }));
+				result_by_neighbors.back().erase(from);
+			}
+
+			std::sort(result_by_neighbors.begin(), result_by_neighbors.end(), [](const auto& lhs, const auto& rhs) {
+				return lhs.size() > rhs.size();
+				}
+			);
+			size_t counter = 0;
+
+			for (size_t i = 0; i < result_by_neighbors.size() && counter < 2; ++i) {
+				std::set< const Facet*>& result_by_neighbor = result_by_neighbors[i];
+				bool not_inter = std::none_of(already.begin(), already.end(),
+					[&result_by_neighbor](const Facet* facet) {
+						return result_by_neighbor.count(facet) ? true : false;
+					});
+				if (not_inter) {
+					already.insert(result_by_neighbor.begin(), result_by_neighbor.end());
+					++counter;
+				}
+				
+			}
+
+			return std::move(already);
+		}*/
+
+		std::string SetFacetToString(const Facet* first, const std::set<const Facet*>& facets) {
+			std::string ret;
+			for (auto f : facets) {
+				ret += std::to_string(std::distance(first, f)) + ", ";
+			}
+			return ret;
+		}
+
+		std::set<const Facet*> Map::GetLongWay(const Facet* from, const Player* player, std::set<const Node*> ban_node, std::set<const Facet*> already, size_t deep)  const {
+
+			std::set<std::pair< const Facet*, const Node*>> neighbors;
+			const std::set<Node*>& nodes = from->GetNeighborNodes();
+			std::cout << std::string(deep, '\t') << "Current facet = " << std::distance(facets.data(), from) << std::endl;
+
+			for (const auto& node : nodes) {
+				if (ban_node.count(node) == 0 &&
+					(node->getBuilding() == nullptr || node->getBuilding()->getPlayer() == player)) {
+					auto& node_facets = node->getNeighborFacets();
+					for (const Facet* f : node_facets) {
+						if (f != from && already.count(f) == 0 && f->getRoad() && f->getRoad()->getPlayer() == player) {
+							neighbors.insert({ f, node });
+						}
+					}
+				}
+			}
+
+			already.insert(from);
+
+			if (neighbors.size() == 0) {
+				std::cout << std::string(deep, '\t') << "return " << already.size() << " " << SetFacetToString(facets.data(), already) << std::endl;
+				return std::move(already);
+			}
+
+			if (neighbors.size() == 1) {
+				ban_node.insert(neighbors.begin()->second);
+				auto ret = GetLongWay(neighbors.begin()->first, player, std::move(ban_node), std::move(already), deep + 1);
+				std::cout << std::string(deep, '\t') << "return " << ret.size() << " " << SetFacetToString(facets.data(), ret) << std::endl;
+				return ret;
+			}
+
+			std::map< const Node* ,std::vector<std::set< const Facet*>>> result_by_neighbors;
+			for (auto& neighbor : neighbors) {
+				auto ban_node_copy = ban_node;
+				ban_node_copy.insert(neighbor.second);
+				result_by_neighbors[neighbor.second].push_back(GetLongWay(neighbor.first, player, std::move(ban_node_copy), {from}, deep + 1));
+				result_by_neighbors[neighbor.second].back().erase(from);
+			}
+
+			for (auto& [name, rbn] : result_by_neighbors) {
+				std::sort(rbn.begin(), rbn.end(), [](const auto& lhs, const auto& rhs) {
+					return lhs.size() > rhs.size();
+					}
+				);
+				if (rbn.begin()->size()) {
+
+					std::set< const Facet*>& result_by_neighbor = *rbn.begin();
+					bool not_inter = std::none_of(already.begin(), already.end(),
+						[&result_by_neighbor](const Facet* facet) {
+							return result_by_neighbor.count(facet) ? true : false;
+						});
+					std::cout << std::string(deep, '\t') << SetFacetToString(facets.data(), result_by_neighbor) << " and " << SetFacetToString(facets.data(), already) << " not_inter = " << not_inter << std::endl;
+					if (not_inter) {
+						already.insert(result_by_neighbor.begin(), result_by_neighbor.end());
+						//++counter;
+					}
+
+					//already.insert(rbn.begin()->begin(), rbn.begin()->end());
+				}
+			}
+
+			/*for (size_t i = 0; i < result_by_neighbors.size() && counter < 2; ++i) {
+				std::set< const Facet*>& result_by_neighbor = result_by_neighbors[i];
+				bool not_inter = std::none_of(already.begin(), already.end(),
+					[&result_by_neighbor](const Facet* facet) {
+						return result_by_neighbor.count(facet) ? true : false;
+					});
+				std::cout << std::string(deep, '\t') << SetFacetToString(facets.data(), result_by_neighbor) << " and " << SetFacetToString(facets.data(), already) << " not_inter = " << not_inter << std::endl;
+				if (not_inter) {
+					already.insert(result_by_neighbor.begin(), result_by_neighbor.end());
+					++counter;
+				}
+
+			}*/
+
+			std::cout << std::string(deep, '\t') << "return " << already.size() << " " << SetFacetToString(facets.data(), already) << std::endl;
+			return std::move(already);
+		}
+
+
+		const std::set<Node*>& Facet::GetNeighborNodes() const {
+			return node_neighbor;
+		}
+
 
 
 		Gex::Gex()
@@ -689,7 +850,7 @@ namespace ivv{
 			return gex_neighbor;
 		}
 
-		std::set<Facet*> Node::getNeighborFacets()
+		const std::set<Facet*>& Node::getNeighborFacets() const
 		{
 			return facet_neighbor;
 		}

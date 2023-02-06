@@ -30,7 +30,7 @@ void PlayerRanderer::RenderRoad(svg::Document& doc, svg::Point center) const {
 
 	doc.Add(
 		svg::Text()
-		.SetFontSize(font_size)
+		.SetFontSize(static_cast<uint32_t>(font_size))
 		.SetFillColor("black")
 		.SetData(std::to_string(player_.getFreeRoadCount()))
 		.SetPosition(scale_center)
@@ -55,7 +55,7 @@ void PlayerRanderer::RenderSett(svg::Document& doc, svg::Point center) const {
 
 	doc.Add(
 		svg::Text()
-		.SetFontSize(font_size)
+		.SetFontSize(static_cast<uint32_t>(font_size))
 		.SetFillColor("black")
 		.SetData(std::to_string(player_.getFreeSettlementCount()))
 		.SetPosition(scale_center)
@@ -80,7 +80,7 @@ void PlayerRanderer::RenderCastle(svg::Document& doc, svg::Point center) const {
 
 	doc.Add(
 		svg::Text()
-		.SetFontSize(font_size)
+		.SetFontSize(static_cast<uint32_t>(font_size))
 		.SetFillColor("black")
 		.SetData(std::to_string(player_.getFreeCastleCount()))
 		.SetPosition(scale_center)
@@ -105,7 +105,7 @@ void PlayerRanderer::RenderResurse(svg::Document& doc, svg::Point center, Resurs
 
 	doc.Add(
 		svg::Text()
-		.SetFontSize(font_size)
+		.SetFontSize(static_cast<uint32_t>(font_size))
 		.SetFillColor("black")
 		.SetData(std::to_string(count))
 		.SetPosition(scale_center)
@@ -149,7 +149,7 @@ void PlayerRanderer::RenderDevCard(svg::Document& doc, svg::Point center, Develo
 
 	doc.Add(
 		svg::Text()
-		.SetFontSize(font_size)
+		.SetFontSize(static_cast<uint32_t>(font_size))
 		.SetFillColor("black")
 		.SetData(CardToString(card))
 		.SetPosition(scale_center)
@@ -160,7 +160,7 @@ void PlayerRanderer::RenderDevCard(svg::Document& doc, svg::Point center, Develo
 
 	doc.Add(
 		svg::Text()
-		.SetFontSize(font_size)
+		.SetFontSize(static_cast<uint32_t>(font_size))
 		.SetFillColor("black")
 		.SetData(
 			std::to_string(player_.GetReadyForUseCardCount(card)) + "/" +
@@ -207,6 +207,7 @@ svg::Color PlayerRanderer::GexTypeToColor(Resurse type) const {
 	case Resurse::Stone: return "rgb(201, 201, 201)";
 	case Resurse::Wood: return "rgb(0,160,0)";
 	}
+	return "black";
 }
 
 svg::Color PlayerRanderer::PlayerIdToColor(size_t id) const {
