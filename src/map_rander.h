@@ -2,6 +2,7 @@
 
 #include "catan.hpp"
 #include "svg.h"
+#include "map.hpp"
 
 #include <ostream>
 
