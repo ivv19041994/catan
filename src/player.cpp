@@ -1,6 +1,8 @@
 #include "player.hpp"
 
 #include "exception.hpp"
+#include "facet.hpp"
+#include "node.hpp"
 #include <cassert>
 #include <iostream>
 

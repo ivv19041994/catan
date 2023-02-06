@@ -3,6 +3,9 @@
 #include <array>
 #include <vector>
 
+#include "facet.hpp"
+#include "node.hpp"
+#include "gex.hpp"
 #include "catan.hpp"
 
 namespace ivv {
