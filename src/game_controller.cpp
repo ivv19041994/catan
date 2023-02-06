@@ -2,6 +2,7 @@
 
 #include "map_rander.h"
 #include "catan.hpp"
+#include "exception.hpp"
 
 #include <cassert>
 #include <algorithm>

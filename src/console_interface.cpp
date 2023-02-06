@@ -2,6 +2,8 @@
 #include "catan.hpp"
 #include "map_rander.h"
 #include "player_randerer.hpp"
+#include "exception.hpp"
+
 #include <string>
 #include <string_view>
 #include <charconv>

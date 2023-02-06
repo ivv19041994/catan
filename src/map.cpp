@@ -4,6 +4,7 @@
 #include <cassert>
 
 #include "player.hpp"
+#include "exception.hpp"
 
 namespace ivv {
 namespace catan {

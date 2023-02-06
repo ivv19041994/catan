@@ -8,6 +8,7 @@
 #include <iostream>
 #include <algorithm>
 #include "player.hpp"
+#include "exception.hpp"
 
 
 namespace ivv{
@@ -206,15 +207,7 @@ namespace ivv{
 		}
 
 
-		out_of_range::out_of_range(const std::string& what): std::out_of_range{what}
-		{
 
-		}
-
-		invalid_argument::invalid_argument(const std::string& what): std::invalid_argument{what}
-		{
-
-		}
 
 		bool Facet::isFree() const
 		{

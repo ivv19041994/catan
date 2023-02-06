@@ -1,7 +1,9 @@
 #include "player.hpp"
 
+#include "exception.hpp"
 #include <cassert>
 #include <iostream>
+
 
 namespace ivv {
 namespace catan {
