@@ -642,7 +642,7 @@ void GameController::PrintPlayer(std::ostream& os, std::string_view player) {
 	}
 
 	os << *pplayer->second << std::endl;
-	os << "Road len = " << std::endl  << map.GetRoadSize(pplayer->second);
+	//os << "Road len = " << std::endl  << map.GetRoadSize(pplayer->second);
 }
 
 void GameController::PrintStep(std::ostream& os) {

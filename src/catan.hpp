@@ -77,6 +77,11 @@ namespace ivv{
 
 		class Road: public Construction
 		{
+		public:
+			void SetFacet(Facet* facet);
+			Facet* GetFacet() const ;
+		private:
+			Facet* facet_;
 		};
 
 		class Building: public Construction
@@ -222,14 +227,13 @@ namespace ivv{
 			const std::array<Node, 54> GetNodes() const;
 			const std::array<Facet, 72> GetFacets() const;
 
-			//std::set<const Facet*> GetLongWay(const Facet* from, const Player* player, std::set<const Facet*> already) const;
-			std::set<const Facet*> GetLongWay(
-				const Facet* from, 
-				const Player* player, 
-				std::set<const Node*> ban_node = std::set<const Node*>{}, 
-				std::set<const Facet*> already = std::set<const Facet*>{}, 
-				size_t deep = 0)  const;
-			size_t GetRoadSize(const Player* player) const;
+			//std::set<const Facet*> GetLongWay(
+			//	const Facet* from, 
+			//	const Player* player, 
+			//	std::set<const Node*> ban_node = std::set<const Node*>{}, 
+			//	std::set<const Facet*> already = std::set<const Facet*>{}, 
+			//	size_t deep = 0)  const;
+			//size_t GetRoadSize(const Player* player) const;
 		};
 
 
@@ -260,6 +264,13 @@ namespace ivv{
 			};
 
 			size_t GetCardCount(DevelopmentCard card, const std::map<DevelopmentCard, size_t>& card_deque) const;
+
+			std::set<const Facet*> GetLongWay(
+				const Facet* from, 
+				std::set<const Node*> ban_node = std::set<const Node*>{},
+				std::set<const Facet*> already = std::set<const Facet*>{},
+				size_t deep = 0)  const;
+
 		public:
 			explicit Player(std::string name, size_t id);
 			const std::string& getName() const;
@@ -316,6 +327,8 @@ namespace ivv{
 			void ResetKnightCard();
 
 			size_t GetWinPoints() const;
+
+			size_t GetRoadSize() const;
 
 			
 		};
