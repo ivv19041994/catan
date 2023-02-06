@@ -1320,6 +1320,13 @@ namespace ivv{
 			knight_card_ = false;
 		}
 
+		void Player::SetRoadCard() {
+			road_card_ = true;
+		}
+		void Player::ResetRoadCard() {
+			road_card_ = false;
+		}
+
 		size_t Player::GetWinPoints() const {
 			size_t res = 0;
 			res += 5 - getFreeSettlementCount();

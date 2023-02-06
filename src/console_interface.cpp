@@ -378,7 +378,7 @@ Play::Play(std::ostream& os, std::istream& is)
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 34);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 41);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 42);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 35);
+	//game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 35);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 26);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 27);
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 28);

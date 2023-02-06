@@ -325,6 +325,8 @@ namespace ivv{
 
 			void SetKnightCard();
 			void ResetKnightCard();
+			void SetRoadCard();
+			void ResetRoadCard();
 
 			size_t GetWinPoints() const;
 

@@ -216,6 +216,34 @@ void GameController::CheckKnightsCard() {
 	CheckWinner();
 }
 
+void GameController::CheckRoadLen() {
+	Player* condidate = nullptr;
+	size_t condidate_count = 4;
+
+	for (Player& player : players_) {
+		size_t count = player.GetRoadSize();
+		if (count == condidate_count) {
+			condidate = nullptr;
+		}
+		else if (count > condidate_count) {
+			condidate = &player;
+			condidate_count = count;
+		}
+	}
+
+	if (player_roads_ != condidate) {
+		if (player_roads_) {
+			player_roads_->ResetRoadCard();
+		}
+	}
+	player_roads_ = condidate;
+	if (player_roads_) {
+		player_roads_->SetRoadCard();
+	}
+
+	CheckWinner();
+}
+
 void GameController::CheckWinner() {
 	for (Player& player : players_) {
 		if (player.GetWinPoints() >= 10) {
@@ -326,7 +354,7 @@ void GameController::BuildSettlement(std::string_view player, size_t settlement_
 	}
 
 	BuildSettlement(p, settlement_id);
-	CheckWinner();
+	CheckRoadLen();
 }
 
 void GameController::BuildSettlement(Player& player, size_t settlement_id) {
@@ -370,7 +398,7 @@ void GameController::BuildRoad(std::string_view player, size_t road_id) {
 	}
 
 	BuildRoad(p, road_id);
-	CheckWinner();
+	CheckRoadLen();
 }
 
 void GameController::BuildCastle(std::string_view player, size_t settlement_id) {

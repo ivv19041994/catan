@@ -127,6 +127,8 @@ private:
 
 	void CheckKnightsCard();
 
+	void CheckRoadLen();
+
 	void CheckWinner();
 };
 
