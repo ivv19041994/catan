@@ -2,6 +2,7 @@
 
 #include "catan.hpp"
 #include "svg.h"
+#include "player.hpp"
 
 namespace ivv {
 namespace catan {

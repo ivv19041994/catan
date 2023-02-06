@@ -3,6 +3,8 @@
 #include <deque>
 #include <cassert>
 
+#include "player.hpp"
+
 namespace ivv {
 namespace catan {
 

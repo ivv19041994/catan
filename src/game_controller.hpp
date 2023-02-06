@@ -3,6 +3,7 @@
 #include "catan.hpp"
 #include "dice.hpp"
 #include "map.hpp"
+#include "player.hpp"
 
 #include <vector>
 #include <unordered_map>

@@ -3,6 +3,7 @@
 #include "catan.hpp"
 #include "svg.h"
 #include "map.hpp"
+#include "player.hpp"
 
 #include <ostream>
 
