@@ -15,14 +15,14 @@ bool Facet::isFree() const
 	return road == nullptr;
 }
 
-bool Facet::isBusyBy(Player* p) const
+bool Facet::isBusyBy(const Player* p) const
 {
 	if (isFree())
 		return false;
 	return road->getPlayer() == p;
 }
 
-bool Facet::haveNeighborFacetWith(Player* p) const
+bool Facet::haveNeighborFacetWith(const Player* p) const
 {
 	for (auto& facet : facet_neighbor)
 		if (facet->isBusyBy(p))
@@ -30,7 +30,7 @@ bool Facet::haveNeighborFacetWith(Player* p) const
 	return false;
 }
 
-bool Facet::haveNeighborNodeWith(Player* p) const
+bool Facet::haveNeighborNodeWith(const Player* p) const
 {
 	for (auto& node : node_neighbor)
 	{

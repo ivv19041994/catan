@@ -3,6 +3,20 @@
 using namespace ivv::catan;
 
 int main() { return test::Run({
+    {"placement queries expose only currently actionable board targets", [] {
+        test::ControlledGame controlled({"a","b"}); auto& game=*controlled.game;
+        size_t settlement=54;
+        for(size_t i=0;i<54;++i) if(game.CanBuildSettlement(i)){settlement=i;break;}
+        test::Check(settlement<54,"setup exposes a settlement target");
+        test::Check(!game.CanBuildSettlement(54) && !game.CanBuildRoad(72) && !game.CanBuildCastle(54),"query ids are range checked");
+        game.BuildSettlement(game.GetCurrentPlayer(),settlement);
+        size_t road=72;
+        for(size_t i=0;i<72;++i) if(game.CanBuildRoad(i)){road=i;break;}
+        test::Check(road<72,"road query follows the placed setup settlement");
+        const auto resources=test::ResourceCounts(game.GetPlayer(game.GetCurrentPlayer()));
+        test::Check(game.CanBuildRoad(road),"repeated query is stable");
+        test::Check(test::ResourceCounts(game.GetPlayer(game.GetCurrentPlayer()))==resources,"query does not consume resources");
+    }},
     {"new player starts without resource cards", [] {
         Player player("builder", 0);
         test::Equal(player.getCountResurses(), size_t{0}, "Catan players start with no bank resources before setup production");

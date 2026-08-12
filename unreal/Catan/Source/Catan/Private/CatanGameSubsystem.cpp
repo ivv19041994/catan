@@ -134,6 +134,20 @@ void UCatanGameSubsystem::StartLocalGame(const TArray<FString>& Names)
     PendingRobberHex = INDEX_NONE;
     RobberVictims.Reset();
     StatusMessage = TEXT("New local game started");
+    EventLog.Reset();
+    LastResources.Reset();
+    for (const FString& PlayerName : PlayerNames)
+    {
+        const ivv::catan::Player& Player = Game->GetPlayer(TCHAR_TO_UTF8(*PlayerName));
+        FCatanResourceView Resources;
+        Resources.Wood = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Wood));
+        Resources.Clay = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Clay));
+        Resources.Hay = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Hay));
+        Resources.Sheep = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Sheep));
+        Resources.Stone = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Stone));
+        LastResources.Add(PlayerName, Resources);
+    }
+    AppendEvent(StatusMessage);
     OnGameStateChanged.Broadcast();
 }
 
@@ -148,6 +162,7 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
     View.StatusMessage = StatusMessage;
     View.PendingRobberHex = PendingRobberHex;
     View.RobberVictims = RobberVictims;
+    View.EventLog = EventLog;
     const auto Dice = Game->GetLastDice();
     View.FirstDie = static_cast<int32>(Dice.first);
     View.SecondDie = static_cast<int32>(Dice.second);
@@ -228,6 +243,33 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
         {
             Road.OwnerId = static_cast<int32>(CoreRoad->getPlayer()->getId());
         }
+    }
+
+    const bool bSettlementTargets = View.Phase == ECatanGamePhase::SetupSettlement
+        || (View.Phase == ECatanGamePhase::CommonPlay && BoardAction == ECatanBoardAction::BuildSettlement);
+    const bool bCityTargets = View.Phase == ECatanGamePhase::CommonPlay
+        && BoardAction == ECatanBoardAction::BuildCity;
+    if (bSettlementTargets || bCityTargets)
+    {
+        for (int32 Index = 0; Index < static_cast<int32>(View.Nodes.Num()); ++Index)
+        {
+            if ((bCityTargets && Game->CanBuildCastle(Index))
+                || (bSettlementTargets && Game->CanBuildSettlement(Index)))
+                View.ValidNodeTargets.Add(Index);
+        }
+    }
+    const bool bRoadTargets = View.Phase == ECatanGamePhase::SetupRoad
+        || View.Phase == ECatanGamePhase::RoadBuilding
+        || (View.Phase == ECatanGamePhase::CommonPlay && BoardAction == ECatanBoardAction::BuildRoad);
+    if (bRoadTargets)
+    {
+        for (int32 Index = 0; Index < static_cast<int32>(View.Roads.Num()); ++Index)
+            if (Game->CanBuildRoad(Index)) View.ValidRoadTargets.Add(Index);
+    }
+    if (View.Phase == ECatanGamePhase::MoveRobber && PendingRobberHex == INDEX_NONE)
+    {
+        for (int32 Index = 0; Index < static_cast<int32>(View.Hexes.Num()); ++Index)
+            if (Game->CanMoveBandit(Index)) View.ValidHexTargets.Add(Index);
     }
     return View;
 }
@@ -533,6 +575,8 @@ bool UCatanGameSubsystem::CompleteCommand(bool bSucceeded, const FString& Messag
     {
         Error.Reset();
         BoardAction = ECatanBoardAction::Automatic;
+        AppendEvent(Message);
+        CaptureResourceChanges();
     }
     else
     {
@@ -540,4 +584,41 @@ bool UCatanGameSubsystem::CompleteCommand(bool bSucceeded, const FString& Messag
     }
     OnGameStateChanged.Broadcast();
     return bSucceeded;
+}
+
+void UCatanGameSubsystem::AppendEvent(const FString& Message)
+{
+    EventLog.Add(Message);
+    constexpr int32 MaxEvents = 8;
+    if (EventLog.Num() > MaxEvents) EventLog.RemoveAt(0, EventLog.Num() - MaxEvents);
+}
+
+void UCatanGameSubsystem::CaptureResourceChanges()
+{
+    if (!Game) return;
+    constexpr const TCHAR* Names[] = {TEXT("wood"), TEXT("clay"), TEXT("hay"), TEXT("sheep"), TEXT("stone")};
+    for (const FString& PlayerName : PlayerNames)
+    {
+        const ivv::catan::Player& Player = Game->GetPlayer(TCHAR_TO_UTF8(*PlayerName));
+        FCatanResourceView Current;
+        Current.Wood = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Wood));
+        Current.Clay = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Clay));
+        Current.Hay = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Hay));
+        Current.Sheep = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Sheep));
+        Current.Stone = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Stone));
+        const FCatanResourceView* Previous = LastResources.Find(PlayerName);
+        if (Previous)
+        {
+            const int32 Before[] = {Previous->Wood, Previous->Clay, Previous->Hay, Previous->Sheep, Previous->Stone};
+            const int32 After[] = {Current.Wood, Current.Clay, Current.Hay, Current.Sheep, Current.Stone};
+            FString Changes;
+            for (int32 Index = 0; Index < 5; ++Index)
+            {
+                const int32 Delta = After[Index] - Before[Index];
+                if (Delta != 0) Changes += FString::Printf(TEXT("%s%+d %s"), Changes.IsEmpty() ? TEXT("") : TEXT(", "), Delta, Names[Index]);
+            }
+            if (!Changes.IsEmpty()) AppendEvent(FString::Printf(TEXT("%s: %s"), *PlayerName, *Changes));
+        }
+        LastResources.Add(PlayerName, Current);
+    }
 }

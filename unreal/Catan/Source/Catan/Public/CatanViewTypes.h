@@ -137,6 +137,10 @@ struct FCatanGameView
     UPROPERTY(BlueprintReadOnly) int32 PendingRobberHex = INDEX_NONE;
     UPROPERTY(BlueprintReadOnly) TArray<FString> RobberVictims;
     UPROPERTY(BlueprintReadOnly) FCatanDealView ActiveDeal;
+    UPROPERTY(BlueprintReadOnly) TArray<int32> ValidNodeTargets;
+    UPROPERTY(BlueprintReadOnly) TArray<int32> ValidRoadTargets;
+    UPROPERTY(BlueprintReadOnly) TArray<int32> ValidHexTargets;
+    UPROPERTY(BlueprintReadOnly) TArray<FString> EventLog;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanPlayerView> Players;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanHexView> Hexes;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanNodeView> Nodes;
