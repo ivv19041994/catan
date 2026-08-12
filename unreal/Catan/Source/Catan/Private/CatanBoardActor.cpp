@@ -8,6 +8,8 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "ProceduralMeshComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundWaveProcedural.h"
 
 #include <cmath>
 
@@ -113,7 +115,7 @@ UMaterialInstanceDynamic* ColoredMaterial(UObject* Owner, UMaterialInterface* Ba
 
 ACatanBoardActor::ACatanBoardActor()
 {
-    PrimaryActorTick.bCanEverTick = false;
+    PrimaryActorTick.bCanEverTick = true;
     SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
     RootComponent = SceneRoot;
     HexMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("HexMesh"));
@@ -152,6 +154,13 @@ void ACatanBoardActor::BuildBoard()
     BuildNodes();
     BuildRoads();
     BuildPorts();
+    BuildDice();
+}
+
+void ACatanBoardActor::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+    AnimateFeedback(DeltaSeconds);
 }
 
 UStaticMeshComponent* ACatanBoardActor::AddDecoration(const FString& Name, UStaticMesh* Mesh,
@@ -205,13 +214,6 @@ void ACatanBoardActor::BuildHexes()
     UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     if (!Subsystem) return;
     const FCatanGameView View = Subsystem->GetSnapshot();
-    for (int32 Index = 0; Index < Labels.Num() && Index < View.Hexes.Num(); ++Index)
-    {
-        const FCatanHexView& Hex = View.Hexes[Index];
-        Labels[Index]->SetText(FText::FromString(Hex.bHasRobber
-            ? FString::Printf(TEXT("%d\nB"), Index)
-            : FString::Printf(TEXT("%d\n%d"), Index, Hex.Dice)));
-    }
     const TArray<FVector> Centers = HexCenters();
 
     for (int32 Index = 0; Index < Centers.Num(); ++Index)
@@ -443,11 +445,117 @@ void ACatanBoardActor::BuildPorts()
     }
 }
 
+void ACatanBoardActor::BuildDice()
+{
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    for (int32 Index = 0; Index < 2; ++Index)
+    {
+        const FVector Position(-95.0f + Index * 190.0f, -1030.0f, 70.0f);
+        UStaticMeshComponent* Die = AddDecoration(FString::Printf(TEXT("Die%d"), Index), Cube,
+            Position, FVector(0.58f), FLinearColor(0.94f, 0.88f, 0.70f), FRotator(12, Index * 23.0f, 8));
+        DicePieces.Add(Die);
+        UTextRenderComponent* Label = NewObject<UTextRenderComponent>(this, *FString::Printf(TEXT("DieLabel%d"), Index));
+        Label->SetupAttachment(SceneRoot);
+        Label->RegisterComponent();
+        Label->SetRelativeLocation(Position + FVector(0, 0, 66));
+        Label->SetRelativeRotation(FRotator(90, 180, 0));
+        Label->SetHorizontalAlignment(EHTA_Center);
+        Label->SetVerticalAlignment(EVRTA_TextCenter);
+        Label->SetWorldSize(48.0f);
+        Label->SetTextRenderColor(FColor(55, 35, 22));
+        Label->SetText(FText::FromString(TEXT("?")));
+        DiceLabels.Add(Label);
+    }
+}
+
+void ACatanBoardActor::PlayFeedbackTone(float Frequency, float Duration, float Volume)
+{
+    constexpr int32 SampleRate = 24000;
+    const int32 SampleCount = FMath::Max(1, FMath::RoundToInt(SampleRate * Duration));
+    TArray<int16> Samples;
+    Samples.SetNumUninitialized(SampleCount);
+    for (int32 Index = 0; Index < SampleCount; ++Index)
+    {
+        const float Time = static_cast<float>(Index) / SampleRate;
+        const float Envelope = FMath::Square(1.0f - static_cast<float>(Index) / SampleCount);
+        const float Fundamental = FMath::Sin(2.0f * PI * Frequency * Time);
+        const float Harmonic = 0.25f * FMath::Sin(2.0f * PI * Frequency * 2.0f * Time);
+        Samples[Index] = static_cast<int16>(FMath::Clamp((Fundamental + Harmonic) * Envelope * Volume, -1.0f, 1.0f) * 32767.0f);
+    }
+    FeedbackSound = NewObject<USoundWaveProcedural>(this);
+    FeedbackSound->SetSampleRate(SampleRate);
+    FeedbackSound->NumChannels = 1;
+    FeedbackSound->Duration = Duration;
+    FeedbackSound->SoundGroup = SOUNDGROUP_UI;
+    FeedbackSound->QueueAudio(reinterpret_cast<const uint8*>(Samples.GetData()), Samples.Num() * sizeof(int16));
+    UGameplayStatics::PlaySound2D(this, FeedbackSound);
+}
+
+void ACatanBoardActor::AnimateFeedback(float DeltaSeconds)
+{
+    if (DiceAnimationRemaining > 0.0f)
+    {
+        DiceAnimationRemaining = FMath::Max(0.0f, DiceAnimationRemaining - DeltaSeconds);
+        const float Alpha = DiceAnimationRemaining / 0.85f;
+        for (int32 Index = 0; Index < DicePieces.Num(); ++Index)
+        {
+            const float Bounce = FMath::Abs(FMath::Sin((1.0f - Alpha) * PI * 3.0f)) * 120.0f * Alpha;
+            DicePieces[Index]->SetRelativeLocation(FVector(-95.0f + Index * 190.0f, -1030.0f, 70.0f + Bounce));
+            DicePieces[Index]->AddRelativeRotation(FRotator(420.0f * DeltaSeconds, 540.0f * DeltaSeconds, 310.0f * DeltaSeconds));
+            DiceLabels[Index]->SetRelativeLocation(DicePieces[Index]->GetRelativeLocation() + FVector(0, 0, 66));
+        }
+    }
+    if (RobberPiece && RobberTop)
+    {
+        const FVector BodyTarget = RobberTarget + FVector(0, 0, 46);
+        RobberPiece->SetRelativeLocation(FMath::VInterpTo(RobberPiece->GetRelativeLocation(), BodyTarget, DeltaSeconds, 5.5f));
+        RobberTop->SetRelativeLocation(RobberPiece->GetRelativeLocation() + FVector(0, 0, 36));
+    }
+    if (PieceAnimationRemaining > 0.0f)
+    {
+        PieceAnimationRemaining = FMath::Max(0.0f, PieceAnimationRemaining - DeltaSeconds);
+        for (int32 Index = 0; Index < BuildingBodies.Num() && Index < BuildingBodyTargets.Num(); ++Index)
+        {
+            if (!BuildingBodies[Index]->bHiddenInGame)
+                BuildingBodies[Index]->SetRelativeScale3D(FMath::VInterpTo(BuildingBodies[Index]->GetRelativeScale3D(), BuildingBodyTargets[Index], DeltaSeconds, 12.0f));
+            if (!BuildingRoofs[Index]->bHiddenInGame)
+                BuildingRoofs[Index]->SetRelativeScale3D(FMath::VInterpTo(BuildingRoofs[Index]->GetRelativeScale3D(), BuildingRoofTargets[Index], DeltaSeconds, 12.0f));
+        }
+        for (int32 Index = 0; Index < RoadSlots.Num() && Index < RoadScaleTargets.Num(); ++Index)
+            RoadSlots[Index]->SetRelativeScale3D(FMath::VInterpTo(RoadSlots[Index]->GetRelativeScale3D(), RoadScaleTargets[Index], DeltaSeconds, 12.0f));
+    }
+}
+
 void ACatanBoardActor::RefreshPieces()
 {
     UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     if (!Subsystem) return;
     const FCatanGameView View = Subsystem->GetSnapshot();
+    if ((View.FirstDie != PreviousFirstDie || View.SecondDie != PreviousSecondDie) && View.FirstDie > 0)
+    {
+        PreviousFirstDie = View.FirstDie;
+        PreviousSecondDie = View.SecondDie;
+        DiceAnimationRemaining = 0.85f;
+        if (DiceLabels.Num() == 2)
+        {
+            DiceLabels[0]->SetText(FText::AsNumber(View.FirstDie));
+            DiceLabels[1]->SetText(FText::AsNumber(View.SecondDie));
+        }
+        PlayFeedbackTone(135.0f, 0.16f, 0.22f);
+    }
+    if (!PreviousStatus.IsEmpty() && PreviousStatus != View.StatusMessage)
+    {
+        if (View.StatusMessage.Contains(TEXT("built"), ESearchCase::IgnoreCase)) PlayFeedbackTone(420.0f, 0.18f);
+        else if (View.StatusMessage.Contains(TEXT("trade"), ESearchCase::IgnoreCase)) PlayFeedbackTone(620.0f, 0.12f);
+        else if (View.StatusMessage.Contains(TEXT("Robber"), ESearchCase::IgnoreCase)) PlayFeedbackTone(92.0f, 0.28f, 0.24f);
+        else if (View.StatusMessage.Contains(TEXT("card"), ESearchCase::IgnoreCase)) PlayFeedbackTone(760.0f, 0.14f);
+    }
+    PreviousStatus = View.StatusMessage;
+    if (PreviousNodeOwners.Num() != View.Nodes.Num()) PreviousNodeOwners.Init(INDEX_NONE, View.Nodes.Num());
+    if (PreviousRoadOwners.Num() != View.Roads.Num()) PreviousRoadOwners.Init(INDEX_NONE, View.Roads.Num());
+    BuildingBodyTargets.SetNum(View.Nodes.Num());
+    BuildingRoofTargets.SetNum(View.Nodes.Num());
+    RoadScaleTargets.SetNum(View.Roads.Num());
     bool bLayoutChanged = RenderedHexResources.Num() != View.Hexes.Num();
     for (int32 Index = 0; !bLayoutChanged && Index < View.Hexes.Num(); ++Index)
         bLayoutChanged = RenderedHexResources[Index] != static_cast<uint8>(View.Hexes[Index].Resource);
@@ -469,14 +577,20 @@ void ACatanBoardActor::RefreshPieces()
             : ((Hex.Dice == 6 || Hex.Dice == 8) ? FColor(190, 24, 18) : FColor(45, 30, 18)));
         if (Hex.bHasRobber && RobberPiece && RobberTop)
         {
-            const FVector RobberLocation = HexCenters()[Index] + FVector(72, -68, 0);
-            RobberPiece->SetRelativeLocation(RobberLocation + FVector(0, 0, 46));
-            RobberTop->SetRelativeLocation(RobberLocation + FVector(0, 0, 82));
+            RobberTarget = HexCenters()[Index] + FVector(72, -68, 0);
+            if (RobberPiece->GetRelativeLocation().IsNearlyZero())
+            {
+                RobberPiece->SetRelativeLocation(RobberTarget + FVector(0, 0, 46));
+                RobberTop->SetRelativeLocation(RobberTarget + FVector(0, 0, 82));
+            }
         }
     }
     for (int32 Index=0; Index<NodeSlots.Num() && Index<View.Nodes.Num(); ++Index)
     {
         const FCatanNodeView& Node = View.Nodes[Index];
+        const bool bNewBuilding = PreviousNodeOwners[Index] != Node.OwnerId && Node.OwnerId != INDEX_NONE;
+        if (bNewBuilding) PieceAnimationRemaining = 0.45f;
+        PreviousNodeOwners[Index] = Node.OwnerId;
         const bool bValidTarget = View.ValidNodeTargets.Contains(Index);
         FLinearColor Color = Node.OwnerId != INDEX_NONE ? PlayerColor(Node.OwnerId) : FLinearColor(0.08f,0.1f,0.12f);
         if (bValidTarget) Color = FMath::Lerp(Color, FLinearColor(0.05f, 0.95f, 0.85f), 0.72f);
@@ -495,20 +609,26 @@ void ACatanBoardActor::RefreshPieces()
                     : PlayerColor(Node.OwnerId);
                 Cast<UMaterialInstanceDynamic>(BuildingBodies[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), BuildingColor);
                 Cast<UMaterialInstanceDynamic>(BuildingRoofs[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), BuildingColor * 0.62f);
-                BuildingBodies[Index]->SetRelativeScale3D(Node.bIsCity ? FVector(0.42f, 0.34f, 0.48f) : FVector(0.25f, 0.25f, 0.32f));
-                BuildingRoofs[Index]->SetRelativeScale3D(Node.bIsCity ? FVector(0.47f, 0.39f, 0.25f) : FVector(0.31f, 0.31f, 0.22f));
+                BuildingBodyTargets[Index] = Node.bIsCity ? FVector(0.42f, 0.34f, 0.48f) : FVector(0.25f, 0.25f, 0.32f);
+                BuildingRoofTargets[Index] = Node.bIsCity ? FVector(0.47f, 0.39f, 0.25f) : FVector(0.31f, 0.31f, 0.22f);
+                BuildingBodies[Index]->SetRelativeScale3D(bNewBuilding ? BuildingBodyTargets[Index] * 1.35f : BuildingBodyTargets[Index]);
+                BuildingRoofs[Index]->SetRelativeScale3D(bNewBuilding ? BuildingRoofTargets[Index] * 1.35f : BuildingRoofTargets[Index]);
             }
         }
     }
     for (int32 Index=0; Index<RoadSlots.Num() && Index<View.Roads.Num(); ++Index)
     {
         const FCatanRoadView& Road = View.Roads[Index];
+        const bool bNewRoad = PreviousRoadOwners[Index] != Road.OwnerId && Road.OwnerId != INDEX_NONE;
+        if (bNewRoad) PieceAnimationRemaining = 0.45f;
+        PreviousRoadOwners[Index] = Road.OwnerId;
         const bool bValidTarget = View.ValidRoadTargets.Contains(Index);
         FLinearColor Color = Road.OwnerId != INDEX_NONE ? PlayerColor(Road.OwnerId) : FLinearColor(0.14f,0.15f,0.16f);
         if (bValidTarget) Color = FLinearColor(0.05f, 0.95f, 0.85f);
         Cast<UMaterialInstanceDynamic>(RoadSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
-        RoadSlots[Index]->SetRelativeScale3D(bValidTarget ? FVector(1.9f,0.15f,0.11f)
-            : (Road.OwnerId != INDEX_NONE ? FVector(1.9f,0.12f,0.09f) : FVector(1.9f,0.07f,0.05f)));
+        RoadScaleTargets[Index] = bValidTarget ? FVector(1.9f,0.15f,0.11f)
+            : (Road.OwnerId != INDEX_NONE ? FVector(1.9f,0.12f,0.09f) : FVector(1.9f,0.07f,0.05f));
+        RoadSlots[Index]->SetRelativeScale3D(bNewRoad ? RoadScaleTargets[Index] * 1.35f : RoadScaleTargets[Index]);
     }
 }
 
