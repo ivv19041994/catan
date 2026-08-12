@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "CatanViewTypes.h"
+#include "CatanNetworkTypes.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "game_controller.hpp"
 
@@ -23,6 +24,10 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="Catan")
     void StartLocalGame(const TArray<FString>& Names);
+
+    void NotifyNetworkStateChanged();
+    void PublishAuthoritativeState();
+    bool HasAuthoritativeGame() const { return Game != nullptr; }
 
     UFUNCTION(BlueprintPure, Category="Catan")
     FCatanGameView GetSnapshot() const;
@@ -92,4 +97,8 @@ private:
     void AppendEvent(const FString& Message);
     void CaptureResourceChanges();
     void CaptureAwards();
+    bool RouteRemoteCommand(ECatanServerCommand Command, int32 First, int32 Second,
+        const FString& Text, const FCatanResourceView& FirstResources,
+        const FCatanResourceView& SecondResources, FString& Error);
+    FCatanGameView BuildAuthoritativeSnapshot() const;
 };

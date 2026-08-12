@@ -11,7 +11,8 @@ public class Catan : ModuleRules
 
         PublicDependencyModuleNames.AddRange(new[] {
             "Core", "CoreUObject", "Engine", "InputCore", "ProceduralMeshComponent",
-            "UMG", "Slate", "SlateCore", "CommonUI"
+            "UMG", "Slate", "SlateCore", "CommonUI", "OnlineSubsystem",
+            "OnlineSubsystemUtils", "Sockets", "Networking"
         });
 
         string CoreSource = Path.GetFullPath(Path.Combine(ModuleDirectory, "../../../../src"));

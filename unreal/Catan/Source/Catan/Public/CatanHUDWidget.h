@@ -10,6 +10,7 @@ class UCommonTextBlock;
 class UComboBoxString;
 class UEditableTextBox;
 class UCatanGameSubsystem;
+class UCatanNetworkSubsystem;
 class UBorder;
 class USpinBox;
 class UVerticalBox;
@@ -29,6 +30,7 @@ protected:
 
 private:
     UPROPERTY(Transient) TObjectPtr<UCatanGameSubsystem> GameSubsystem;
+    UPROPERTY(Transient) TObjectPtr<UCatanNetworkSubsystem> NetworkSubsystem;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> PhaseText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DiceText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> PlayersText;
@@ -70,6 +72,14 @@ private:
     UPROPERTY(Transient) TArray<TObjectPtr<UEditableTextBox>> PlayerNameInputs;
     UPROPERTY(Transient) TArray<TObjectPtr<UCommonTextBlock>> PlayerSlotLabels;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> ConfirmationText;
+    UPROPERTY(Transient) TObjectPtr<UEditableTextBox> LobbyNameInput;
+    UPROPERTY(Transient) TObjectPtr<UEditableTextBox> ManualAddressInput;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> LobbyResults;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> NetworkStatusText;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> LobbyPlayersText;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> LobbyAddressText;
+    UPROPERTY(Transient) TObjectPtr<UButton> ReadyButton;
+    UPROPERTY(Transient) TObjectPtr<UButton> StartLobbyButton;
 
     FString LastDropPlayer;
     bool bDevelopmentPanelOpen = false;
@@ -114,6 +124,13 @@ private:
     UFUNCTION() void ConfirmExpensiveAction();
     UFUNCTION() void CancelExpensiveAction();
     UFUNCTION() void QuitGame();
+    UFUNCTION() void HostLanLobby();
+    UFUNCTION() void FindLanLobbies();
+    UFUNCTION() void JoinSelectedLobby();
+    UFUNCTION() void JoinManualLobby();
+    UFUNCTION() void ToggleLobbyReady();
+    UFUNCTION() void StartLobbyMatch();
+    UFUNCTION() void LeaveLobby();
 
     void ChooseVictim(int32 Index);
     void PlayDevelopmentCard(ECatanDevelopmentCard Card);

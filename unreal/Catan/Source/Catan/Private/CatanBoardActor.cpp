@@ -208,6 +208,7 @@ FQuat DieResultRotation(int32 Value, int32 DieIndex)
 ACatanBoardActor::ACatanBoardActor()
 {
     PrimaryActorTick.bCanEverTick = true;
+    bReplicates = true;
     SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
     RootComponent = SceneRoot;
     HexMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("HexMesh"));

@@ -1,5 +1,10 @@
 #include "CatanGameSubsystem.h"
 
+#include "CatanGameState.h"
+#include "CatanPlayerController.h"
+#include "CatanPlayerState.h"
+#include "Engine/World.h"
+#include "Kismet/GameplayStatics.h"
 #include "game_controller.hpp"
 
 #include <sstream>
@@ -111,7 +116,6 @@ UCatanGameSubsystem::~UCatanGameSubsystem() = default;
 void UCatanGameSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
-    StartLocalGame(TArray<FString>{TEXT("Player 1"), TEXT("Player 2")});
 }
 
 void UCatanGameSubsystem::Deinitialize()
@@ -154,6 +158,29 @@ void UCatanGameSubsystem::StartLocalGame(const TArray<FString>& Names)
 }
 
 FCatanGameView UCatanGameSubsystem::GetSnapshot() const
+{
+    const UWorld* World = GetWorld();
+    const ACatanGameState* State = World ? World->GetGameState<ACatanGameState>() : nullptr;
+    if (State && State->NetworkMode == ECatanNetworkMode::Playing)
+    {
+        FCatanGameView View = State->PublicView;
+        if (const APlayerController* Controller = UGameplayStatics::GetPlayerController(World, 0))
+            if (const ACatanPlayerState* PlayerState = Controller->GetPlayerState<ACatanPlayerState>())
+                if (FCatanPlayerView* Player = View.Players.FindByPredicate([PlayerState](const FCatanPlayerView& Item)
+                    { return Item.Name == PlayerState->GetPlayerName(); }))
+                {
+                    Player->Resources = PlayerState->PrivateView.Resources;
+                    Player->Knights = PlayerState->PrivateView.Knights;
+                    Player->RoadBuildingCards = PlayerState->PrivateView.RoadBuildingCards;
+                    Player->YearOfPlentyCards = PlayerState->PrivateView.YearOfPlentyCards;
+                    Player->MonopolyCards = PlayerState->PrivateView.MonopolyCards;
+                }
+        return View;
+    }
+    return BuildAuthoritativeSnapshot();
+}
+
+FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
 {
     FCatanGameView View;
     if (!Game) return View;
@@ -285,11 +312,7 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
 
 bool UCatanGameSubsystem::TryBuildSettlement(int32 NodeId, FString& Error)
 {
-    if (!Game)
-    {
-        Error = TEXT("Game is not initialized");
-        return false;
-    }
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::BuildSettlement, NodeId, 0, FString(), {}, {}, Error);
     try
     {
         Game->BuildSettlement(Game->GetCurrentPlayer(), static_cast<size_t>(NodeId));
@@ -303,11 +326,7 @@ bool UCatanGameSubsystem::TryBuildSettlement(int32 NodeId, FString& Error)
 
 bool UCatanGameSubsystem::TryBuildRoad(int32 RoadId, FString& Error)
 {
-    if (!Game)
-    {
-        Error = TEXT("Game is not initialized");
-        return false;
-    }
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::BuildRoad, RoadId, 0, FString(), {}, {}, Error);
     try
     {
         Game->BuildRoad(Game->GetCurrentPlayer(), static_cast<size_t>(RoadId));
@@ -321,7 +340,7 @@ bool UCatanGameSubsystem::TryBuildRoad(int32 RoadId, FString& Error)
 
 bool UCatanGameSubsystem::TryBuildCity(int32 NodeId, FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::BuildCity, NodeId, 0, FString(), {}, {}, Error);
     try
     {
         Game->BuildCastle(Game->GetCurrentPlayer(), static_cast<size_t>(NodeId));
@@ -335,7 +354,7 @@ bool UCatanGameSubsystem::TryBuildCity(int32 NodeId, FString& Error)
 
 bool UCatanGameSubsystem::TryMoveRobber(int32 HexId, FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::MoveRobber, HexId, 0, FString(), {}, {}, Error);
     if (HexId < 0 || HexId >= static_cast<int32>(Game->GetMap().GetGexes().size()))
     {
         return CompleteCommand(false, TEXT("Invalid robber hex"), Error);
@@ -385,7 +404,8 @@ bool UCatanGameSubsystem::TryMoveRobber(int32 HexId, FString& Error)
 
 bool UCatanGameSubsystem::TryChooseRobberVictim(const FString& Victim, FString& Error)
 {
-    if (!Game || PendingRobberHex == INDEX_NONE)
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::ChooseRobberVictim, 0, 0, Victim, {}, {}, Error);
+    if (PendingRobberHex == INDEX_NONE)
     {
         return CompleteCommand(false, TEXT("Choose a robber hex first"), Error);
     }
@@ -408,7 +428,7 @@ bool UCatanGameSubsystem::TryChooseRobberVictim(const FString& Victim, FString& 
 
 bool UCatanGameSubsystem::TryDropResources(const FCatanResourceView& Resources, FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::DropResources, 0, 0, FString(), Resources, {}, Error);
     std::map<ivv::catan::Resurse, size_t> Drop;
     auto Add = [&Drop](ivv::catan::Resurse Resource, int32 Count)
     {
@@ -432,7 +452,7 @@ bool UCatanGameSubsystem::TryDropResources(const FCatanResourceView& Resources, 
 
 bool UCatanGameSubsystem::TryRollDice(FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::RollDice, 0, 0, FString(), {}, {}, Error);
     try
     {
         Game->Dice(Game->GetCurrentPlayer());
@@ -446,7 +466,7 @@ bool UCatanGameSubsystem::TryRollDice(FString& Error)
 
 bool UCatanGameSubsystem::TryBuyDevelopmentCard(FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::BuyDevelopmentCard, 0, 0, FString(), {}, {}, Error);
     try
     {
         Game->DevCard(Game->GetCurrentPlayer());
@@ -460,7 +480,7 @@ bool UCatanGameSubsystem::TryBuyDevelopmentCard(FString& Error)
 
 bool UCatanGameSubsystem::TryPass(FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::Pass, 0, 0, FString(), {}, {}, Error);
     try
     {
         Game->Pass(Game->GetCurrentPlayer());
@@ -475,7 +495,9 @@ bool UCatanGameSubsystem::TryPass(FString& Error)
 bool UCatanGameSubsystem::TryUseDevelopmentCard(ECatanDevelopmentCard Card,
     ECatanResource FirstResource, ECatanResource SecondResource, FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::UseDevelopmentCard,
+        static_cast<int32>(Card), static_cast<int32>(FirstResource),
+        FString::FromInt(static_cast<int32>(SecondResource)), {}, {}, Error);
     using ivv::catan::DevelopmentCard;
     DevelopmentCard CoreCard = DevelopmentCard::Knights;
     ivv::catan::GameController::UseDevCardParam Param;
@@ -509,7 +531,8 @@ bool UCatanGameSubsystem::TryUseDevelopmentCard(ECatanDevelopmentCard Card,
 
 bool UCatanGameSubsystem::TryBankTrade(ECatanResource From, ECatanResource To, FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::BankTrade,
+        static_cast<int32>(From), static_cast<int32>(To), FString(), {}, {}, Error);
     if (From == To || From == ECatanResource::Desert || To == ECatanResource::Desert)
     {
         return CompleteCommand(false, TEXT("Choose two different resources"), Error);
@@ -528,7 +551,7 @@ bool UCatanGameSubsystem::TryBankTrade(ECatanResource From, ECatanResource To, F
 bool UCatanGameSubsystem::TryOfferTrade(const FCatanResourceView& Offered,
     const FCatanResourceView& Requested, FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::OfferTrade, 0, 0, FString(), Offered, Requested, Error);
     try
     {
         Game->SetDeal(Game->GetCurrentPlayer(), ToResourceMap(Offered), ToResourceMap(Requested));
@@ -542,7 +565,7 @@ bool UCatanGameSubsystem::TryOfferTrade(const FCatanResourceView& Offered,
 
 bool UCatanGameSubsystem::TryAcceptTrade(const FString& Player, FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::AcceptTrade, 0, 0, FString(), {}, {}, Error);
     const auto& Deal = Game->GetActivDeal();
     if (!Deal) return CompleteCommand(false, TEXT("There is no active trade"), Error);
     try
@@ -558,7 +581,7 @@ bool UCatanGameSubsystem::TryAcceptTrade(const FString& Player, FString& Error)
 
 bool UCatanGameSubsystem::TryCancelTrade(const FString& Player, FString& Error)
 {
-    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (!Game) return RouteRemoteCommand(ECatanServerCommand::CancelTrade, 0, 0, FString(), {}, {}, Error);
     try
     {
         Game->CancelDeal(TCHAR_TO_UTF8(*Player));
@@ -572,9 +595,17 @@ bool UCatanGameSubsystem::TryCancelTrade(const FString& Player, FString& Error)
 
 void UCatanGameSubsystem::SelectBoardAction(ECatanBoardAction Action)
 {
+    if (!Game)
+    {
+        FString Error;
+        RouteRemoteCommand(ECatanServerCommand::SelectBoardAction, static_cast<int32>(Action), 0,
+            FString(), {}, {}, Error);
+        return;
+    }
     BoardAction = Action;
     StatusMessage = TEXT("Select a target on the board");
     OnGameStateChanged.Broadcast();
+    PublishAuthoritativeState();
 }
 
 bool UCatanGameSubsystem::CompleteCommand(bool bSucceeded, const FString& Message, FString& Error)
@@ -593,7 +624,59 @@ bool UCatanGameSubsystem::CompleteCommand(bool bSucceeded, const FString& Messag
         Error = Message;
     }
     OnGameStateChanged.Broadcast();
+    if (bSucceeded) PublishAuthoritativeState();
     return bSucceeded;
+}
+
+bool UCatanGameSubsystem::RouteRemoteCommand(ECatanServerCommand Command, int32 First, int32 Second,
+    const FString& Text, const FCatanResourceView& FirstResources,
+    const FCatanResourceView& SecondResources, FString& Error)
+{
+    if (UWorld* World = GetWorld())
+        if (ACatanPlayerController* Controller = Cast<ACatanPlayerController>(UGameplayStatics::GetPlayerController(World, 0)))
+        {
+            Controller->ServerExecuteCatanCommand(Command, First, Second, Text, FirstResources, SecondResources);
+            Error.Reset();
+            return true;
+        }
+    Error = TEXT("Not connected to the game host");
+    return false;
+}
+
+void UCatanGameSubsystem::NotifyNetworkStateChanged()
+{
+    OnGameStateChanged.Broadcast();
+}
+
+void UCatanGameSubsystem::PublishAuthoritativeState()
+{
+    if (!Game || !GetWorld() || GetWorld()->GetNetMode() == NM_Client) return;
+    ACatanGameState* State = GetWorld()->GetGameState<ACatanGameState>();
+    if (!State) return;
+    FCatanGameView Public = BuildAuthoritativeSnapshot();
+    for (FCatanPlayerView& Player : Public.Players)
+    {
+        FCatanPrivatePlayerView Private;
+        Private.Resources = Player.Resources;
+        Private.DevelopmentCards = Player.DevelopmentCards;
+        Private.Knights = Player.Knights;
+        Private.RoadBuildingCards = Player.RoadBuildingCards;
+        Private.YearOfPlentyCards = Player.YearOfPlentyCards;
+        Private.MonopolyCards = Player.MonopolyCards;
+        Player.Resources = {};
+        Player.Knights = Player.RoadBuildingCards = Player.YearOfPlentyCards = Player.MonopolyCards = 0;
+        for (APlayerState* BaseState : State->PlayerArray)
+            if (ACatanPlayerState* PlayerState = Cast<ACatanPlayerState>(BaseState))
+                if (PlayerState->GetPlayerName() == Player.Name)
+                {
+                    PlayerState->PrivateView = Private;
+                    PlayerState->ForceNetUpdate();
+                    break;
+                }
+    }
+    State->PublicView = MoveTemp(Public);
+    State->ForceNetUpdate();
+    State->NotifyLocalProxy();
 }
 
 void UCatanGameSubsystem::AppendEvent(const FString& Message)
