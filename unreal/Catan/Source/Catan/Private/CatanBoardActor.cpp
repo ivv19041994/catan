@@ -1127,10 +1127,10 @@ void ACatanBoardActor::RefreshPieces()
         const FCatanHexView& Hex = View.Hexes[Index];
         const int32 RolledTotal = View.FirstDie + View.SecondDie;
         if (HexLabelSizeTargets.IsValidIndex(Index))
-            HexLabelSizeTargets[Index] = View.FirstDie > 0 && Hex.Dice == RolledTotal ? 78.0f : 48.0f;
+            HexLabelSizeTargets[Index] = View.FirstDie > 0 && Hex.Dice == RolledTotal ? 96.0f : 48.0f;
         if (HexTokenScaleTargets.IsValidIndex(Index))
             HexTokenScaleTargets[Index] = View.FirstDie > 0 && Hex.Dice == RolledTotal
-                ? FVector(0.88f, 0.88f, 0.105f)
+                ? FVector(1.24f, 1.24f, 0.16f)
                 : FVector(0.62f, 0.62f, 0.08f);
         const bool bValidTarget = View.ValidHexTargets.Contains(Index);
         Labels[Index]->SetText(Hex.Dice > 0
