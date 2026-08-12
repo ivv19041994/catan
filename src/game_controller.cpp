@@ -598,12 +598,12 @@ void GameController::BanditMove(std::string_view player, size_t gex_id, std::str
 
 void GameController::BanditMove(Player& player, Gex& gex, Player* other_payer) {
 
-	size_t count_building = 0;
+	size_t eligible_buildings = 0;
 	bool find = false;
 	for (auto& node : gex.GetNodes()) {
 		const Building* building = node->getBuilding();
-		if (building) {
-			++count_building;
+		if (building && building->getPlayer() != &player) {
+			++eligible_buildings;
 
 			if (other_payer && building->getPlayer() == other_payer) {
 				find = true;
@@ -617,7 +617,7 @@ void GameController::BanditMove(Player& player, Gex& gex, Player* other_payer) {
 		if (still) {
 			player.addResurse(*still);
 		}
-	}else if (count_building) {
+	}else if (eligible_buildings || other_payer) {
 		throw logic_error("Can't still on this gex");
 	}
 	gex.setBandit(bandit_);
