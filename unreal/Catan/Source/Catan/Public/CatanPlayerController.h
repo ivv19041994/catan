@@ -12,4 +12,5 @@ class CATAN_API ACatanPlayerController final : public APlayerController
 
 public:
     ACatanPlayerController();
+    virtual void BeginPlay() override;
 };

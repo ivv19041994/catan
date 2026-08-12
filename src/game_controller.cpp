@@ -464,6 +464,10 @@ std::string GameController::GetCurrentPlayer() const {
 	return players_.at(current_player_).getName();
 }
 
+GameController::GameStep GameController::GetStep() const {
+	return step_;
+}
+
 void GameController::BuildRoad(Player& player, size_t road_id) {
 	using namespace std::string_literals;
 
