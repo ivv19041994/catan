@@ -7,3 +7,11 @@ ACatanPlayerController::ACatanPlayerController()
     bEnableMouseOverEvents = true;
     DefaultMouseCursor = EMouseCursor::Hand;
 }
+
+void ACatanPlayerController::BeginPlay()
+{
+    Super::BeginPlay();
+    FInputModeGameAndUI InputMode;
+    InputMode.SetHideCursorDuringCapture(false);
+    SetInputMode(InputMode);
+}

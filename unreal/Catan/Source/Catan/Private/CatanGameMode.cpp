@@ -2,12 +2,14 @@
 
 #include "CatanBoardActor.h"
 #include "CatanCameraPawn.h"
+#include "CatanHUD.h"
 #include "CatanPlayerController.h"
 
 ACatanGameMode::ACatanGameMode()
 {
     DefaultPawnClass = ACatanCameraPawn::StaticClass();
     PlayerControllerClass = ACatanPlayerController::StaticClass();
+    HUDClass = ACatanHUD::StaticClass();
 }
 
 void ACatanGameMode::BeginPlay()

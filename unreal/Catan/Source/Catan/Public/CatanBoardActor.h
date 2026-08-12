@@ -20,6 +20,7 @@ class CATAN_API ACatanBoardActor final : public AActor
 public:
     ACatanBoardActor();
     virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
     UPROPERTY(VisibleAnywhere)
@@ -27,6 +28,9 @@ private:
 
     UPROPERTY(VisibleAnywhere)
     TObjectPtr<UProceduralMeshComponent> HexMesh;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> HexSlots;
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UStaticMeshComponent>> NodeSlots;
@@ -42,8 +46,11 @@ private:
 
     void BuildBoard();
     void BuildHexes();
+    void BuildHexHitTargets();
     void BuildNodes();
     void BuildRoads();
+
+    UFUNCTION()
     void RefreshPieces();
     void ShowStatus(const FString& Message, const FColor& Color = FColor::White) const;
 
