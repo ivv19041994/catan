@@ -376,19 +376,6 @@ Play::Play(std::ostream& os, std::istream& is)
 	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 58);
 
 	game_controller_->Dice(game_controller_->GetCurrentPlayer());
-	//
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 26);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 27);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 28);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 36);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 44);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 43);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 45);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 46);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 29);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 42);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 30);
-	game_controller_->BuildRoad(game_controller_->GetCurrentPlayer(), 37);
 	game_controller_->PrintPlayer(os_, game_controller_->GetCurrentPlayer());
 
 	while (!game_controller_->Finish()) {
@@ -417,4 +404,4 @@ Play::Play(std::ostream& os, std::istream& is)
 
 }//namespace ivv::catan::console {
 }//namespace ivv::catan {
-}//namespace ivv 
+}//namespace ivv

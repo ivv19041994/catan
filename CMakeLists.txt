@@ -10,6 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(catan_engine
     src/catan.cpp
     src/dice.cpp
+    src/development_card_deck.cpp
     src/exception.cpp
     src/facet.cpp
     src/game_controller.cpp
@@ -45,9 +46,23 @@ if(CATAN_BUILD_TESTS)
     include(CTest)
 
     if(BUILD_TESTING)
-        add_executable(catan_engine_tests tests/game_controller_tests.cpp)
-        target_link_libraries(catan_engine_tests PRIVATE catan_engine)
-        target_compile_features(catan_engine_tests PRIVATE cxx_std_20)
-        add_test(NAME catan_engine_tests COMMAND catan_engine_tests)
+        function(add_catan_domain_test domain)
+            set(target "catan_${domain}_tests")
+            add_executable(${target} "tests/${domain}/${domain}_tests.cpp")
+            target_link_libraries(${target} PRIVATE catan_engine)
+            target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/support)
+            target_compile_features(${target} PRIVATE cxx_std_20)
+            add_test(NAME ${target} COMMAND ${target})
+        endfunction()
+
+        add_catan_domain_test(setup)
+        add_catan_domain_test(production)
+        add_catan_domain_test(construction)
+        add_catan_domain_test(trade)
+        add_catan_domain_test(robber)
+        add_catan_domain_test(development_cards)
+        add_catan_domain_test(awards_victory)
+        add_catan_domain_test(map)
+        add_catan_domain_test(player_deck)
     endif()
 endif()

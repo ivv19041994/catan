@@ -53,7 +53,7 @@ public:
 	void setGex(Gex* gex);
 	Gex* getGex();
 private:
-	Gex* gex_;
+	Gex* gex_{};
 };
 
 class Construction
