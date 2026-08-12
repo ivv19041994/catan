@@ -24,6 +24,7 @@ protected:
     virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativeConstruct() override;
     virtual void NativeDestruct() override;
+    virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 private:
     UPROPERTY(Transient) TObjectPtr<UCatanGameSubsystem> GameSubsystem;
@@ -33,6 +34,8 @@ private:
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> HintText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> StatusText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> EventText;
+    UPROPERTY(Transient) TObjectPtr<UBorder> ToastBorder;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> ToastText;
     UPROPERTY(Transient) TObjectPtr<UButton> RollButton;
     UPROPERTY(Transient) TObjectPtr<UButton> SettlementButton;
     UPROPERTY(Transient) TObjectPtr<UButton> RoadButton;
@@ -63,6 +66,8 @@ private:
     FString LastDropPlayer;
     bool bDevelopmentPanelOpen = false;
     bool bTradePanelOpen = false;
+    FString PreviousToastStatus;
+    float ToastRemaining = 0.0f;
 
     void BuildLayout();
     UCommonTextBlock* AddText(UVerticalBox* Parent, const FString& Text, int32 Size);

@@ -11,6 +11,7 @@ class UPrimitiveComponent;
 class UProceduralMeshComponent;
 class UStaticMeshComponent;
 class UTextRenderComponent;
+class USoundWaveProcedural;
 
 UCLASS()
 class CATAN_API ACatanBoardActor final : public AActor
@@ -21,6 +22,7 @@ public:
     ACatanBoardActor();
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void Tick(float DeltaSeconds) override;
 
 private:
     UPROPERTY(VisibleAnywhere)
@@ -52,6 +54,17 @@ private:
 
     TArray<uint8> RenderedHexResources;
     int32 ResourceGeneration = 0;
+    TArray<int32> PreviousNodeOwners;
+    TArray<int32> PreviousRoadOwners;
+    TArray<FVector> BuildingBodyTargets;
+    TArray<FVector> BuildingRoofTargets;
+    TArray<FVector> RoadScaleTargets;
+    FVector RobberTarget = FVector::ZeroVector;
+    float DiceAnimationRemaining = 0.0f;
+    float PieceAnimationRemaining = 0.0f;
+    FString PreviousStatus;
+    int32 PreviousFirstDie = 0;
+    int32 PreviousSecondDie = 0;
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UTextRenderComponent>> Labels;
@@ -66,6 +79,15 @@ private:
     TObjectPtr<UStaticMeshComponent> RobberTop;
 
     UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> DicePieces;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UTextRenderComponent>> DiceLabels;
+
+    UPROPERTY(Transient)
+    TObjectPtr<USoundWaveProcedural> FeedbackSound;
+
+    UPROPERTY(Transient)
     TObjectPtr<UMaterialInterface> BasicMaterial;
 
     void BuildBoard();
@@ -77,6 +99,9 @@ private:
     void BuildHexHitTargets();
     void BuildNodes();
     void BuildRoads();
+    void BuildDice();
+    void AnimateFeedback(float DeltaSeconds);
+    void PlayFeedbackTone(float Frequency, float Duration, float Volume = 0.18f);
     UStaticMeshComponent* AddDecoration(const FString& Name, UStaticMesh* Mesh,
         const FVector& Location, const FVector& Scale, const FLinearColor& Color,
         const FRotator& Rotation = FRotator::ZeroRotator);
