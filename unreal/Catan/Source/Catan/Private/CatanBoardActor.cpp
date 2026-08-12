@@ -145,10 +145,38 @@ void ACatanBoardActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void ACatanBoardActor::BuildBoard()
 {
+    BuildEnvironment();
     BuildHexes();
+    BuildResourceDecorations();
     BuildHexHitTargets();
     BuildNodes();
     BuildRoads();
+    BuildPorts();
+}
+
+UStaticMeshComponent* ACatanBoardActor::AddDecoration(const FString& Name, UStaticMesh* Mesh,
+    const FVector& Location, const FVector& Scale, const FLinearColor& Color, const FRotator& Rotation)
+{
+    UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(this, *Name);
+    Component->SetupAttachment(SceneRoot);
+    Component->RegisterComponent();
+    Component->SetStaticMesh(Mesh);
+    Component->SetRelativeLocation(Location);
+    Component->SetRelativeRotation(Rotation);
+    Component->SetRelativeScale3D(Scale);
+    Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Component->SetMaterial(0, ColoredMaterial(this, BasicMaterial, Color));
+    Decorations.Add(Component);
+    return Component;
+}
+
+void ACatanBoardActor::BuildEnvironment()
+{
+    UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+    AddDecoration(TEXT("Sea"), Cylinder, FVector(0, 0, -17), FVector(28.0f, 28.0f, 0.18f),
+        FLinearColor(0.015f, 0.22f, 0.42f));
+    AddDecoration(TEXT("Coast"), Cylinder, FVector(0, 0, -8), FVector(21.5f, 21.5f, 0.12f),
+        FLinearColor(0.72f, 0.52f, 0.26f));
 }
 
 void ACatanBoardActor::BuildHexHitTargets()
@@ -188,45 +216,146 @@ void ACatanBoardActor::BuildHexes()
 
     for (int32 Index = 0; Index < Centers.Num(); ++Index)
     {
-        TArray<FVector> Vertices{Centers[Index]};
-        TArray<FVector> Normals{FVector::UpVector};
-        TArray<FVector2D> UVs{FVector2D(0.5f, 0.5f)};
-        TArray<FLinearColor> Colors{FLinearColor::White};
-        TArray<FProcMeshTangent> Tangents{FProcMeshTangent(1, 0, 0)};
-        TArray<int32> Triangles;
-        for (int32 Corner = 0; Corner < 6; ++Corner)
-        {
-            const float Angle = FMath::DegreesToRadians(30.0f + Corner * 60.0f);
-            Vertices.Add(Centers[Index] + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.0f) * TileRadius * 0.96f);
-            Normals.Add(FVector::UpVector);
-            UVs.Add(FVector2D((FMath::Cos(Angle)+1)*0.5f, (FMath::Sin(Angle)+1)*0.5f));
-            Colors.Add(FLinearColor::White);
-            Tangents.Add(FProcMeshTangent(1, 0, 0));
-            Triangles.Add(0);
-            Triangles.Add(Corner + 1);
-            Triangles.Add((Corner + 1) % 6 + 1);
-        }
-        HexMesh->CreateMeshSection_LinearColor(Index, Vertices, Triangles, Normals, UVs, Colors, Tangents, false);
-        HexMesh->SetMaterial(Index, ColoredMaterial(this, BasicMaterial, ResourceColor(View.Hexes[Index].Resource)));
+        CreateHexSection(Index, Centers[Index], ResourceColor(View.Hexes[Index].Resource));
 
         UTextRenderComponent* Label = NewObject<UTextRenderComponent>(this, *FString::Printf(TEXT("HexLabel%d"), Index));
         Label->SetupAttachment(SceneRoot);
         Label->RegisterComponent();
-        Label->SetRelativeLocation(Centers[Index] + FVector(0, 0, 12));
         Label->SetRelativeRotation(FRotator(90, 180, 0));
         Label->SetHorizontalAlignment(EHTA_Center);
         Label->SetVerticalAlignment(EVRTA_TextCenter);
-        Label->SetWorldSize(58.0f);
-        Label->SetText(FText::FromString(View.Hexes[Index].bHasRobber
-            ? FString::Printf(TEXT("%d\nB"), Index)
-            : FString::Printf(TEXT("%d\n%d"), Index, View.Hexes[Index].Dice)));
+        Label->SetRelativeLocation(Centers[Index] + FVector(0, 0, 23));
+        Label->SetWorldSize(48.0f);
+        Label->SetText(FText::FromString(View.Hexes[Index].Dice > 0
+            ? FString::Printf(TEXT("%d\n%d"), Index, View.Hexes[Index].Dice)
+            : FString::Printf(TEXT("%d\n—"), Index)));
         Labels.Add(Label);
     }
+}
+
+void ACatanBoardActor::CreateHexSection(int32 Index, const FVector& Center, const FLinearColor& Color)
+{
+    TArray<FVector> Vertices{Center};
+    TArray<FVector> Normals{FVector::UpVector};
+    TArray<FVector2D> UVs{FVector2D(0.5f, 0.5f)};
+    TArray<FLinearColor> Colors{Color};
+    TArray<FProcMeshTangent> Tangents{FProcMeshTangent(1, 0, 0)};
+    TArray<int32> Triangles;
+    for (int32 Corner = 0; Corner < 6; ++Corner)
+    {
+        const float Angle = FMath::DegreesToRadians(30.0f + Corner * 60.0f);
+        Vertices.Add(Center + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.0f) * TileRadius * 0.96f);
+        Normals.Add(FVector::UpVector);
+        UVs.Add(FVector2D((FMath::Cos(Angle)+1)*0.5f, (FMath::Sin(Angle)+1)*0.5f));
+        Colors.Add(Color);
+        Tangents.Add(FProcMeshTangent(1, 0, 0));
+        Triangles.Add(0);
+        Triangles.Add((Corner + 1) % 6 + 1);
+        Triangles.Add(Corner + 1);
+    }
+    HexMesh->CreateMeshSection_LinearColor(Index, Vertices, Triangles, Normals, UVs, Colors, Tangents, false);
+    HexMesh->SetMaterial(Index, ColoredMaterial(this, BasicMaterial, Color));
+}
+
+void ACatanBoardActor::BuildResourceDecorations()
+{
+    UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
+    if (!Subsystem) return;
+    const FCatanGameView View = Subsystem->GetSnapshot();
+    const FName ResourceTag(TEXT("ResourceDecoration"));
+    for (int32 Index = Decorations.Num() - 1; Index >= 0; --Index)
+    {
+        if (Decorations[Index] && Decorations[Index]->ComponentTags.Contains(ResourceTag))
+        {
+            Decorations[Index]->DestroyComponent();
+            Decorations.RemoveAt(Index);
+        }
+    }
+    TokenSlots.Reset();
+    RobberPiece = nullptr;
+    RobberTop = nullptr;
+    ++ResourceGeneration;
+    const TArray<FVector> Centers = HexCenters();
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+    UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+    UStaticMesh* Cone = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone"));
+
+    for (int32 Index = 0; Index < Centers.Num() && Index < View.Hexes.Num(); ++Index)
+    {
+        const FVector Center = Centers[Index];
+        const float Angle = static_cast<float>((Index * 47) % 360);
+        auto Offset = [Angle](const FVector& Value) { return FRotator(0, Angle, 0).RotateVector(Value); };
+        const auto Add = [this, Index, Center, &Offset, ResourceTag](const TCHAR* Kind, int32 Item, UStaticMesh* Mesh,
+            const FVector& Local, const FVector& Scale, const FLinearColor& Color, const FRotator& Rotation = FRotator::ZeroRotator)
+        {
+            UStaticMeshComponent* Component = AddDecoration(FString::Printf(TEXT("G%dHex%d%s%d"), ResourceGeneration, Index, Kind, Item), Mesh,
+                Center + Offset(Local), Scale, Color, Rotation);
+            Component->ComponentTags.Add(ResourceTag);
+            return Component;
+        };
+
+        switch (View.Hexes[Index].Resource)
+        {
+        case ECatanResource::Wood:
+            for (int32 Item = 0; Item < 3; ++Item)
+            {
+                const FVector Local(-95.0f + Item * 62.0f, Item % 2 ? 82.0f : 65.0f, 22.0f);
+                Add(TEXT("Trunk"), Item, Cylinder, Local, FVector(0.10f, 0.10f, 0.30f), FLinearColor(0.24f, 0.09f, 0.025f));
+                Add(TEXT("Tree"), Item, Cone, Local + FVector(0, 0, 42), FVector(0.42f, 0.42f, 0.62f), FLinearColor(0.015f, 0.22f, 0.045f));
+            }
+            break;
+        case ECatanResource::Clay:
+            for (int32 Item = 0; Item < 3; ++Item)
+                Add(TEXT("Brick"), Item, Cube, FVector(-82.0f + Item * 70.0f, 82.0f - Item * 10.0f, 18.0f),
+                    FVector(0.42f, 0.25f, 0.16f), FLinearColor(0.68f, 0.12f, 0.035f), FRotator(0, Angle + Item * 18.0f, 0));
+            break;
+        case ECatanResource::Hay:
+            for (int32 Item = 0; Item < 5; ++Item)
+                Add(TEXT("Hay"), Item, Cylinder, FVector(-76.0f + Item * 38.0f, 82.0f + FMath::Abs(2 - Item) * 5.0f, 27.0f),
+                    FVector(0.045f, 0.045f, 0.45f), FLinearColor(1.0f, 0.78f, 0.08f), FRotator(Item * 4.0f, Angle, Item * 5.0f));
+            break;
+        case ECatanResource::Sheep:
+            for (int32 Item = 0; Item < 2; ++Item)
+            {
+                const FVector Local(-62.0f + Item * 120.0f, 85.0f, 26.0f);
+                Add(TEXT("Sheep"), Item, Sphere, Local, FVector(0.38f, 0.28f, 0.28f), FLinearColor(0.94f, 0.95f, 0.89f));
+                Add(TEXT("SheepHead"), Item, Sphere, Local + FVector(30, 0, -2), FVector(0.14f), FLinearColor(0.10f, 0.09f, 0.08f));
+            }
+            break;
+        case ECatanResource::Stone:
+            for (int32 Item = 0; Item < 3; ++Item)
+                Add(TEXT("Rock"), Item, Sphere, FVector(-72.0f + Item * 68.0f, 83.0f, 22.0f + Item * 5.0f),
+                    FVector(0.36f - Item * 0.04f, 0.28f, 0.24f + Item * 0.03f), FLinearColor(0.28f, 0.31f, 0.36f));
+            break;
+        case ECatanResource::Desert:
+            for (int32 Item = 0; Item < 3; ++Item)
+                Add(TEXT("Dune"), Item, Sphere, FVector(-78.0f + Item * 75.0f, 82.0f, 12.0f),
+                    FVector(0.55f, 0.30f, 0.12f), FLinearColor(0.72f + Item * 0.035f, 0.51f, 0.24f));
+            break;
+        }
+
+        UStaticMeshComponent* Token = AddDecoration(FString::Printf(TEXT("G%dToken%d"), ResourceGeneration, Index), Cylinder,
+            Center + FVector(0, 0, 12), FVector(0.62f, 0.62f, 0.08f), FLinearColor(0.92f, 0.85f, 0.68f));
+        Token->ComponentTags.Add(ResourceTag);
+        TokenSlots.Add(Token);
+    }
+
+    RobberPiece = AddDecoration(FString::Printf(TEXT("G%dRobberBody"), ResourceGeneration), Cylinder, FVector::ZeroVector,
+        FVector(0.28f, 0.28f, 0.62f), FLinearColor(0.035f, 0.04f, 0.05f));
+    RobberTop = AddDecoration(FString::Printf(TEXT("G%dRobberTop"), ResourceGeneration), Sphere, FVector::ZeroVector,
+        FVector(0.24f), FLinearColor(0.035f, 0.04f, 0.05f));
+    RobberPiece->ComponentTags.Add(ResourceTag);
+    RobberTop->ComponentTags.Add(ResourceTag);
+    RenderedHexResources.Reset();
+    for (const FCatanHexView& Hex : View.Hexes) RenderedHexResources.Add(static_cast<uint8>(Hex.Resource));
 }
 
 void ACatanBoardActor::BuildNodes()
 {
     UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    UStaticMesh* Cone = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone"));
     const TArray<FVector> Centers = NodeCenters();
     for (int32 Index = 0; Index < Centers.Num(); ++Index)
     {
@@ -241,6 +370,16 @@ void ACatanBoardActor::BuildNodes()
         Slot->SetMaterial(0, ColoredMaterial(this, BasicMaterial, FLinearColor(0.08f, 0.1f, 0.12f)));
         Slot->OnClicked.AddDynamic(this, &ACatanBoardActor::HandleSlotClicked);
         NodeSlots.Add(Slot);
+
+        UStaticMeshComponent* Body = AddDecoration(FString::Printf(TEXT("BuildingBody%d"), Index), Cube,
+            Centers[Index] + FVector(0, 0, 16), FVector(0.25f, 0.25f, 0.32f), FLinearColor::White);
+        UStaticMeshComponent* Roof = AddDecoration(FString::Printf(TEXT("BuildingRoof%d"), Index), Cone,
+            Centers[Index] + FVector(0, 0, 43), FVector(0.31f, 0.31f, 0.22f), FLinearColor::White,
+            FRotator(0, 45.0f, 0));
+        Body->SetHiddenInGame(true);
+        Roof->SetHiddenInGame(true);
+        BuildingBodies.Add(Body);
+        BuildingRoofs.Add(Roof);
     }
 }
 
@@ -265,24 +404,74 @@ void ACatanBoardActor::BuildRoads()
     }
 }
 
+void ACatanBoardActor::BuildPorts()
+{
+    struct FPort
+    {
+        int32 FirstNode;
+        int32 SecondNode;
+        const TCHAR* Label;
+    };
+    constexpr FPort Ports[] = {
+        {0, 1, TEXT("3:1")}, {3, 4, TEXT("2:1 SHEEP")}, {14, 15, TEXT("3:1")},
+        {26, 37, TEXT("3:1")}, {45, 46, TEXT("2:1 CLAY")}, {47, 48, TEXT("3:1")},
+        {50, 51, TEXT("2:1 WOOD")}, {28, 38, TEXT("2:1 HAY")}, {7, 17, TEXT("2:1 STONE")}
+    };
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    const TArray<FVector> Nodes = NodeCenters();
+    for (int32 Index = 0; Index < UE_ARRAY_COUNT(Ports); ++Index)
+    {
+        const FVector Shore = (Nodes[Ports[Index].FirstNode] + Nodes[Ports[Index].SecondNode]) * 0.5f;
+        FVector Direction(Shore.X, Shore.Y, 0);
+        Direction.Normalize();
+        const FVector Position = Shore + Direction * 105.0f + FVector(0, 0, -2);
+        const float Yaw = FMath::RadiansToDegrees(FMath::Atan2(Direction.Y, Direction.X));
+        AddDecoration(FString::Printf(TEXT("PortDock%d"), Index), Cube, Position,
+            FVector(0.72f, 0.20f, 0.07f), FLinearColor(0.30f, 0.13f, 0.035f), FRotator(0, Yaw, 0));
+
+        UTextRenderComponent* Label = NewObject<UTextRenderComponent>(this, *FString::Printf(TEXT("PortLabel%d"), Index));
+        Label->SetupAttachment(SceneRoot);
+        Label->RegisterComponent();
+        Label->SetRelativeLocation(Position + Direction * 68.0f + FVector(0, 0, 15));
+        Label->SetRelativeRotation(FRotator(90, 180, 0));
+        Label->SetHorizontalAlignment(EHTA_Center);
+        Label->SetVerticalAlignment(EVRTA_TextCenter);
+        Label->SetWorldSize(24.0f);
+        Label->SetTextRenderColor(FColor(255, 224, 150));
+        Label->SetText(FText::FromString(Ports[Index].Label));
+        PortLabels.Add(Label);
+    }
+}
+
 void ACatanBoardActor::RefreshPieces()
 {
     UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     if (!Subsystem) return;
     const FCatanGameView View = Subsystem->GetSnapshot();
+    bool bLayoutChanged = RenderedHexResources.Num() != View.Hexes.Num();
+    for (int32 Index = 0; !bLayoutChanged && Index < View.Hexes.Num(); ++Index)
+        bLayoutChanged = RenderedHexResources[Index] != static_cast<uint8>(View.Hexes[Index].Resource);
+    if (bLayoutChanged)
+    {
+        const TArray<FVector> Centers = HexCenters();
+        for (int32 Index = 0; Index < Centers.Num() && Index < View.Hexes.Num(); ++Index)
+            CreateHexSection(Index, Centers[Index], ResourceColor(View.Hexes[Index].Resource));
+        BuildResourceDecorations();
+    }
     for (int32 Index=0; Index<Labels.Num() && Index<View.Hexes.Num(); ++Index)
     {
         const FCatanHexView& Hex = View.Hexes[Index];
         const bool bValidTarget = View.ValidHexTargets.Contains(Index);
-        Labels[Index]->SetText(FText::FromString(Hex.bHasRobber
-            ? FString::Printf(TEXT("%d\nB"), Index)
-            : FString::Printf(TEXT("%d\n%d"), Index, Hex.Dice)));
-        Labels[Index]->SetTextRenderColor(bValidTarget ? FColor(255, 210, 35) : FColor::White);
-        if (UMaterialInstanceDynamic* Material = Cast<UMaterialInstanceDynamic>(HexMesh->GetMaterial(Index)))
+        Labels[Index]->SetText(FText::FromString(Hex.Dice > 0
+            ? FString::Printf(TEXT("%d\n%d"), Index, Hex.Dice)
+            : FString::Printf(TEXT("%d\n—"), Index)));
+        Labels[Index]->SetTextRenderColor(bValidTarget ? FColor(255, 210, 35)
+            : ((Hex.Dice == 6 || Hex.Dice == 8) ? FColor(190, 24, 18) : FColor(45, 30, 18)));
+        if (Hex.bHasRobber && RobberPiece && RobberTop)
         {
-            const FLinearColor Color = ResourceColor(Hex.Resource);
-            Material->SetVectorParameterValue(TEXT("Color"), Color);
-            Material->SetVectorParameterValue(TEXT("BaseColor"), Color);
+            const FVector RobberLocation = HexCenters()[Index] + FVector(72, -68, 0);
+            RobberPiece->SetRelativeLocation(RobberLocation + FVector(0, 0, 46));
+            RobberTop->SetRelativeLocation(RobberLocation + FVector(0, 0, 82));
         }
     }
     for (int32 Index=0; Index<NodeSlots.Num() && Index<View.Nodes.Num(); ++Index)
@@ -292,8 +481,24 @@ void ACatanBoardActor::RefreshPieces()
         FLinearColor Color = Node.OwnerId != INDEX_NONE ? PlayerColor(Node.OwnerId) : FLinearColor(0.08f,0.1f,0.12f);
         if (bValidTarget) Color = FMath::Lerp(Color, FLinearColor(0.05f, 0.95f, 0.85f), 0.72f);
         Cast<UMaterialInstanceDynamic>(NodeSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
-        NodeSlots[Index]->SetRelativeScale3D(bValidTarget ? FVector(0.23f)
-            : (Node.OwnerId != INDEX_NONE ? FVector(0.19f) : FVector(0.13f)));
+        NodeSlots[Index]->SetHiddenInGame(Node.OwnerId != INDEX_NONE);
+        NodeSlots[Index]->SetRelativeScale3D(bValidTarget ? FVector(0.23f) : FVector(0.13f));
+        if (BuildingBodies.IsValidIndex(Index) && BuildingRoofs.IsValidIndex(Index))
+        {
+            const bool bOccupied = Node.OwnerId != INDEX_NONE;
+            BuildingBodies[Index]->SetHiddenInGame(!bOccupied);
+            BuildingRoofs[Index]->SetHiddenInGame(!bOccupied);
+            if (bOccupied)
+            {
+                const FLinearColor BuildingColor = bValidTarget
+                    ? FMath::Lerp(PlayerColor(Node.OwnerId), FLinearColor(0.05f, 0.95f, 0.85f), 0.55f)
+                    : PlayerColor(Node.OwnerId);
+                Cast<UMaterialInstanceDynamic>(BuildingBodies[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), BuildingColor);
+                Cast<UMaterialInstanceDynamic>(BuildingRoofs[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), BuildingColor * 0.62f);
+                BuildingBodies[Index]->SetRelativeScale3D(Node.bIsCity ? FVector(0.42f, 0.34f, 0.48f) : FVector(0.25f, 0.25f, 0.32f));
+                BuildingRoofs[Index]->SetRelativeScale3D(Node.bIsCity ? FVector(0.47f, 0.39f, 0.25f) : FVector(0.31f, 0.31f, 0.22f));
+            }
+        }
     }
     for (int32 Index=0; Index<RoadSlots.Num() && Index<View.Roads.Num(); ++Index)
     {
