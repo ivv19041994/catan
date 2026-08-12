@@ -364,6 +364,7 @@ void ACatanBoardActor::BuildHexes()
             ? FText::AsNumber(View.Hexes[Index].Dice)
             : FText::FromString(TEXT("—")));
         Labels.Add(Label);
+        HexLabelSizeTargets.Add(48.0f);
     }
 }
 
@@ -415,6 +416,7 @@ void ACatanBoardActor::BuildResourceDecorations()
         }
     }
     TokenSlots.Reset();
+    HexTokenScaleTargets.Reset();
     RobberBodies.Reset();
     RobberHeads.Reset();
     RobberBodyOffsets.Reset();
@@ -565,6 +567,7 @@ void ACatanBoardActor::BuildResourceDecorations()
             Center + FVector(0, 0, 12), FVector(0.62f, 0.62f, 0.08f), FLinearColor(0.92f, 0.85f, 0.68f));
         Token->ComponentTags.Add(ResourceTag);
         TokenSlots.Add(Token);
+        HexTokenScaleTargets.Add(FVector(0.62f, 0.62f, 0.08f));
     }
 
     const FVector GroupOffsets[] = {FVector(-28, -13, 0), FVector(27, -10, 0), FVector(0, 28, 0)};
@@ -980,6 +983,12 @@ void ACatanBoardActor::PlayFeedbackTone(float Frequency, float Duration, float V
 void ACatanBoardActor::AnimateFeedback(float DeltaSeconds)
 {
     ResourceAnimationClock += DeltaSeconds;
+    for (int32 Index = 0; Index < Labels.Num() && Index < HexLabelSizeTargets.Num(); ++Index)
+        Labels[Index]->SetWorldSize(FMath::FInterpTo(
+            Labels[Index]->WorldSize, HexLabelSizeTargets[Index], DeltaSeconds, 10.0f));
+    for (int32 Index = 0; Index < TokenSlots.Num() && Index < HexTokenScaleTargets.Num(); ++Index)
+        TokenSlots[Index]->SetRelativeScale3D(FMath::VInterpTo(
+            TokenSlots[Index]->GetRelativeScale3D(), HexTokenScaleTargets[Index], DeltaSeconds, 10.0f));
     for (int32 Index = 0; Index < AnimatedResourceParts.Num(); ++Index)
     {
         UStaticMeshComponent* Part = AnimatedResourceParts[Index];
@@ -1116,6 +1125,13 @@ void ACatanBoardActor::RefreshPieces()
     for (int32 Index=0; Index<Labels.Num() && Index<View.Hexes.Num(); ++Index)
     {
         const FCatanHexView& Hex = View.Hexes[Index];
+        const int32 RolledTotal = View.FirstDie + View.SecondDie;
+        if (HexLabelSizeTargets.IsValidIndex(Index))
+            HexLabelSizeTargets[Index] = View.FirstDie > 0 && Hex.Dice == RolledTotal ? 78.0f : 48.0f;
+        if (HexTokenScaleTargets.IsValidIndex(Index))
+            HexTokenScaleTargets[Index] = View.FirstDie > 0 && Hex.Dice == RolledTotal
+                ? FVector(0.88f, 0.88f, 0.105f)
+                : FVector(0.62f, 0.62f, 0.08f);
         const bool bValidTarget = View.ValidHexTargets.Contains(Index);
         Labels[Index]->SetText(Hex.Dice > 0
             ? FText::AsNumber(Hex.Dice)

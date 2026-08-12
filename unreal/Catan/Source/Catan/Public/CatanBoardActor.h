@@ -86,6 +86,8 @@ private:
     TArray<int32> RoadPavingRoadIds;
     TArray<FVector> RoadPavingScaleTargets;
     TArray<FVector> RoadScaleTargets;
+    TArray<float> HexLabelSizeTargets;
+    TArray<FVector> HexTokenScaleTargets;
     TArray<FQuat> DiceTargetRotations;
     FVector RobberTarget = FVector::ZeroVector;
     float DiceAnimationRemaining = 0.0f;
