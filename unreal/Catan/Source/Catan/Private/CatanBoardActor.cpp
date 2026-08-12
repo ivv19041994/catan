@@ -106,6 +106,7 @@ UMaterialInstanceDynamic* ColoredMaterial(UObject* Owner, UMaterialInterface* Ba
 {
     UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Base, Owner);
     Material->SetVectorParameterValue(TEXT("Color"), Color);
+    Material->SetVectorParameterValue(TEXT("BaseColor"), Color);
     return Material;
 }
 }
@@ -123,17 +124,52 @@ ACatanBoardActor::ACatanBoardActor()
 void ACatanBoardActor::BeginPlay()
 {
     Super::BeginPlay();
-    BasicMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+    BasicMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial_Inst.BasicShapeMaterial_Inst"));
     BuildBoard();
+    if (UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>())
+    {
+        Subsystem->OnGameStateChanged.AddDynamic(this, &ACatanBoardActor::RefreshPieces);
+    }
     RefreshPieces();
-    ShowStatus(TEXT("Catan: click a node, then an adjacent road. WASD/QE + mouse wheel control the camera."), FColor::Cyan);
+    UE_LOG(LogTemp, Display, TEXT("Catan board ready. WASD/QE and mouse wheel control the camera."));
+}
+
+void ACatanBoardActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if (UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>())
+    {
+        Subsystem->OnGameStateChanged.RemoveDynamic(this, &ACatanBoardActor::RefreshPieces);
+    }
+    Super::EndPlay(EndPlayReason);
 }
 
 void ACatanBoardActor::BuildBoard()
 {
     BuildHexes();
+    BuildHexHitTargets();
     BuildNodes();
     BuildRoads();
+}
+
+void ACatanBoardActor::BuildHexHitTargets()
+{
+    UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+    const TArray<FVector> Centers = HexCenters();
+    for (int32 Index = 0; Index < Centers.Num(); ++Index)
+    {
+        UStaticMeshComponent* Slot = NewObject<UStaticMeshComponent>(this, *FString::Printf(TEXT("HexHit%d"), Index));
+        Slot->SetupAttachment(SceneRoot);
+        Slot->RegisterComponent();
+        Slot->SetStaticMesh(Cylinder);
+        Slot->SetRelativeLocation(Centers[Index] + FVector(0, 0, 8));
+        Slot->SetRelativeScale3D(FVector(4.0f, 4.0f, 0.05f));
+        Slot->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+        Slot->SetCollisionResponseToAllChannels(ECR_Block);
+        Slot->SetHiddenInGame(true);
+        Slot->ComponentTags.Add(*FString::Printf(TEXT("Hex:%d"), Index));
+        Slot->OnClicked.AddDynamic(this, &ACatanBoardActor::HandleSlotClicked);
+        HexSlots.Add(Slot);
+    }
 }
 
 void ACatanBoardActor::BuildHexes()
@@ -141,6 +177,13 @@ void ACatanBoardActor::BuildHexes()
     UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     if (!Subsystem) return;
     const FCatanGameView View = Subsystem->GetSnapshot();
+    for (int32 Index = 0; Index < Labels.Num() && Index < View.Hexes.Num(); ++Index)
+    {
+        const FCatanHexView& Hex = View.Hexes[Index];
+        Labels[Index]->SetText(FText::FromString(Hex.bHasRobber
+            ? FString::Printf(TEXT("%d\nB"), Index)
+            : FString::Printf(TEXT("%d\n%d"), Index, Hex.Dice)));
+    }
     const TArray<FVector> Centers = HexCenters();
 
     for (int32 Index = 0; Index < Centers.Num(); ++Index)
@@ -170,7 +213,7 @@ void ACatanBoardActor::BuildHexes()
         Label->SetupAttachment(SceneRoot);
         Label->RegisterComponent();
         Label->SetRelativeLocation(Centers[Index] + FVector(0, 0, 12));
-        Label->SetRelativeRotation(FRotator(90, 0, 0));
+        Label->SetRelativeRotation(FRotator(90, 180, 0));
         Label->SetHorizontalAlignment(EHTA_Center);
         Label->SetVerticalAlignment(EVRTA_TextCenter);
         Label->SetWorldSize(58.0f);
@@ -251,12 +294,24 @@ void ACatanBoardActor::HandleSlotClicked(UPrimitiveComponent* TouchedComponent, 
     FString Kind, IdText;
     if (!Tag.Split(TEXT(":"), &Kind, &IdText)) return;
     FString Error;
-    const bool bSucceeded = Kind == TEXT("Node")
-        ? Subsystem->TryBuildSettlement(FCString::Atoi(*IdText), Error)
-        : Kind == TEXT("Road") && Subsystem->TryBuildRoad(FCString::Atoi(*IdText), Error);
+    const FCatanGameView View = Subsystem->GetSnapshot();
+    bool bSucceeded = false;
+    if (Kind == TEXT("Node"))
+    {
+        bSucceeded = View.BoardAction == ECatanBoardAction::BuildCity
+            ? Subsystem->TryBuildCity(FCString::Atoi(*IdText), Error)
+            : Subsystem->TryBuildSettlement(FCString::Atoi(*IdText), Error);
+    }
+    else if (Kind == TEXT("Road"))
+    {
+        bSucceeded = Subsystem->TryBuildRoad(FCString::Atoi(*IdText), Error);
+    }
+    else if (Kind == TEXT("Hex"))
+    {
+        bSucceeded = Subsystem->TryMoveRobber(FCString::Atoi(*IdText), Error);
+    }
     if (bSucceeded)
     {
-        RefreshPieces();
         ShowStatus(Subsystem->GetSnapshot().Step, FColor::Green);
     }
     else

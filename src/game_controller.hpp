@@ -56,6 +56,7 @@ public:
 	void BuildCastle(std::string_view player, size_t settlement_id);
 
 	std::string GetCurrentPlayer() const;
+	GameStep GetStep() const;
 
 	void Dice(std::string_view player);
 	std::pair<size_t, size_t> GetLastDice() const;
@@ -101,7 +102,7 @@ private:
 	Bandit bandit_;
 
 	std::array<std::unique_ptr<game::IDice>, 2> dice_;
-	std::pair<size_t, size_t> last_dice_;
+	std::pair<size_t, size_t> last_dice_{};
 
 	std::unique_ptr<IDevelopmentCardDeck> development_cards_;
 	Player* player_knights_{};//владелец карты рыцарей

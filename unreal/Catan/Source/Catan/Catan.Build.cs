@@ -10,7 +10,8 @@ public class Catan : ModuleRules
         bEnableExceptions = true;
 
         PublicDependencyModuleNames.AddRange(new[] {
-            "Core", "CoreUObject", "Engine", "InputCore", "ProceduralMeshComponent"
+            "Core", "CoreUObject", "Engine", "InputCore", "ProceduralMeshComponent",
+            "UMG", "Slate", "SlateCore", "CommonUI"
         });
 
         string CoreSource = Path.GetFullPath(Path.Combine(ModuleDirectory, "../../../../src"));
