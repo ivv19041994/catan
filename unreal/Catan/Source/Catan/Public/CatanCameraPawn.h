@@ -33,6 +33,7 @@ private:
     float RightInput{};
     float ZoomInput{};
     float RotateInput{};
+    float DesiredArmLength = 2600.0f;
 
     void MoveForward(float Value) { ForwardInput = Value; }
     void MoveRight(float Value) { RightInput = Value; }

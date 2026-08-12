@@ -31,6 +31,9 @@ private:
     UPROPERTY(VisibleAnywhere)
     TObjectPtr<UProceduralMeshComponent> HexMesh;
 
+    UPROPERTY(VisibleAnywhere)
+    TObjectPtr<UProceduralMeshComponent> EnvironmentMesh;
+
     UPROPERTY(Transient)
     TArray<TObjectPtr<UStaticMeshComponent>> HexSlots;
 
@@ -47,18 +50,45 @@ private:
     TArray<TObjectPtr<UStaticMeshComponent>> BuildingRoofs;
 
     UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> BuildingParts;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> RoadPavingParts;
+
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UStaticMeshComponent>> TokenSlots;
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UStaticMeshComponent>> Decorations;
 
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> AnimatedResourceParts;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UProceduralMeshComponent>> ResourceProceduralParts;
+
     TArray<uint8> RenderedHexResources;
+    TArray<uint8> ResourceAnimationKinds;
+    TArray<float> ResourceAnimationPhases;
+    TArray<FVector> ResourceAnimationLocations;
+    TArray<FVector> ResourceAnimationScales;
+    TArray<FRotator> ResourceAnimationRotations;
     int32 ResourceGeneration = 0;
+    float ResourceAnimationClock = 0.0f;
     TArray<int32> PreviousNodeOwners;
     TArray<int32> PreviousRoadOwners;
     TArray<FVector> BuildingBodyTargets;
     TArray<FVector> BuildingRoofTargets;
+    TArray<int32> BuildingPartNodeIds;
+    TArray<uint8> BuildingPartModes;
+    TArray<float> BuildingPartShades;
+    TArray<FVector> BuildingPartScaleTargets;
+    TArray<int32> RoadPavingRoadIds;
+    TArray<FVector> RoadPavingScaleTargets;
     TArray<FVector> RoadScaleTargets;
+    TArray<float> HexLabelSizeTargets;
+    TArray<FVector> HexTokenScaleTargets;
+    TArray<FQuat> DiceTargetRotations;
     FVector RobberTarget = FVector::ZeroVector;
     float DiceAnimationRemaining = 0.0f;
     float PieceAnimationRemaining = 0.0f;
@@ -73,16 +103,16 @@ private:
     TArray<TObjectPtr<UTextRenderComponent>> PortLabels;
 
     UPROPERTY(Transient)
-    TObjectPtr<UStaticMeshComponent> RobberPiece;
+    TArray<TObjectPtr<UStaticMeshComponent>> RobberBodies;
 
     UPROPERTY(Transient)
-    TObjectPtr<UStaticMeshComponent> RobberTop;
+    TArray<TObjectPtr<UStaticMeshComponent>> RobberHeads;
+
+    TArray<FVector> RobberBodyOffsets;
+    TArray<FVector> RobberHeadOffsets;
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UStaticMeshComponent>> DicePieces;
-
-    UPROPERTY(Transient)
-    TArray<TObjectPtr<UTextRenderComponent>> DiceLabels;
 
     UPROPERTY(Transient)
     TObjectPtr<USoundWaveProcedural> FeedbackSound;

@@ -1,6 +1,7 @@
 #include "CatanCameraPawn.h"
 
 #include "Camera/CameraComponent.h"
+#include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 
 ACatanCameraPawn::ACatanCameraPawn()
@@ -23,6 +24,7 @@ void ACatanCameraPawn::BeginPlay()
 {
     Super::BeginPlay();
     SetActorLocation(FVector(0.0f, 0.0f, 80.0f));
+    DesiredArmLength = SpringArm->TargetArmLength;
 }
 
 void ACatanCameraPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -37,10 +39,45 @@ void ACatanCameraPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 void ACatanCameraPawn::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-    const FVector Delta = (GetActorForwardVector() * ForwardInput + GetActorRightVector() * RightInput)
-        * 900.0f * DeltaSeconds;
+    float EffectiveForward = ForwardInput;
+    float EffectiveRight = RightInput;
+    FVector MousePan = FVector::ZeroVector;
+    if (APlayerController* Controller = Cast<APlayerController>(GetController()))
+    {
+        const float DirectForward = (Controller->IsInputKeyDown(EKeys::W) || Controller->IsInputKeyDown(EKeys::Up) ? 1.0f : 0.0f)
+            - (Controller->IsInputKeyDown(EKeys::S) || Controller->IsInputKeyDown(EKeys::Down) ? 1.0f : 0.0f);
+        const float DirectRight = (Controller->IsInputKeyDown(EKeys::D) || Controller->IsInputKeyDown(EKeys::Right) ? 1.0f : 0.0f)
+            - (Controller->IsInputKeyDown(EKeys::A) || Controller->IsInputKeyDown(EKeys::Left) ? 1.0f : 0.0f);
+        if (!FMath::IsNearlyZero(DirectForward)) EffectiveForward = DirectForward;
+        if (!FMath::IsNearlyZero(DirectRight)) EffectiveRight = DirectRight;
+
+        if (Controller->IsInputKeyDown(EKeys::RightMouseButton))
+        {
+            float MouseX = 0.0f;
+            float MouseY = 0.0f;
+            Controller->GetInputMouseDelta(MouseX, MouseY);
+            const float DragScale = FMath::Clamp(DesiredArmLength * 0.0018f, 0.9f, 7.0f);
+            MousePan = (-GetActorRightVector() * MouseX + GetActorForwardVector() * MouseY) * DragScale;
+        }
+    }
+
+    const float MoveSpeed = FMath::GetMappedRangeValueClamped(
+        FVector2D(420.0f, 5200.0f), FVector2D(520.0f, 1700.0f), DesiredArmLength);
+    const FVector KeyboardPan = (GetActorForwardVector() * EffectiveForward + GetActorRightVector() * EffectiveRight)
+        .GetClampedToMaxSize(1.0f) * MoveSpeed * DeltaSeconds;
+    const FVector Delta = KeyboardPan + MousePan;
     AddActorWorldOffset(FVector(Delta.X, Delta.Y, 0.0f));
+    FVector Location = GetActorLocation();
+    Location.X = FMath::Clamp(Location.X, -3000.0f, 3000.0f);
+    Location.Y = FMath::Clamp(Location.Y, -3000.0f, 3000.0f);
+    SetActorLocation(Location);
+
     AddActorWorldRotation(FRotator(0.0f, RotateInput * 65.0f * DeltaSeconds, 0.0f));
-    SpringArm->TargetArmLength = FMath::Clamp(
-        SpringArm->TargetArmLength - ZoomInput * 240.0f, 900.0f, 4200.0f);
+    if (!FMath::IsNearlyZero(ZoomInput))
+    {
+        const float ZoomStep = FMath::Clamp(DesiredArmLength * 0.18f, 170.0f, 620.0f);
+        DesiredArmLength = FMath::Clamp(DesiredArmLength - ZoomInput * ZoomStep, 420.0f, 5200.0f);
+    }
+    SpringArm->TargetArmLength = FMath::FInterpTo(
+        SpringArm->TargetArmLength, DesiredArmLength, DeltaSeconds, 12.0f);
 }
