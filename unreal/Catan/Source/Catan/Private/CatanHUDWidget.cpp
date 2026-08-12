@@ -15,6 +15,7 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Components/WidgetSwitcher.h"
 #include "Blueprint/WidgetTree.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 namespace
 {
@@ -72,6 +73,12 @@ ECatanResource SelectedResource(const UComboBoxString* Combo)
     if (Value == TEXT("Stone")) return ECatanResource::Stone;
     return ECatanResource::Wood;
 }
+
+FString ResourceSummary(const FCatanResourceView& Resources)
+{
+    return FString::Printf(TEXT("W %d  C %d  H %d  S %d  O %d"),
+        Resources.Wood, Resources.Clay, Resources.Hay, Resources.Sheep, Resources.Stone);
+}
 }
 
 TSharedRef<SWidget> UCatanHUDWidget::RebuildWidget()
@@ -124,7 +131,7 @@ void UCatanHUDWidget::BuildLayout()
     PlayersText = AddText(PlayerPanel, FString(), 17);
 
     UBorder* ActionBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 1), FVector2D(0.5f, 1),
-        FMargin(0, -24, 900, 115));
+        FMargin(0, -24, 1100, 115));
     UVerticalBox* ActionPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ActionBorder->SetContent(ActionPanel);
     AddText(ActionPanel, TEXT("ACTIONS"), 18);
@@ -144,6 +151,7 @@ void UCatanHUDWidget::BuildLayout()
     CityButton = AddAction(TEXT("CITY"));
     BuyCardButton = AddAction(TEXT("BUY DEV"));
     UseCardButton = AddAction(TEXT("USE DEV"));
+    TradeButton = AddAction(TEXT("TRADE"));
     PassButton = AddAction(TEXT("END TURN"));
 
     RollButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::RollDice);
@@ -152,10 +160,11 @@ void UCatanHUDWidget::BuildLayout()
     CityButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectCity);
     BuyCardButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::BuyDevelopmentCard);
     UseCardButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowDevelopmentCards);
+    TradeButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowTrading);
     PassButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PassTurn);
 
     ModalBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 0.5f), FVector2D(0.5f, 0.5f),
-        FMargin(0, 0, 620, 500));
+        FMargin(0, 0, 680, 650));
     ModalSwitcher = WidgetTree->ConstructWidget<UWidgetSwitcher>();
     ModalBorder->SetContent(ModalSwitcher);
 
@@ -223,6 +232,71 @@ void UCatanHUDWidget::BuildLayout()
     YearOfPlentyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PlayYearOfPlenty);
     MonopolyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PlayMonopoly);
     CloseCards->OnClicked.AddDynamic(this, &UCatanHUDWidget::CloseDevelopmentCards);
+
+    UVerticalBox* TradePanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    ModalSwitcher->AddChild(TradePanel);
+    AddText(TradePanel, TEXT("TRADE"), 25);
+    AddText(TradePanel, TEXT("Bank trade — port discounts are applied automatically"), 16);
+    BankFromResource = WidgetTree->ConstructWidget<UComboBoxString>();
+    BankToResource = WidgetTree->ConstructWidget<UComboBoxString>();
+    for (const TCHAR* ResourceName : ResourceNames)
+    {
+        BankFromResource->AddOption(ResourceName);
+        BankToResource->AddOption(ResourceName);
+    }
+    BankFromResource->SetSelectedOption(TEXT("Wood"));
+    BankToResource->SetSelectedOption(TEXT("Clay"));
+    TradePanel->AddChildToVerticalBox(BankFromResource);
+    TradePanel->AddChildToVerticalBox(BankToResource);
+    UButton* BankTrade = AddButton(TradePanel, TEXT("TRADE WITH BANK"));
+    BankTrade->OnClicked.AddDynamic(this, &UCatanHUDWidget::TradeWithBank);
+
+    AddText(TradePanel, TEXT("Player offer — W / C / H / S / O"), 16);
+    auto AddResourceInputs = [this, TradePanel](const FString& Label, TArray<TObjectPtr<USpinBox>>& Inputs)
+    {
+        AddText(TradePanel, Label, 16);
+        UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
+        TradePanel->AddChildToVerticalBox(Row);
+        for (int32 Index = 0; Index < 5; ++Index)
+        {
+            USpinBox* Input = WidgetTree->ConstructWidget<USpinBox>();
+            Input->SetMinValue(0.0f);
+            Input->SetMaxValue(99.0f);
+            Input->SetDelta(1.0f);
+            Input->SetMinFractionalDigits(0);
+            Input->SetMaxFractionalDigits(0);
+            UHorizontalBoxSlot* Slot = Row->AddChildToHorizontalBox(Input);
+            Slot->SetPadding(FMargin(3));
+            Slot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+            Inputs.Add(Input);
+        }
+    };
+    AddResourceInputs(TEXT("YOU OFFER"), OfferedInputs);
+    AddResourceInputs(TEXT("YOU REQUEST"), RequestedInputs);
+    UButton* CreateOffer = AddButton(TradePanel, TEXT("CREATE OFFER"));
+    UButton* CloseTrade = AddButton(TradePanel, TEXT("CLOSE"));
+    CreateOffer->OnClicked.AddDynamic(this, &UCatanHUDWidget::OfferTrade);
+    CloseTrade->OnClicked.AddDynamic(this, &UCatanHUDWidget::CloseTrading);
+
+    UVerticalBox* DealPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    ModalSwitcher->AddChild(DealPanel);
+    AddText(DealPanel, TEXT("ACTIVE PLAYER TRADE"), 25);
+    DealText = AddText(DealPanel, FString(), 19);
+    TradingPlayer = WidgetTree->ConstructWidget<UComboBoxString>();
+    DealPanel->AddChildToVerticalBox(TradingPlayer);
+    UButton* AcceptDeal = AddButton(DealPanel, TEXT("ACCEPT AS SELECTED PLAYER"));
+    UButton* CancelDeal = AddButton(DealPanel, TEXT("DECLINE / CANCEL"));
+    AcceptDeal->OnClicked.AddDynamic(this, &UCatanHUDWidget::AcceptTrade);
+    CancelDeal->OnClicked.AddDynamic(this, &UCatanHUDWidget::CancelTrade);
+
+    UVerticalBox* WinnerPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    ModalSwitcher->AddChild(WinnerPanel);
+    AddText(WinnerPanel, TEXT("GAME OVER"), 32);
+    WinnerText = AddText(WinnerPanel, FString(), 22);
+    UButton* NewGame = AddButton(WinnerPanel, TEXT("NEW GAME"));
+    UButton* ExitGame = AddButton(WinnerPanel, TEXT("EXIT"));
+    NewGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::StartNewGame);
+    ExitGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::QuitGame);
     ModalBorder->SetVisibility(ESlateVisibility::Collapsed);
 }
 
@@ -285,6 +359,7 @@ void UCatanHUDWidget::Refresh()
     RoadButton->SetIsEnabled(bPlay || View.Phase == ECatanGamePhase::RoadBuilding);
     CityButton->SetIsEnabled(bPlay);
     BuyCardButton->SetIsEnabled(bPlay);
+    TradeButton->SetIsEnabled(bPlay);
     PassButton->SetIsEnabled(bPlay);
     const FCatanPlayerView* CurrentPlayer = View.Players.FindByPredicate(
         [](const FCatanPlayerView& Player) { return Player.bIsCurrent; });
@@ -294,7 +369,20 @@ void UCatanHUDWidget::Refresh()
         : 0;
     UseCardButton->SetIsEnabled((bPlay || bRoll) && ReadyCards > 0);
 
-    if (View.Phase == ECatanGamePhase::DropCards && CurrentPlayer)
+    if (View.Phase == ECatanGamePhase::Finished)
+    {
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(5);
+        FString Standings = FString::Printf(TEXT("%s WINS!\n\nFINAL SCORE\n"), *View.Winner);
+        for (const FCatanPlayerView& Player : View.Players)
+        {
+            Standings += FString::Printf(TEXT("%s — %d VP\n"), *Player.Name, Player.VictoryPoints);
+        }
+        WinnerText->SetText(FText::FromString(Standings));
+        bDevelopmentPanelOpen = false;
+        bTradePanelOpen = false;
+    }
+    else if (View.Phase == ECatanGamePhase::DropCards && CurrentPlayer)
     {
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(0);
@@ -330,6 +418,26 @@ void UCatanHUDWidget::Refresh()
             }
         }
     }
+    else if (View.ActiveDeal.bIsActive)
+    {
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(4);
+        DealText->SetText(FText::FromString(FString::Printf(
+            TEXT("%s offers:\n%s\n\nand requests:\n%s"),
+            *View.ActiveDeal.OfferingPlayer, *ResourceSummary(View.ActiveDeal.Offered),
+            *ResourceSummary(View.ActiveDeal.Requested))));
+        const FString PreviousSelection = TradingPlayer->GetSelectedOption();
+        TradingPlayer->ClearOptions();
+        for (const FCatanPlayerView& Player : View.Players)
+        {
+            if (Player.Name != View.ActiveDeal.OfferingPlayer) TradingPlayer->AddOption(Player.Name);
+        }
+        if (!PreviousSelection.IsEmpty() && TradingPlayer->FindOptionIndex(PreviousSelection) != INDEX_NONE)
+            TradingPlayer->SetSelectedOption(PreviousSelection);
+        else if (TradingPlayer->GetOptionCount() > 0)
+            TradingPlayer->SetSelectedIndex(0);
+        bTradePanelOpen = false;
+    }
     else if (bDevelopmentPanelOpen && CurrentPlayer && (bPlay || bRoll))
     {
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
@@ -338,6 +446,20 @@ void UCatanHUDWidget::Refresh()
         RoadBuildingButton->SetIsEnabled(bPlay && CurrentPlayer->RoadBuildingCards > 0);
         YearOfPlentyButton->SetIsEnabled(bPlay && CurrentPlayer->YearOfPlentyCards > 0);
         MonopolyButton->SetIsEnabled(bPlay && CurrentPlayer->MonopolyCards > 0);
+    }
+    else if (bTradePanelOpen && CurrentPlayer && bPlay)
+    {
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(3);
+        const int32 Holdings[] = {
+            CurrentPlayer->Resources.Wood, CurrentPlayer->Resources.Clay, CurrentPlayer->Resources.Hay,
+            CurrentPlayer->Resources.Sheep, CurrentPlayer->Resources.Stone
+        };
+        for (int32 Index = 0; Index < OfferedInputs.Num(); ++Index)
+        {
+            OfferedInputs[Index]->SetMaxValue(Holdings[Index]);
+            OfferedInputs[Index]->SetMaxSliderValue(Holdings[Index]);
+        }
     }
     else
     {
@@ -376,6 +498,14 @@ void UCatanHUDWidget::BuyDevelopmentCard()
 void UCatanHUDWidget::ShowDevelopmentCards()
 {
     bDevelopmentPanelOpen = true;
+    bTradePanelOpen = false;
+    Refresh();
+}
+
+void UCatanHUDWidget::ShowTrading()
+{
+    bTradePanelOpen = true;
+    bDevelopmentPanelOpen = false;
     Refresh();
 }
 
@@ -428,4 +558,61 @@ void UCatanHUDWidget::CloseDevelopmentCards()
 {
     bDevelopmentPanelOpen = false;
     Refresh();
+}
+
+void UCatanHUDWidget::TradeWithBank()
+{
+    FString Error;
+    GameSubsystem->TryBankTrade(SelectedResource(BankFromResource), SelectedResource(BankToResource), Error);
+}
+
+void UCatanHUDWidget::OfferTrade()
+{
+    if (OfferedInputs.Num() != 5 || RequestedInputs.Num() != 5) return;
+    auto ReadResources = [](const TArray<TObjectPtr<USpinBox>>& Inputs)
+    {
+        FCatanResourceView Resources;
+        Resources.Wood = FMath::RoundToInt(Inputs[0]->GetValue());
+        Resources.Clay = FMath::RoundToInt(Inputs[1]->GetValue());
+        Resources.Hay = FMath::RoundToInt(Inputs[2]->GetValue());
+        Resources.Sheep = FMath::RoundToInt(Inputs[3]->GetValue());
+        Resources.Stone = FMath::RoundToInt(Inputs[4]->GetValue());
+        return Resources;
+    };
+    FString Error;
+    GameSubsystem->TryOfferTrade(ReadResources(OfferedInputs), ReadResources(RequestedInputs), Error);
+}
+
+void UCatanHUDWidget::AcceptTrade()
+{
+    FString Error;
+    GameSubsystem->TryAcceptTrade(TradingPlayer->GetSelectedOption(), Error);
+}
+
+void UCatanHUDWidget::CancelTrade()
+{
+    const FCatanGameView View = GameSubsystem->GetSnapshot();
+    const FString Player = TradingPlayer->GetSelectedOption().IsEmpty()
+        ? View.ActiveDeal.OfferingPlayer : TradingPlayer->GetSelectedOption();
+    FString Error;
+    GameSubsystem->TryCancelTrade(Player, Error);
+}
+
+void UCatanHUDWidget::CloseTrading()
+{
+    bTradePanelOpen = false;
+    Refresh();
+}
+
+void UCatanHUDWidget::StartNewGame()
+{
+    const FCatanGameView View = GameSubsystem->GetSnapshot();
+    TArray<FString> Names;
+    for (const FCatanPlayerView& Player : View.Players) Names.Add(Player.Name);
+    GameSubsystem->StartLocalGame(Names);
+}
+
+void UCatanHUDWidget::QuitGame()
+{
+    UKismetSystemLibrary::QuitGame(this, GetOwningPlayer(), EQuitPreference::Quit, false);
 }

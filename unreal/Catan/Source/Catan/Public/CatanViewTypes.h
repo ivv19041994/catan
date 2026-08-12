@@ -80,6 +80,17 @@ struct FCatanPlayerView
 };
 
 USTRUCT(BlueprintType)
+struct FCatanDealView
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly) bool bIsActive = false;
+    UPROPERTY(BlueprintReadOnly) FString OfferingPlayer;
+    UPROPERTY(BlueprintReadOnly) FCatanResourceView Offered;
+    UPROPERTY(BlueprintReadOnly) FCatanResourceView Requested;
+};
+
+USTRUCT(BlueprintType)
 struct FCatanHexView
 {
     GENERATED_BODY()
@@ -125,6 +136,7 @@ struct FCatanGameView
     UPROPERTY(BlueprintReadOnly) int32 RequiredDiscardCount = 0;
     UPROPERTY(BlueprintReadOnly) int32 PendingRobberHex = INDEX_NONE;
     UPROPERTY(BlueprintReadOnly) TArray<FString> RobberVictims;
+    UPROPERTY(BlueprintReadOnly) FCatanDealView ActiveDeal;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanPlayerView> Players;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanHexView> Hexes;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanNodeView> Nodes;
