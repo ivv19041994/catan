@@ -2,6 +2,7 @@
 
 #include "catan.hpp"
 #include "dice.hpp"
+#include "development_card_deck.hpp"
 #include "map.hpp"
 #include "player.hpp"
 
@@ -11,6 +12,7 @@
 #include <optional>
 #include <deque>
 #include <variant>
+#include <memory>
 
 namespace ivv {
 namespace catan {
@@ -40,8 +42,14 @@ public:
 		std::map<Resurse, size_t> buy;
 	};
 
+	struct Dependencies {
+		std::array<std::unique_ptr<game::IDice>, 2> dice;
+		std::unique_ptr<IDevelopmentCardDeck> development_cards;
+	};
+
 	GameController(std::initializer_list<std::string> players);
 	GameController(std::vector<std::string> players);
+	GameController(std::vector<std::string> players, Dependencies dependencies);
 
 	void BuildSettlement(std::string_view player, size_t settlement_id);
 	void BuildRoad(std::string_view player, size_t road_id);
@@ -92,12 +100,12 @@ private:
 
 	Bandit bandit_;
 
-	const game::Dice dice_{ 2 };
+	std::array<std::unique_ptr<game::IDice>, 2> dice_;
 	std::pair<size_t, size_t> last_dice_;
 
-	std::deque<DevelopmentCard> cards_deque_;
-	Player* player_knights_{};//владелец карты рыцарей
-	Player* player_roads_{};//владелец карты длинная дорога
+	std::unique_ptr<IDevelopmentCardDeck> development_cards_;
+	Player* player_knights_{};//РІР»Р°РґРµР»РµС† РєР°СЂС‚С‹ СЂС‹С†Р°СЂРµР№
+	Player* player_roads_{};//РІР»Р°РґРµР»РµС† РєР°СЂС‚С‹ РґР»РёРЅРЅР°СЏ РґРѕСЂРѕРіР°
 
 	GameStep step_ = GameStep::ForwardBuildingSettlement;
 	GameStep step_after_bandit_ = GameStep::CommonPlay;
@@ -113,8 +121,6 @@ private:
 	void MixPlayers();
 
 	void BindPlayers();
-
-	void InitCardsDeque();
 
 	void BuildSettlement(Player& player, size_t settlement_id);
 	void BuildRoad(Player& player, size_t road_id);

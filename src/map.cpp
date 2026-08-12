@@ -43,7 +43,7 @@ void Map::initGexs() {
 
 void Map::initRandomTypeForGexs()
 {
-	//Метод с отвратительным перебором, можно будет переделать
+	//РњРµС‚РѕРґ СЃ РѕС‚РІСЂР°С‚РёС‚РµР»СЊРЅС‹Рј РїРµСЂРµР±РѕСЂРѕРј, РјРѕР¶РЅРѕ Р±СѓРґРµС‚ РїРµСЂРµРґРµР»Р°С‚СЊ
 	do {
 		std::array<Resurse, 18> types{
 			Resurse::Wood,
@@ -435,7 +435,7 @@ void Map::initPorts() {
 Map::Map() :rng(rd())
 {
 	initNodes();
-	initNodes();//нужно вызвать дважды для образования всех связей между Facets
+	initNodes();//РЅСѓР¶РЅРѕ РІС‹Р·РІР°С‚СЊ РґРІР°Р¶РґС‹ РґР»СЏ РѕР±СЂР°Р·РѕРІР°РЅРёСЏ РІСЃРµС… СЃРІСЏР·РµР№ РјРµР¶РґСѓ Facets
 
 	initGexs();
 
@@ -538,12 +538,29 @@ bool Map::canPlaceRoad(size_t facetId, Player* p) const
 		return false;
 	}
 
-	if (!f.haveNeighborFacetWith(p) && !f.haveNeighborNodeWith(p))
-	{
+	bool connected = false;
+	for (const Node* node : f.GetNeighborNodes()) {
+		const Building* building = node->getBuilding();
+		if (building) {
+			if (building->getPlayer() == p) {
+				connected = true;
+			}
+			continue;
+		}
+
+		for (const Facet* neighbor : node->getNeighborFacets()) {
+			if (neighbor != &f && neighbor->isBusyBy(p)) {
+				connected = true;
+				break;
+			}
+		}
+	}
+
+	if (!connected) {
 		return false;
 	}
 
-	if (p->getFreeRoad() == nullptr)
+	if (p->getFreeRoadCount() == 0)
 	{
 		return false;
 	}
@@ -672,11 +689,11 @@ const std::array<Facet, 72> Map::GetFacets() const {
 //		}
 //	}
 
-//	//теперь надо найти лучшую комбинацию
+//	//С‚РµРїРµСЂСЊ РЅР°РґРѕ РЅР°Р№С‚Рё Р»СѓС‡С€СѓСЋ РєРѕРјР±РёРЅР°С†РёСЋ
 //	assert(result_by_neighbors.size() <= 2 && result_by_neighbors.size() != 0);
 
 //	if (result_by_neighbors.size() == 1) {
-//		//тут все просто, кто длиннее тот и лучше
+//		//С‚СѓС‚ РІСЃРµ РїСЂРѕСЃС‚Рѕ, РєС‚Рѕ РґР»РёРЅРЅРµРµ С‚РѕС‚ Рё Р»СѓС‡С€Рµ
 //		std::sort(result_by_neighbors[0].begin(), result_by_neighbors[0].end(), [](const auto& lhs, const auto& rhs) {
 //			return lhs.size() > rhs.size();
 //			}
@@ -687,7 +704,7 @@ const std::array<Facet, 72> Map::GetFacets() const {
 //		return std::move(already);
 //	}
 //	//result_by_neighbors.size() == 2
-//	//тут надо перебрать пары и найти лучшую не пересекающуюся сумму
+//	//С‚СѓС‚ РЅР°РґРѕ РїРµСЂРµР±СЂР°С‚СЊ РїР°СЂС‹ Рё РЅР°Р№С‚Рё Р»СѓС‡С€СѓСЋ РЅРµ РїРµСЂРµСЃРµРєР°СЋС‰СѓСЋСЃСЏ СЃСѓРјРјСѓ
 //	std::set<const Facet*> condidate;
 
 //	for (size_t i = 0; i < result_by_neighbors[0].size(); ++i) {

@@ -16,7 +16,6 @@ class Player
 	std::map<DevelopmentCard, size_t> cards_buy_on_this_turn_;
 	std::map<DevelopmentCard, size_t> cards_used_;
 	size_t cards_count_ = 0;
-	size_t win_cards_used_ = 0;
 	bool already_use_dev_card_on_this_turn_ = false;
 	bool knight_card_ = false;
 	bool road_card_ = false;

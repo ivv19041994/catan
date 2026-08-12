@@ -74,11 +74,11 @@ std::set<const Facet*> Player::GetLongWay(const Facet* from, std::set<const Node
 		}
 	}
 
-	//òåïåðü íàäî íàéòè ëó÷øóþ êîìáèíàöèþ
+	//Ñ‚ÐµÐ¿ÐµÑ€ÑŒ Ð½Ð°Ð´Ð¾ Ð½Ð°Ð¹Ñ‚Ð¸ Ð»ÑƒÑ‡ÑˆÑƒÑŽ ÐºÐ¾Ð¼Ð±Ð¸Ð½Ð°Ñ†Ð¸ÑŽ
 	assert(result_by_neighbors.size() <= 2 && result_by_neighbors.size() != 0);
 
 	if (result_by_neighbors.size() == 1) {
-		//òóò âñå ïðîñòî, êòî äëèííåå òîò è ëó÷øå
+		//Ñ‚ÑƒÑ‚ Ð²ÑÐµ Ð¿Ñ€Ð¾ÑÑ‚Ð¾, ÐºÑ‚Ð¾ Ð´Ð»Ð¸Ð½Ð½ÐµÐµ Ñ‚Ð¾Ñ‚ Ð¸ Ð»ÑƒÑ‡ÑˆÐµ
 		std::sort(result_by_neighbors[0].begin(), result_by_neighbors[0].end(), [](const auto& lhs, const auto& rhs) {
 			return lhs.size() > rhs.size();
 			}
@@ -89,7 +89,7 @@ std::set<const Facet*> Player::GetLongWay(const Facet* from, std::set<const Node
 		return std::move(already);
 	}
 	//result_by_neighbors.size() == 2
-	//òóò íàäî ïåðåáðàòü ïàðû è íàéòè ëó÷øóþ íå ïåðåñåêàþùóþñÿ ñóììó
+	//Ñ‚ÑƒÑ‚ Ð½Ð°Ð´Ð¾ Ð¿ÐµÑ€ÐµÐ±Ñ€Ð°Ñ‚ÑŒ Ð¿Ð°Ñ€Ñ‹ Ð¸ Ð½Ð°Ð¹Ñ‚Ð¸ Ð»ÑƒÑ‡ÑˆÑƒÑŽ Ð½Ðµ Ð¿ÐµÑ€ÐµÑÐµÐºÐ°ÑŽÑ‰ÑƒÑŽÑÑ ÑÑƒÐ¼Ð¼Ñƒ
 	std::set<const Facet*> condidate;
 
 	for (size_t i = 0; i < result_by_neighbors[0].size(); ++i) {
@@ -127,11 +127,11 @@ std::set<const Facet*> Player::GetLongWay(const Facet* from, std::set<const Node
 
 Player::Player(std::string n, size_t id) : name{ n }, id_{ id }
 {
-	resurses_[Resurse::Wood] = 100;
-	resurses_[Resurse::Clay] = 100;
-	resurses_[Resurse::Hay] = 100;
-	resurses_[Resurse::Sheep] = 100;
-	resurses_[Resurse::Stone] = 100;
+	resurses_[Resurse::Wood] = 0;
+	resurses_[Resurse::Clay] = 0;
+	resurses_[Resurse::Hay] = 0;
+	resurses_[Resurse::Sheep] = 0;
+	resurses_[Resurse::Stone] = 0;
 
 	cards_[DevelopmentCard::Knights] = 0;
 	cards_[DevelopmentCard::RoadBuilding] = 0;
@@ -488,7 +488,14 @@ size_t Player::GetWinPoints() const {
 	size_t res = 0;
 	res += 5 - getFreeSettlementCount();
 	res += (4 - getFreeCastleCount()) * 2;
-	res += win_cards_used_;
+	for (DevelopmentCard card : {
+		DevelopmentCard::University,
+		DevelopmentCard::Market,
+		DevelopmentCard::GreatHall,
+		DevelopmentCard::Chapel,
+		DevelopmentCard::Library }) {
+		res += GetReadyForUseCardCount(card);
+	}
 	if (knight_card_) {
 		res += 2;
 	}
@@ -520,8 +527,7 @@ void Player::Use(DevelopmentCard card) {
 	case DevelopmentCard::GreatHall:
 	case DevelopmentCard::Chapel:
 	case DevelopmentCard::Library:
-		++win_cards_used_;
-		break;
+		throw logic_error("Victory point cards are not played!");
 	}
 	++cards_used_[card];
 	--count;

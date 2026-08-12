@@ -10,6 +10,46 @@
 namespace ivv {
 namespace catan {
 
+namespace {
+
+GameController::Dependencies MakeProductionDependencies() {
+	GameController::Dependencies dependencies;
+	dependencies.dice[0] = std::make_unique<game::Dice>();
+	dependencies.dice[1] = std::make_unique<game::Dice>();
+	dependencies.development_cards = std::make_unique<DevelopmentCardDeck>();
+	return dependencies;
+}
+
+template <typename Counter>
+Player* SelectAwardHolder(std::vector<Player>& players, Player* incumbent,
+		size_t threshold, Counter count) {
+	size_t maximum = 0;
+	for (const Player& player : players) {
+		maximum = std::max(maximum, count(player));
+	}
+
+	if (maximum < threshold) {
+		return nullptr;
+	}
+	if (incumbent && count(*incumbent) == maximum) {
+		return incumbent;
+	}
+
+	Player* leader = nullptr;
+	for (Player& player : players) {
+		if (count(player) != maximum) {
+			continue;
+		}
+		if (leader) {
+			return nullptr;
+		}
+		leader = &player;
+	}
+	return leader;
+}
+
+}//namespace
+
 GameController::GameController(std::initializer_list<std::string> players_il) : GameController(std::vector<std::string>(players_il.begin(), players_il.end()))
 {
 
@@ -30,22 +70,6 @@ void GameController::BindPlayers() {
 	}
 }
 
-void GameController::InitCardsDeque() {
-	cards_deque_.insert(cards_deque_.end(), 14, DevelopmentCard::Knights);
-	cards_deque_.insert(cards_deque_.end(), 2, DevelopmentCard::RoadBuilding);
-	cards_deque_.insert(cards_deque_.end(), 2, DevelopmentCard::YearOfPlenty);
-	cards_deque_.insert(cards_deque_.end(), 2, DevelopmentCard::Monopoly);
-	cards_deque_.insert(cards_deque_.end(), 1, DevelopmentCard::University);
-	cards_deque_.insert(cards_deque_.end(), 1, DevelopmentCard::Market);
-	cards_deque_.insert(cards_deque_.end(), 1, DevelopmentCard::GreatHall);
-	cards_deque_.insert(cards_deque_.end(), 1, DevelopmentCard::Chapel);
-	cards_deque_.insert(cards_deque_.end(), 1, DevelopmentCard::Library);
-
-	std::random_device rd;
-	std::mt19937 g(rd());
-	std::shuffle(cards_deque_.begin(), cards_deque_.end(), g);
-}
-
 void GameController::DevCard(std::string_view player) {
 	using namespace std::string_literals;
 
@@ -53,7 +77,7 @@ void GameController::DevCard(std::string_view player) {
 		throw logic_error("Buy dev card is not aviable on this game step!"s);
 	}
 	Player& p = CheckCurrentPlayer(player);
-	if (cards_deque_.size() == 0) {
+	if (development_cards_->Empty()) {
 		throw logic_error("Dev card deque is empty!"s);
 	}
 
@@ -62,10 +86,10 @@ void GameController::DevCard(std::string_view player) {
 	}
 	
 
-	DevelopmentCard card = cards_deque_.front();
+	DevelopmentCard card = development_cards_->Draw();
 	p.PutCard(card);
 	p.FreeDevCardResurses();
-	cards_deque_.pop_front();
+	CheckWinner();
 }
 
 void GameController::UseDevCard(std::string_view player, DevelopmentCard card, UseDevCardParam param) {
@@ -79,14 +103,22 @@ void GameController::UseDevCard(std::string_view player, DevelopmentCard card, U
 
 	switch (card) {
 	case DevelopmentCard::YearOfPlenty:
-		if (!param && std::holds_alternative<std::array<Resurse, 2>>(*param)) {
+		if (!param || !std::holds_alternative<std::array<Resurse, 2>>(*param)) {
 			throw logic_error("Invalid use dev card param!"s);
+		}
+		for (Resurse resource : std::get<std::array<Resurse, 2>>(*param)) {
+			if (resource == Resurse::Not) {
+				throw logic_error("Invalid use dev card resource!"s);
+			}
 		}
 		break;
 	case DevelopmentCard::Monopoly:
-		if (!param && std::holds_alternative<Resurse>(*param)) {
+		if (!param || !std::holds_alternative<Resurse>(*param) ||
+			std::get<Resurse>(*param) == Resurse::Not) {
 			throw logic_error("Invalid use dev card param!"s);
 		}
+		break;
+	default:
 		break;
 	}
 
@@ -121,6 +153,12 @@ void GameController::UseDevCard(std::string_view player, DevelopmentCard card, U
 				}
 			}
 		}
+		break;
+	case DevelopmentCard::University:
+	case DevelopmentCard::Market:
+	case DevelopmentCard::GreatHall:
+	case DevelopmentCard::Chapel:
+	case DevelopmentCard::Library:
 		break;
 	}
 
@@ -190,19 +228,10 @@ const std::optional<GameController::Deal>& GameController::GetActivDeal() const 
 }
 
 void GameController::CheckKnightsCard() {
-	Player* condidate = nullptr;
-	size_t condidate_count = 2;
-
-	for (Player& player : players_) {
-		size_t count = player.GetUsedCardCount(DevelopmentCard::Knights);
-		if (count == condidate_count) {
-			condidate = nullptr;
-		}
-		else if(count > condidate_count) {
-			condidate = &player;
-			condidate_count = count;
-		}
-	}
+	Player* condidate = SelectAwardHolder(players_, player_knights_, 3,
+		[](const Player& player) {
+			return player.GetUsedCardCount(DevelopmentCard::Knights);
+		});
 
 	if (player_knights_ != condidate) {
 		if (player_knights_) {
@@ -218,19 +247,10 @@ void GameController::CheckKnightsCard() {
 }
 
 void GameController::CheckRoadLen() {
-	Player* condidate = nullptr;
-	size_t condidate_count = 4;
-
-	for (Player& player : players_) {
-		size_t count = player.GetRoadSize();
-		if (count == condidate_count) {
-			condidate = nullptr;
-		}
-		else if (count > condidate_count) {
-			condidate = &player;
-			condidate_count = count;
-		}
-	}
+	Player* condidate = SelectAwardHolder(players_, player_roads_, 5,
+		[](const Player& player) {
+			return player.GetRoadSize();
+		});
 
 	if (player_roads_ != condidate) {
 		if (player_roads_) {
@@ -256,8 +276,16 @@ void GameController::CheckWinner() {
 }
 
 GameController::GameController(std::vector<std::string> players)
+	: GameController(std::move(players), MakeProductionDependencies()) {
+}
+
+GameController::GameController(std::vector<std::string> players, Dependencies dependencies)
+	: dice_(std::move(dependencies.dice))
+	, development_cards_(std::move(dependencies.development_cards))
 {
-	using DropResult = game::Dice::DropResult;
+	if (!dice_[0] || !dice_[1] || !development_cards_) {
+		throw invalid_argument("Game dependencies must not be null");
+	}
 	if (players.size() > 4 || players.size() < 2)
 		throw out_of_range("Players must by 2 - 4");
 
@@ -267,7 +295,6 @@ GameController::GameController(std::vector<std::string> players)
 
 	MixPlayers();
 	BindPlayers();
-	InitCardsDeque();
 
 	current_player_ = 0;
 	map.GetGexes()[9].setBandit(bandit_);
@@ -500,11 +527,11 @@ void GameController::Dice(std::string_view player) {
 
 	CheckCurrentPlayer(player);
 
-	auto dice = dice_.Drop();
-	map.diceEvent(dice.result);
-	last_dice_ = { dice.each[0], dice.each[1] };
+	last_dice_ = { dice_[0]->Roll(), dice_[1]->Roll() };
+	const size_t dice_result = last_dice_.first + last_dice_.second;
+	map.diceEvent(dice_result);
 
-	if (dice.result == 7) {
+	if (dice_result == 7) {
 		step_ = GameStep::DropCards;
 		current_drop_cards_player_ = 0;
 		DropCards(players_[0], {});
@@ -553,10 +580,8 @@ void GameController::BanditMove(std::string_view player, size_t gex_id, std::str
 
 	Player& current = CheckCurrentPlayer(player);
 
-	if (gex_id == 9) {
-		map.GetGexes()[gex_id].setBandit(bandit_);
-		step_ = step_after_bandit_;
-		return;
+	if (bandit_.getGex() == &map.GetGexes()[gex_id]) {
+		throw logic_error("Bandit must move to another gex!"s);
 	}
 
 	auto pplayer = player_by_name_.find(other_payer);
@@ -689,6 +714,7 @@ std::ostream& operator<<(std::ostream& os, GameController::GameStep step) {
 	case GameController::GameStep::DropCards: return os << "DropCards";
 	case GameController::GameStep::BanditMove: return os << "BanditMove";
 	case GameController::GameStep::RoadBuilding: return os << "RoadBuilding";
+	case GameController::GameStep::Finish: return os << "Finish";
 		
 	}
 	return os << "unknown";
