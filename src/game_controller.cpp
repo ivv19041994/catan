@@ -147,9 +147,9 @@ void GameController::UseDevCard(std::string_view player, DevelopmentCard card, U
 		{
 			Resurse res = std::get<Resurse>(*param);
 
-			for (Player& player : players_) {
-				if (&p != &player) {
-					p.addResurse(res, player.StillAll(res));
+			for (Player& other_player : players_) {
+				if (&p != &other_player) {
+					p.addResurse(res, other_player.StillAll(res));
 				}
 			}
 		}

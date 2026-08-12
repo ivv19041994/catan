@@ -49,7 +49,7 @@ std::set<const Facet*> Player::GetLongWay(const Facet* from, std::set<const Node
 
 	if (neighbors_count == 0) {
 		//std::cout << std::string(deep, '\t') << "return " << already.size() << " " << SetFacetToString(facets.data(), already) << std::endl;
-		return std::move(already);
+		return already;
 	}
 
 	if (neighbors_count == 1) {
@@ -86,7 +86,7 @@ std::set<const Facet*> Player::GetLongWay(const Facet* from, std::set<const Node
 
 		already.insert(result_by_neighbors[0][0].begin(), result_by_neighbors[0][0].end());
 		//std::cout << std::string(deep, '\t') << "return(1) " << already.size() << " " << SetFacetToString(facets.data(), already) << std::endl;
-		return std::move(already);
+		return already;
 	}
 	//result_by_neighbors.size() == 2
 	//тут надо перебрать пары и найти лучшую не пересекающуюся сумму
@@ -122,7 +122,7 @@ std::set<const Facet*> Player::GetLongWay(const Facet* from, std::set<const Node
 	already.insert(condidate.begin(), condidate.end());
 
 	//std::cout << std::string(deep, '\t') << "return(2) " << already.size() << " " << SetFacetToString(facets.data(), already) << std::endl;
-	return std::move(already);
+	return already;
 }
 
 Player::Player(std::string n, size_t id) : name{ n }, id_{ id }
@@ -176,8 +176,8 @@ void Player::addResurse(Resurse resurse, size_t count)
 }
 
 void Player::addResurse(const std::map<Resurse, size_t>& resurses) {
-	for (auto& [name, count] : resurses) {
-		addResurse(name, count);
+	for (auto& [resource, count] : resurses) {
+		addResurse(resource, count);
 	}
 }
 
@@ -229,8 +229,8 @@ void Player::FreeCastleResurses() {
 
 size_t Player::getCountResurses() const {
 	size_t ret = 0;
-	for (const auto& [name, count] : resurses_) {
-		ret += count;
+	for (const auto& entry : resurses_) {
+		ret += entry.second;
 	}
 	return ret;
 }
@@ -244,8 +244,8 @@ size_t Player::getCountResurses(Resurse reusrse) const {
 }
 
 bool Player::Have(const std::map<Resurse, size_t>& resurses) const {
-	for (auto& [name, count] : resurses) {
-		auto resurse = resurses_.find(name);
+	for (auto& [resource, count] : resurses) {
+		auto resurse = resurses_.find(resource);
 		if (resurse == resurses_.end()) {
 			return false;
 		}
@@ -263,8 +263,8 @@ void Player::Drop(const std::map<Resurse, size_t>& resurses) {
 		throw logic_error("Player "s + this->name + " haven't resurses for drop!"s);
 	}
 
-	for (auto& [name, count] : resurses) {
-		resurses_[name] -= count;
+	for (auto& [resource, count] : resurses) {
+		resurses_[resource] -= count;
 	}
 }
 
@@ -394,10 +394,10 @@ std::optional<Resurse> Player::Still() {
 
 	size_t r = rng() % total;
 
-	for (auto& [name, count] : resurses_) {
+	for (auto& [resource, count] : resurses_) {
 		if (r < count) {
 			--count;
-			return name;
+			return resource;
 		}
 		r -= count;
 	}
@@ -437,8 +437,8 @@ void Player::PutCard(DevelopmentCard card) {
 void Player::OnEndTurn() {
 	already_use_dev_card_on_this_turn_ = false;
 
-	for (auto& [name, count] : cards_buy_on_this_turn_) {
-		cards_[name] += count;
+	for (auto& [card, count] : cards_buy_on_this_turn_) {
+		cards_[card] += count;
 		cards_count_ += count;
 		count = 0;
 	}

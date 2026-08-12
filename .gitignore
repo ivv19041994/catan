@@ -1,1 +1,6 @@
 /build/
+/unreal/Catan/Binaries/
+/unreal/Catan/DerivedDataCache/
+/unreal/Catan/Intermediate/
+/unreal/Catan/Saved/
+*.xcworkspace

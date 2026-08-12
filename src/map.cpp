@@ -66,8 +66,8 @@ void Map::initRandomTypeForGexs()
 			Resurse::Stone
 		};
 
-		std::random_device rd;
-		std::mt19937 g(rd());
+		std::random_device random_device;
+		std::mt19937 g(random_device());
 		std::shuffle(types.begin(), types.end(), g);
 
 		assert(types.size() == (gexs_count - 1));
@@ -487,8 +487,7 @@ bool Map::canPlaceCastle(size_t nodeId, const Player& p) const {
 	if (building == nullptr || building->getPlayer() != &p) {
 		return false;
 	}
-	const Settlement* settlement = dynamic_cast<const Settlement*>(building);
-	return (settlement) ? true : false;
+	return building->canUpgrade();
 }
 
 void Map::placeCastle(size_t nodeId, Player& p) {
