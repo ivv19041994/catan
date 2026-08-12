@@ -40,6 +40,21 @@ ECatanGamePhase ToViewPhase(ivv::catan::GameController::GameStep Step)
     return ECatanGamePhase::Finished;
 }
 
+ivv::catan::Resurse ToCoreResource(ECatanResource Resource)
+{
+    using ivv::catan::Resurse;
+    switch (Resource)
+    {
+    case ECatanResource::Wood: return Resurse::Wood;
+    case ECatanResource::Clay: return Resurse::Clay;
+    case ECatanResource::Hay: return Resurse::Hay;
+    case ECatanResource::Sheep: return Resurse::Sheep;
+    case ECatanResource::Stone: return Resurse::Stone;
+    case ECatanResource::Desert: return Resurse::Not;
+    }
+    return Resurse::Not;
+}
+
 int32 CountDevelopmentCards(const ivv::catan::Player& Player)
 {
     using ivv::catan::DevelopmentCard;
@@ -85,6 +100,8 @@ void UCatanGameSubsystem::StartLocalGame(const TArray<FString>& Names)
     }
     Game = std::make_unique<ivv::catan::GameController>(std::move(CoreNames));
     BoardAction = ECatanBoardAction::Automatic;
+    PendingRobberHex = INDEX_NONE;
+    RobberVictims.Reset();
     StatusMessage = TEXT("New local game started");
     OnGameStateChanged.Broadcast();
 }
@@ -98,6 +115,8 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
     View.Phase = ToViewPhase(Game->GetStep());
     View.BoardAction = BoardAction;
     View.StatusMessage = StatusMessage;
+    View.PendingRobberHex = PendingRobberHex;
+    View.RobberVictims = RobberVictims;
     const auto Dice = Game->GetLastDice();
     View.FirstDie = static_cast<int32>(Dice.first);
     View.SecondDie = static_cast<int32>(Dice.second);
@@ -119,6 +138,10 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
         PlayerView.bIsCurrent = PlayerName == View.CurrentPlayer;
         PlayerView.VictoryPoints = static_cast<int32>(Player.GetWinPoints());
         PlayerView.DevelopmentCards = CountDevelopmentCards(Player);
+        PlayerView.Knights = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::Knights));
+        PlayerView.RoadBuildingCards = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::RoadBuilding));
+        PlayerView.YearOfPlentyCards = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::YearOfPlenty));
+        PlayerView.MonopolyCards = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::Monopoly));
         PlayerView.FreeSettlements = static_cast<int32>(Player.getFreeSettlementCount());
         PlayerView.FreeCities = static_cast<int32>(Player.getFreeCastleCount());
         PlayerView.FreeRoads = static_cast<int32>(Player.getFreeRoadCount());
@@ -127,6 +150,10 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
         PlayerView.Resources.Hay = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Hay));
         PlayerView.Resources.Sheep = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Sheep));
         PlayerView.Resources.Stone = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Stone));
+        if (PlayerView.bIsCurrent && View.Phase == ECatanGamePhase::DropCards)
+        {
+            View.RequiredDiscardCount = static_cast<int32>(Player.getCountResurses() / 2);
+        }
     }
 
     const auto& Hexes = Game->GetMap().GetGexes();
@@ -220,10 +247,93 @@ bool UCatanGameSubsystem::TryBuildCity(int32 NodeId, FString& Error)
 bool UCatanGameSubsystem::TryMoveRobber(int32 HexId, FString& Error)
 {
     if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (HexId < 0 || HexId >= static_cast<int32>(Game->GetMap().GetGexes().size()))
+    {
+        return CompleteCommand(false, TEXT("Invalid robber hex"), Error);
+    }
+    if (Game->GetStep() != ivv::catan::GameController::GameStep::BanditMove)
+    {
+        return CompleteCommand(false, TEXT("The robber cannot move in this phase"), Error);
+    }
+    if (Game->GetMap().GetGexes()[HexId].isBandit())
+    {
+        return CompleteCommand(false, TEXT("The robber must move to another hex"), Error);
+    }
+
+    const FString CurrentPlayer = UTF8_TO_TCHAR(Game->GetCurrentPlayer().c_str());
+    TSet<FString> UniqueVictims;
+    for (const ivv::catan::Node* Node : Game->GetMap().GetGexes()[HexId].GetNodes())
+    {
+        if (const ivv::catan::Building* Building = Node->getBuilding())
+        {
+            const FString Owner = UTF8_TO_TCHAR(Building->getPlayer()->getName().c_str());
+            if (Owner != CurrentPlayer) UniqueVictims.Add(Owner);
+        }
+    }
+
+    if (!UniqueVictims.IsEmpty())
+    {
+        PendingRobberHex = HexId;
+        RobberVictims = UniqueVictims.Array();
+        RobberVictims.Sort();
+        StatusMessage = TEXT("Choose a player to steal from");
+        Error.Reset();
+        OnGameStateChanged.Broadcast();
+        return true;
+    }
     try
     {
         Game->BanditMove(Game->GetCurrentPlayer(), static_cast<size_t>(HexId));
+        PendingRobberHex = INDEX_NONE;
+        RobberVictims.Reset();
         return CompleteCommand(true, TEXT("Robber moved"), Error);
+    }
+    catch (const std::exception& Exception)
+    {
+        return CompleteCommand(false, UTF8_TO_TCHAR(Exception.what()), Error);
+    }
+}
+
+bool UCatanGameSubsystem::TryChooseRobberVictim(const FString& Victim, FString& Error)
+{
+    if (!Game || PendingRobberHex == INDEX_NONE)
+    {
+        return CompleteCommand(false, TEXT("Choose a robber hex first"), Error);
+    }
+    if (!RobberVictims.Contains(Victim))
+    {
+        return CompleteCommand(false, TEXT("This player has no building on the selected hex"), Error);
+    }
+    try
+    {
+        Game->BanditMove(Game->GetCurrentPlayer(), static_cast<size_t>(PendingRobberHex), TCHAR_TO_UTF8(*Victim));
+        PendingRobberHex = INDEX_NONE;
+        RobberVictims.Reset();
+        return CompleteCommand(true, TEXT("Robber moved and a resource was stolen"), Error);
+    }
+    catch (const std::exception& Exception)
+    {
+        return CompleteCommand(false, UTF8_TO_TCHAR(Exception.what()), Error);
+    }
+}
+
+bool UCatanGameSubsystem::TryDropResources(const FCatanResourceView& Resources, FString& Error)
+{
+    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    std::map<ivv::catan::Resurse, size_t> Drop;
+    auto Add = [&Drop](ivv::catan::Resurse Resource, int32 Count)
+    {
+        if (Count > 0) Drop[Resource] = static_cast<size_t>(Count);
+    };
+    Add(ivv::catan::Resurse::Wood, Resources.Wood);
+    Add(ivv::catan::Resurse::Clay, Resources.Clay);
+    Add(ivv::catan::Resurse::Hay, Resources.Hay);
+    Add(ivv::catan::Resurse::Sheep, Resources.Sheep);
+    Add(ivv::catan::Resurse::Stone, Resources.Stone);
+    try
+    {
+        Game->DropCards(Game->GetCurrentPlayer(), Drop);
+        return CompleteCommand(true, TEXT("Resources discarded"), Error);
     }
     catch (const std::exception& Exception)
     {
@@ -266,6 +376,41 @@ bool UCatanGameSubsystem::TryPass(FString& Error)
     {
         Game->Pass(Game->GetCurrentPlayer());
         return CompleteCommand(true, TEXT("Turn passed"), Error);
+    }
+    catch (const std::exception& Exception)
+    {
+        return CompleteCommand(false, UTF8_TO_TCHAR(Exception.what()), Error);
+    }
+}
+
+bool UCatanGameSubsystem::TryUseDevelopmentCard(ECatanDevelopmentCard Card,
+    ECatanResource FirstResource, ECatanResource SecondResource, FString& Error)
+{
+    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    using ivv::catan::DevelopmentCard;
+    DevelopmentCard CoreCard = DevelopmentCard::Knights;
+    ivv::catan::GameController::UseDevCardParam Param;
+    switch (Card)
+    {
+    case ECatanDevelopmentCard::Knight:
+        CoreCard = DevelopmentCard::Knights;
+        break;
+    case ECatanDevelopmentCard::RoadBuilding:
+        CoreCard = DevelopmentCard::RoadBuilding;
+        break;
+    case ECatanDevelopmentCard::YearOfPlenty:
+        CoreCard = DevelopmentCard::YearOfPlenty;
+        Param = std::array<ivv::catan::Resurse, 2>{ToCoreResource(FirstResource), ToCoreResource(SecondResource)};
+        break;
+    case ECatanDevelopmentCard::Monopoly:
+        CoreCard = DevelopmentCard::Monopoly;
+        Param = ToCoreResource(FirstResource);
+        break;
+    }
+    try
+    {
+        Game->UseDevCard(Game->GetCurrentPlayer(), CoreCard, Param);
+        return CompleteCommand(true, TEXT("Development card played"), Error);
     }
     catch (const std::exception& Exception)
     {

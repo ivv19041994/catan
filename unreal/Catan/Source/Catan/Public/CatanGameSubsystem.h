@@ -40,6 +40,12 @@ public:
     bool TryMoveRobber(int32 HexId, FString& Error);
 
     UFUNCTION(BlueprintCallable, Category="Catan")
+    bool TryChooseRobberVictim(const FString& Victim, FString& Error);
+
+    UFUNCTION(BlueprintCallable, Category="Catan")
+    bool TryDropResources(const FCatanResourceView& Resources, FString& Error);
+
+    UFUNCTION(BlueprintCallable, Category="Catan")
     bool TryRollDice(FString& Error);
 
     UFUNCTION(BlueprintCallable, Category="Catan")
@@ -47,6 +53,10 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="Catan")
     bool TryPass(FString& Error);
+
+    UFUNCTION(BlueprintCallable, Category="Catan")
+    bool TryUseDevelopmentCard(ECatanDevelopmentCard Card, ECatanResource FirstResource,
+        ECatanResource SecondResource, FString& Error);
 
     UFUNCTION(BlueprintCallable, Category="Catan")
     void SelectBoardAction(ECatanBoardAction Action);
@@ -59,6 +69,8 @@ private:
     TArray<FString> PlayerNames;
     ECatanBoardAction BoardAction = ECatanBoardAction::Automatic;
     FString StatusMessage;
+    int32 PendingRobberHex = INDEX_NONE;
+    TArray<FString> RobberVictims;
 
     bool CompleteCommand(bool bSucceeded, const FString& Message, FString& Error);
 };

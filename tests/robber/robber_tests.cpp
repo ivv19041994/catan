@@ -58,7 +58,42 @@ int main() { return test::Run({
         const std::string other=current=="a"?"b":"a";
         test::Throws([&] { controlled.game->BanditMove(current,19); }, "hex id is range checked");
         test::Throws([&] { controlled.game->BanditMove(current,0,current); }, "self-theft is forbidden");
-        size_t occupied=0; for (size_t i=0;i<19;++i) { for (auto* n:controlled.game->GetMap().GetGexes()[i].GetNodes()) if(n->getBuilding()){occupied=i;break;} }
-        test::Throws([&] { controlled.game->BanditMove(current,occupied,other); }, "named victim must have adjacent building");
+        size_t non_adjacent=19;
+        for (size_t i=0;i<19;++i) {
+            if (controlled.game->GetMap().GetGexes()[i].isBandit()) continue;
+            bool occupied=false, other_adjacent=false;
+            for (auto* node : controlled.game->GetMap().GetGexes()[i].GetNodes()) {
+                if (const Building* building=node->getBuilding()) {
+                    occupied=true;
+                    other_adjacent |= building->getPlayer()->getName()==other;
+                }
+            }
+            if (occupied && !other_adjacent) { non_adjacent=i; break; }
+        }
+        test::Check(non_adjacent<19, "fixture provides an occupied hex away from the named victim");
+        test::Throws([&] { controlled.game->BanditMove(current,non_adjacent,other); }, "named victim must have adjacent building");
+    }},
+    {"robber may move to a hex occupied only by the current player", [] {
+        test::ControlledGame controlled({"a","b"}); test::CompleteSetup(*controlled.game,2);
+        test::SeedResources(*controlled.game,"a",{{Resurse::Wood,8}}); test::SeedResources(*controlled.game,"b",{{Resurse::Clay,8}}); test::AddRoll(controlled,3,4);
+        controlled.game->Dice(controlled.game->GetCurrentPlayer());
+        for (size_t i=0; i<2; ++i) { const auto n=controlled.game->GetCurrentPlayer(); controlled.game->DropCards(n,Half(controlled.game->GetPlayer(n))); }
+        const std::string current=controlled.game->GetCurrentPlayer();
+        size_t target=19;
+        for (size_t i=0;i<19;++i) {
+            if (controlled.game->GetMap().GetGexes()[i].isBandit()) continue;
+            bool own=false, opponent=false;
+            for (auto* node : controlled.game->GetMap().GetGexes()[i].GetNodes()) {
+                if (const Building* building=node->getBuilding()) {
+                    own |= building->getPlayer()->getName()==current;
+                    opponent |= building->getPlayer()->getName()!=current;
+                }
+            }
+            if (own && !opponent) { target=i; break; }
+        }
+        test::Check(target<19, "fixture provides a current-player-only target hex");
+        controlled.game->BanditMove(current,target);
+        test::Check(controlled.game->GetMap().GetGexes()[target].isBandit(), "robber moved without stealing from self");
+        test::Check(test::Step(*controlled.game).find("CommonPlay") != std::string::npos, "robber move completes");
     }},
 }); }
