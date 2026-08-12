@@ -21,6 +21,32 @@ int main() { return test::Run({
         test::Check(game.GetPlayer(current).GetRoadSize()>=5,"road algorithm sees a chain of five");
         test::Equal(game.GetPlayer(current).GetWinPoints(),before+2,"unique road length five owns the award");
     }},
+    {"a closed road cycle counts every edge exactly once", [] {
+        Map map; Player player("cycle",0);
+        map.placeStartBuilding(0,&player);
+        for(size_t road:{0u,1u,7u,12u,11u,6u}) map.placeRoad(road,&player);
+        test::Equal(player.GetRoadSize(),size_t{6},"six-edge cycle counts all six roads without reusing an edge");
+    }},
+    {"a tail connected to a cycle extends the route without reusing cycle edges", [] {
+        Map map; Player player("cycle-with-tail",0);
+        map.placeStartBuilding(0,&player);
+        for(size_t road:{0u,1u,7u,12u,11u,6u,19u}) map.placeRoad(road,&player);
+        test::Equal(player.GetRoadSize(),size_t{7},"one tail and a six-edge cycle form a seven-road trail");
+    }},
+    {"a three-way branch uses only its two longest arms", [] {
+        Map map; Player player("branch",0);
+        map.placeStartBuilding(2,&player);
+        for(size_t road:{1u,0u,2u,3u,4u,7u,12u}) map.placeRoad(road,&player);
+        test::Equal(player.GetRoadSize(),size_t{5},"the third branch is not added to the longest continuous route");
+    }},
+    {"multiple opponent settlements split a cycle into independent road segments", [] {
+        Map map; Player road_owner("road-owner",0), blocker("blocker",1);
+        map.placeStartBuilding(0,&road_owner);
+        for(size_t road:{0u,1u,7u,12u,11u,6u}) map.placeRoad(road,&road_owner);
+        map.placeStartBuilding(2,&blocker);
+        map.placeStartBuilding(9,&blocker);
+        test::Equal(road_owner.GetRoadSize(),size_t{4},"two opponent settlements leave only the longer four-edge segment");
+    }},
     {"longest-road incumbent survives a tie and strict lead transfers award", [] {
         test::ControlledGame controlled({"a","b"}); test::EnterCommonPlay(controlled); auto& game=*controlled.game;
         const std::string incumbent=game.GetCurrentPlayer(), challenger=incumbent=="a"?"b":"a";
