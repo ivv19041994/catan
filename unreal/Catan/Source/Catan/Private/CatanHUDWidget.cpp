@@ -9,6 +9,7 @@
 #include "Components/ComboBoxString.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
+#include "Components/Image.h"
 #include "Components/Spacer.h"
 #include "Components/SpinBox.h"
 #include "Components/VerticalBox.h"
@@ -16,6 +17,7 @@
 #include "Components/WidgetSwitcher.h"
 #include "Blueprint/WidgetTree.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Engine/Texture2D.h"
 
 namespace
 {
@@ -107,6 +109,17 @@ void UCatanHUDWidget::NativeDestruct()
     Super::NativeDestruct();
 }
 
+void UCatanHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+    Super::NativeTick(MyGeometry, InDeltaTime);
+    if (ToastRemaining > 0.0f && ToastBorder)
+    {
+        ToastRemaining = FMath::Max(0.0f, ToastRemaining - InDeltaTime);
+        ToastBorder->SetRenderOpacity(FMath::Clamp(ToastRemaining * 1.6f, 0.0f, 1.0f));
+        if (ToastRemaining <= 0.0f) ToastBorder->SetVisibility(ESlateVisibility::Collapsed);
+    }
+}
+
 void UCatanHUDWidget::BuildLayout()
 {
     UCanvasPanel* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>();
@@ -131,11 +144,35 @@ void UCatanHUDWidget::BuildLayout()
     EventText = AddText(EventPanel, FString(), 15);
 
     UBorder* PlayerBorder = AddPanel(WidgetTree, Canvas, FAnchors(1, 0), FVector2D(1, 0),
-        FMargin(-24, 24, 440, 365));
+        FMargin(-24, 24, 440, 455));
     UVerticalBox* PlayerPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     PlayerBorder->SetContent(PlayerPanel);
     AddText(PlayerPanel, TEXT("PLAYERS"), 22);
+    if (UTexture2D* ResourceAtlas = LoadObject<UTexture2D>(nullptr, TEXT("/Game/UI/resource-icons-atlas.resource-icons-atlas")))
+    {
+        UImage* ResourceIcons = WidgetTree->ConstructWidget<UImage>();
+        ResourceIcons->SetBrushFromTexture(ResourceAtlas, true);
+        ResourceIcons->SetDesiredSizeOverride(FVector2D(390.0f, 92.0f));
+        PlayerPanel->AddChildToVerticalBox(ResourceIcons);
+        UCommonTextBlock* Legend = AddText(PlayerPanel, TEXT("WOOD       CLAY        HAY       SHEEP       ORE"), 12);
+        Legend->SetJustification(ETextJustify::Center);
+    }
     PlayersText = AddText(PlayerPanel, FString(), 17);
+
+    UBorder* CostBorder = AddPanel(WidgetTree, Canvas, FAnchors(1, 0), FVector2D(1, 0),
+        FMargin(-24, 500, 440, 150));
+    UVerticalBox* Costs = WidgetTree->ConstructWidget<UVerticalBox>();
+    CostBorder->SetContent(Costs);
+    AddText(Costs, TEXT("BUILD COSTS"), 18);
+    AddText(Costs, TEXT("ROAD  1 wood + 1 clay     SETTLEMENT  + 1 hay + 1 sheep\nCITY  2 hay + 3 ore       DEV CARD  1 hay + 1 sheep + 1 ore"), 14);
+
+    ToastBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 0), FVector2D(0.5f, 0),
+        FMargin(0, 34, 520, 72));
+    ToastText = WidgetTree->ConstructWidget<UCommonTextBlock>();
+    ToastText->SetJustification(ETextJustify::Center);
+    FSlateFontInfo ToastFont = ToastText->GetFont(); ToastFont.Size = 20; ToastText->SetFont(ToastFont);
+    ToastBorder->SetContent(ToastText);
+    ToastBorder->SetVisibility(ESlateVisibility::Collapsed);
 
     UBorder* ActionBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 1), FVector2D(0.5f, 1),
         FMargin(0, -24, 1100, 115));
@@ -217,6 +254,16 @@ void UCatanHUDWidget::BuildLayout()
     UVerticalBox* DevelopmentPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(DevelopmentPanel);
     AddText(DevelopmentPanel, TEXT("DEVELOPMENT CARDS"), 25);
+    if (UTexture2D* CardAtlas = LoadObject<UTexture2D>(nullptr, TEXT("/Game/UI/development-card-icons-atlas.development-card-icons-atlas")))
+    {
+        UImage* CardIcons = WidgetTree->ConstructWidget<UImage>();
+        CardIcons->SetBrushFromTexture(CardAtlas, true);
+        CardIcons->SetDesiredSizeOverride(FVector2D(560.0f, 155.0f));
+        DevelopmentPanel->AddChildToVerticalBox(CardIcons);
+        UCommonTextBlock* CardLegend = AddText(DevelopmentPanel,
+            TEXT("KNIGHT          ROADS          PLENTY          MONOPOLY          VICTORY"), 12);
+        CardLegend->SetJustification(ETextJustify::Center);
+    }
     KnightButton = AddButton(DevelopmentPanel, TEXT("PLAY KNIGHT"));
     RoadBuildingButton = AddButton(DevelopmentPanel, TEXT("PLAY ROAD BUILDING"));
     AddText(DevelopmentPanel, TEXT("Resources for Year of Plenty / Monopoly"), 16);
@@ -345,6 +392,14 @@ void UCatanHUDWidget::Refresh()
         : FText::GetEmpty());
     HintText->SetText(FText::FromString(PhaseHint(View.Phase)));
     StatusText->SetText(FText::FromString(View.StatusMessage));
+    if (!PreviousToastStatus.IsEmpty() && PreviousToastStatus != View.StatusMessage)
+    {
+        ToastText->SetText(FText::FromString(View.StatusMessage));
+        ToastBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
+        ToastBorder->SetRenderOpacity(1.0f);
+        ToastRemaining = 2.2f;
+    }
+    PreviousToastStatus = View.StatusMessage;
     FString Events;
     for (int32 Index = View.EventLog.Num() - 1; Index >= 0; --Index)
     {
