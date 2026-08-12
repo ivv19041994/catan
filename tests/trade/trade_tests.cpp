@@ -61,4 +61,21 @@ int main() { return test::Run({
         game.SetDeal(seller, {{Resurse::Wood,1}}, {{Resurse::Clay,1}}); game.Pass(seller);
         test::Check(!game.GetActivDeal(), "offer expires at end of turn");
     }},
+    {"either side may cancel an active deal without moving resources", [] {
+        test::ControlledGame controlled({"a","b"}); test::EnterCommonPlay(controlled);
+        auto& game = *controlled.game; const auto seller = game.GetCurrentPlayer(); const auto buyer = seller == "a" ? "b" : "a";
+        test::SeedResources(game, seller, {{Resurse::Wood,2}});
+        test::SeedResources(game, buyer, {{Resurse::Clay,1}});
+        const auto seller_before = test::ResourceCounts(game.GetPlayer(seller));
+        const auto buyer_before = test::ResourceCounts(game.GetPlayer(buyer));
+        game.SetDeal(seller, {{Resurse::Wood,2}}, {{Resurse::Clay,1}});
+        game.CancelDeal(buyer);
+        test::Check(!game.GetActivDeal(), "responder can reject an offer");
+        test::Check(test::ResourceCounts(game.GetPlayer(seller)) == seller_before, "rejection does not charge seller");
+        test::Check(test::ResourceCounts(game.GetPlayer(buyer)) == buyer_before, "rejection does not charge buyer");
+        test::Throws([&] { game.CancelDeal(seller); }, "there is no deal to cancel twice");
+        game.SetDeal(seller, {{Resurse::Wood,2}}, {{Resurse::Clay,1}});
+        game.CancelDeal(seller);
+        test::Check(!game.GetActivDeal(), "proposer can withdraw an offer");
+    }},
 }); }

@@ -219,6 +219,21 @@ void GameController::SetDeal(std::string_view player, std::map<Resurse, size_t> 
 	activ_deal_.reset();
 }
 
+void GameController::CancelDeal(std::string_view player) {
+	using namespace std::string_literals;
+
+	if (step_ != GameStep::CommonPlay) {
+		throw logic_error("Deal is not aviable on this game step!"s);
+	}
+
+	CheckAnyPlayer(player);
+	if (!activ_deal_) {
+		throw logic_error("There is no active deal!"s);
+	}
+
+	activ_deal_.reset();
+}
+
 const Player& GameController::GetPlayer(std::string_view player) const {
 	return *(player_by_name_.at(player));
 }
