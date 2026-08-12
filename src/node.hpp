@@ -28,7 +28,7 @@ public:
 
 	bool neighborsNodeIsFree() const;
 	bool isFree() const;
-	bool isBusyBy(Player* p) const;
+	bool isBusyBy(const Player* p) const;
 
 	std::set<Gex*> getNeighborGexs();
 	const std::set<Facet*>& getNeighborFacets() const;

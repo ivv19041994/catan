@@ -64,6 +64,10 @@ public:
 	void Pass(std::string_view player);
 
 	const Map& GetMap() const;
+	bool CanBuildSettlement(size_t node_id) const;
+	bool CanBuildRoad(size_t road_id) const;
+	bool CanBuildCastle(size_t node_id) const;
+	bool CanMoveBandit(size_t gex_id) const;
 
 	bool Finish();
 

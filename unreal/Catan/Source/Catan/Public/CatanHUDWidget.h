@@ -32,6 +32,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> PlayersText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> HintText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> StatusText;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> EventText;
     UPROPERTY(Transient) TObjectPtr<UButton> RollButton;
     UPROPERTY(Transient) TObjectPtr<UButton> SettlementButton;
     UPROPERTY(Transient) TObjectPtr<UButton> RoadButton;

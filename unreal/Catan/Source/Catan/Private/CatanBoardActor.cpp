@@ -273,9 +273,11 @@ void ACatanBoardActor::RefreshPieces()
     for (int32 Index=0; Index<Labels.Num() && Index<View.Hexes.Num(); ++Index)
     {
         const FCatanHexView& Hex = View.Hexes[Index];
+        const bool bValidTarget = View.ValidHexTargets.Contains(Index);
         Labels[Index]->SetText(FText::FromString(Hex.bHasRobber
             ? FString::Printf(TEXT("%d\nB"), Index)
             : FString::Printf(TEXT("%d\n%d"), Index, Hex.Dice)));
+        Labels[Index]->SetTextRenderColor(bValidTarget ? FColor(255, 210, 35) : FColor::White);
         if (UMaterialInstanceDynamic* Material = Cast<UMaterialInstanceDynamic>(HexMesh->GetMaterial(Index)))
         {
             const FLinearColor Color = ResourceColor(Hex.Resource);
@@ -286,16 +288,22 @@ void ACatanBoardActor::RefreshPieces()
     for (int32 Index=0; Index<NodeSlots.Num() && Index<View.Nodes.Num(); ++Index)
     {
         const FCatanNodeView& Node = View.Nodes[Index];
-        const FLinearColor Color = Node.OwnerId != INDEX_NONE ? PlayerColor(Node.OwnerId) : FLinearColor(0.08f,0.1f,0.12f);
+        const bool bValidTarget = View.ValidNodeTargets.Contains(Index);
+        FLinearColor Color = Node.OwnerId != INDEX_NONE ? PlayerColor(Node.OwnerId) : FLinearColor(0.08f,0.1f,0.12f);
+        if (bValidTarget) Color = FMath::Lerp(Color, FLinearColor(0.05f, 0.95f, 0.85f), 0.72f);
         Cast<UMaterialInstanceDynamic>(NodeSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
-        NodeSlots[Index]->SetRelativeScale3D(Node.OwnerId != INDEX_NONE ? FVector(0.19f) : FVector(0.13f));
+        NodeSlots[Index]->SetRelativeScale3D(bValidTarget ? FVector(0.23f)
+            : (Node.OwnerId != INDEX_NONE ? FVector(0.19f) : FVector(0.13f)));
     }
     for (int32 Index=0; Index<RoadSlots.Num() && Index<View.Roads.Num(); ++Index)
     {
         const FCatanRoadView& Road = View.Roads[Index];
-        const FLinearColor Color = Road.OwnerId != INDEX_NONE ? PlayerColor(Road.OwnerId) : FLinearColor(0.14f,0.15f,0.16f);
+        const bool bValidTarget = View.ValidRoadTargets.Contains(Index);
+        FLinearColor Color = Road.OwnerId != INDEX_NONE ? PlayerColor(Road.OwnerId) : FLinearColor(0.14f,0.15f,0.16f);
+        if (bValidTarget) Color = FLinearColor(0.05f, 0.95f, 0.85f);
         Cast<UMaterialInstanceDynamic>(RoadSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
-        RoadSlots[Index]->SetRelativeScale3D(Road.OwnerId != INDEX_NONE ? FVector(1.9f,0.12f,0.09f) : FVector(1.9f,0.07f,0.05f));
+        RoadSlots[Index]->SetRelativeScale3D(bValidTarget ? FVector(1.9f,0.15f,0.11f)
+            : (Road.OwnerId != INDEX_NONE ? FVector(1.9f,0.12f,0.09f) : FVector(1.9f,0.07f,0.05f)));
     }
 }
 

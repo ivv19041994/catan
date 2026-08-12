@@ -18,10 +18,10 @@ public:
 	void addNeighbor(Facet* facet);
 	void addNeighbor(Node* node);
 	bool isFree() const;
-	bool isBusyBy(Player* p) const;
+	bool isBusyBy(const Player* p) const;
 	void setRoad(Road* r);
-	bool haveNeighborFacetWith(Player* p) const;
-	bool haveNeighborNodeWith(Player* p) const;
+	bool haveNeighborFacetWith(const Player* p) const;
+	bool haveNeighborNodeWith(const Player* p) const;
 	const Road* getRoad() const;
 	const std::set<Node*>& GetNeighborNodes() const;
 };
