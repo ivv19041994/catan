@@ -85,8 +85,11 @@ private:
     TArray<FString> RobberVictims;
     TArray<FString> EventLog;
     TMap<FString, FCatanResourceView> LastResources;
+    FString LastLargestArmy;
+    FString LastLongestRoad;
 
     bool CompleteCommand(bool bSucceeded, const FString& Message, FString& Error);
     void AppendEvent(const FString& Message);
     void CaptureResourceChanges();
+    void CaptureAwards();
 };

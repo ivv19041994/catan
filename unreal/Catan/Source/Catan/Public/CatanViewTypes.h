@@ -73,10 +73,13 @@ struct FCatanPlayerView
     UPROPERTY(BlueprintReadOnly) int32 FreeCities = 0;
     UPROPERTY(BlueprintReadOnly) int32 FreeRoads = 0;
     UPROPERTY(BlueprintReadOnly) FCatanResourceView Resources;
+    UPROPERTY(BlueprintReadOnly) FCatanResourceView TradeRates;
     UPROPERTY(BlueprintReadOnly) int32 Knights = 0;
     UPROPERTY(BlueprintReadOnly) int32 RoadBuildingCards = 0;
     UPROPERTY(BlueprintReadOnly) int32 YearOfPlentyCards = 0;
     UPROPERTY(BlueprintReadOnly) int32 MonopolyCards = 0;
+    UPROPERTY(BlueprintReadOnly) bool bHasLargestArmy = false;
+    UPROPERTY(BlueprintReadOnly) bool bHasLongestRoad = false;
 };
 
 USTRUCT(BlueprintType)

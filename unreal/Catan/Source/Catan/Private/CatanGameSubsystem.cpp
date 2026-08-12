@@ -136,6 +136,8 @@ void UCatanGameSubsystem::StartLocalGame(const TArray<FString>& Names)
     StatusMessage = TEXT("New local game started");
     EventLog.Reset();
     LastResources.Reset();
+    LastLargestArmy.Reset();
+    LastLongestRoad.Reset();
     for (const FString& PlayerName : PlayerNames)
     {
         const ivv::catan::Player& Player = Game->GetPlayer(TCHAR_TO_UTF8(*PlayerName));
@@ -195,6 +197,8 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
         PlayerView.RoadBuildingCards = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::RoadBuilding));
         PlayerView.YearOfPlentyCards = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::YearOfPlenty));
         PlayerView.MonopolyCards = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::Monopoly));
+        PlayerView.bHasLargestArmy = Player.HasLargestArmy();
+        PlayerView.bHasLongestRoad = Player.HasLongestRoad();
         PlayerView.FreeSettlements = static_cast<int32>(Player.getFreeSettlementCount());
         PlayerView.FreeCities = static_cast<int32>(Player.getFreeCastleCount());
         PlayerView.FreeRoads = static_cast<int32>(Player.getFreeRoadCount());
@@ -203,6 +207,11 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
         PlayerView.Resources.Hay = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Hay));
         PlayerView.Resources.Sheep = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Sheep));
         PlayerView.Resources.Stone = static_cast<int32>(Player.getCountResurses(ivv::catan::Resurse::Stone));
+        PlayerView.TradeRates.Wood = static_cast<int32>(Player.GetMarketPrice(ivv::catan::Resurse::Wood));
+        PlayerView.TradeRates.Clay = static_cast<int32>(Player.GetMarketPrice(ivv::catan::Resurse::Clay));
+        PlayerView.TradeRates.Hay = static_cast<int32>(Player.GetMarketPrice(ivv::catan::Resurse::Hay));
+        PlayerView.TradeRates.Sheep = static_cast<int32>(Player.GetMarketPrice(ivv::catan::Resurse::Sheep));
+        PlayerView.TradeRates.Stone = static_cast<int32>(Player.GetMarketPrice(ivv::catan::Resurse::Stone));
         if (PlayerView.bIsCurrent && View.Phase == ECatanGamePhase::DropCards)
         {
             View.RequiredDiscardCount = static_cast<int32>(Player.getCountResurses() / 2);
@@ -577,6 +586,7 @@ bool UCatanGameSubsystem::CompleteCommand(bool bSucceeded, const FString& Messag
         BoardAction = ECatanBoardAction::Automatic;
         AppendEvent(Message);
         CaptureResourceChanges();
+        CaptureAwards();
     }
     else
     {
@@ -620,5 +630,30 @@ void UCatanGameSubsystem::CaptureResourceChanges()
             if (!Changes.IsEmpty()) AppendEvent(FString::Printf(TEXT("%s: %s"), *PlayerName, *Changes));
         }
         LastResources.Add(PlayerName, Current);
+    }
+}
+
+void UCatanGameSubsystem::CaptureAwards()
+{
+    if (!Game) return;
+    FString LargestArmy;
+    FString LongestRoad;
+    for (const FString& PlayerName : PlayerNames)
+    {
+        const ivv::catan::Player& Player = Game->GetPlayer(TCHAR_TO_UTF8(*PlayerName));
+        if (Player.HasLargestArmy()) LargestArmy = PlayerName;
+        if (Player.HasLongestRoad()) LongestRoad = PlayerName;
+    }
+    if (LargestArmy != LastLargestArmy)
+    {
+        if (!LargestArmy.IsEmpty()) AppendEvent(FString::Printf(TEXT("★ %s claimed Largest Army"), *LargestArmy));
+        else if (!LastLargestArmy.IsEmpty()) AppendEvent(FString::Printf(TEXT("★ %s lost Largest Army"), *LastLargestArmy));
+        LastLargestArmy = LargestArmy;
+    }
+    if (LongestRoad != LastLongestRoad)
+    {
+        if (!LongestRoad.IsEmpty()) AppendEvent(FString::Printf(TEXT("★ %s claimed Longest Road"), *LongestRoad));
+        else if (!LastLongestRoad.IsEmpty()) AppendEvent(FString::Printf(TEXT("★ %s lost Longest Road"), *LastLongestRoad));
+        LastLongestRoad = LongestRoad;
     }
 }

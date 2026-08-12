@@ -383,6 +383,13 @@ void Player::DownPriceOnMarket(Resurse resurse, size_t price) {
 	}
 }
 
+size_t Player::GetMarketPrice(Resurse resurse) const {
+	return resurses_market_price_.at(resurse);
+}
+
+bool Player::HasLargestArmy() const { return knight_card_; }
+bool Player::HasLongestRoad() const { return road_card_; }
+
 std::optional<Resurse> Player::Still() {
 	size_t total = getCountResurses();
 	if (!total) {
