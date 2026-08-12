@@ -123,6 +123,13 @@ void UCatanHUDWidget::BuildLayout()
     StatusText = AddText(Info, FString(), 16);
     StatusText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.72f, 0.18f)));
 
+    UBorder* EventBorder = AddPanel(WidgetTree, Canvas, FAnchors(0, 0), FVector2D::ZeroVector,
+        FMargin(24, 280, 470, 290));
+    UVerticalBox* EventPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    EventBorder->SetContent(EventPanel);
+    AddText(EventPanel, TEXT("EVENTS"), 20);
+    EventText = AddText(EventPanel, FString(), 15);
+
     UBorder* PlayerBorder = AddPanel(WidgetTree, Canvas, FAnchors(1, 0), FVector2D(1, 0),
         FMargin(-24, 24, 440, 365));
     UVerticalBox* PlayerPanel = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -338,6 +345,12 @@ void UCatanHUDWidget::Refresh()
         : FText::GetEmpty());
     HintText->SetText(FText::FromString(PhaseHint(View.Phase)));
     StatusText->SetText(FText::FromString(View.StatusMessage));
+    FString Events;
+    for (int32 Index = View.EventLog.Num() - 1; Index >= 0; --Index)
+    {
+        Events += FString::Printf(TEXT("• %s\n"), *View.EventLog[Index]);
+    }
+    EventText->SetText(FText::FromString(Events));
 
     FString Players;
     for (const FCatanPlayerView& Player : View.Players)
@@ -368,6 +381,15 @@ void UCatanHUDWidget::Refresh()
             + CurrentPlayer->YearOfPlentyCards + CurrentPlayer->MonopolyCards
         : 0;
     UseCardButton->SetIsEnabled((bPlay || bRoll) && ReadyCards > 0);
+    auto MarkSelected = [&View](UButton* Button, ECatanBoardAction Action)
+    {
+        Button->SetBackgroundColor(View.BoardAction == Action
+            ? FLinearColor(0.92f, 0.58f, 0.08f, 1.0f)
+            : FLinearColor(0.10f, 0.24f, 0.42f, 1.0f));
+    };
+    MarkSelected(SettlementButton, ECatanBoardAction::BuildSettlement);
+    MarkSelected(RoadButton, ECatanBoardAction::BuildRoad);
+    MarkSelected(CityButton, ECatanBoardAction::BuildCity);
 
     if (View.Phase == ECatanGamePhase::Finished)
     {

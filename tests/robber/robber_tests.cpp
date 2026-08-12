@@ -46,6 +46,9 @@ int main() { return test::Run({
         const auto current = controlled.game->GetCurrentPlayer();
         size_t robber_hex=0;
         for(size_t i=0;i<controlled.game->GetMap().GetGexes().size();++i) if(controlled.game->GetMap().GetGexes()[i].isBandit()) { robber_hex=i; break; }
+        test::Check(!controlled.game->CanMoveBandit(robber_hex), "current robber hex is not a valid target");
+        test::Check(controlled.game->CanMoveBandit((robber_hex+1)%19), "a different robber hex is a valid target");
+        test::Check(!controlled.game->CanMoveBandit(19), "robber target query checks range");
         test::Throws([&] { controlled.game->BanditMove(current,robber_hex); }, "robber cannot stay on its current hex");
         test::Check(test::Step(*controlled.game).find("BanditMove") != std::string::npos, "invalid move keeps robber phase active");
     }},

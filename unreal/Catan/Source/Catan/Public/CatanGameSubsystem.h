@@ -83,6 +83,10 @@ private:
     FString StatusMessage;
     int32 PendingRobberHex = INDEX_NONE;
     TArray<FString> RobberVictims;
+    TArray<FString> EventLog;
+    TMap<FString, FCatanResourceView> LastResources;
 
     bool CompleteCommand(bool bSucceeded, const FString& Message, FString& Error);
+    void AppendEvent(const FString& Message);
+    void CaptureResourceChanges();
 };

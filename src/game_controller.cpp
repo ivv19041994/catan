@@ -697,6 +697,39 @@ const Map& GameController::GetMap() const {
 	return map;
 }
 
+bool GameController::CanBuildSettlement(size_t node_id) const {
+	if (node_id >= Map::nodes_count) return false;
+	const Player& player = players_[current_player_];
+	if (step_ == GameStep::ForwardBuildingSettlement || step_ == GameStep::BackwardBuildingSettlement) {
+		return player.getFreeSettlementCount() > 0 && map.canPlaceStartBuilding(node_id);
+	}
+	return step_ == GameStep::CommonPlay && player.getFreeSettlementCount() > 0
+		&& player.HaveSettlemenResurses() && map.canPlaceBuilding(node_id, player);
+}
+
+bool GameController::CanBuildRoad(size_t road_id) const {
+	if (road_id >= Map::facets_count) return false;
+	const Player& player = players_[current_player_];
+	if (step_ == GameStep::ForwardBuildingRoad || step_ == GameStep::BackwardBuildingRoad
+		|| step_ == GameStep::RoadBuilding) {
+		return map.canPlaceRoad(road_id, &player);
+	}
+	return step_ == GameStep::CommonPlay && player.HaveRoadResurses()
+		&& map.canPlaceRoad(road_id, &player);
+}
+
+bool GameController::CanBuildCastle(size_t node_id) const {
+	if (node_id >= Map::nodes_count) return false;
+	const Player& player = players_[current_player_];
+	return step_ == GameStep::CommonPlay && player.getFreeCastleCount() > 0
+		&& player.HaveCastleResurses() && map.canPlaceCastle(node_id, player);
+}
+
+bool GameController::CanMoveBandit(size_t gex_id) const {
+	return step_ == GameStep::BanditMove && gex_id < map.GetGexes().size()
+		&& !map.GetGexes()[gex_id].isBandit();
+}
+
 bool GameController::Finish() {
 	return winner_.has_value();
 }

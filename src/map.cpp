@@ -458,20 +458,20 @@ void Map::diceEvent(size_t val)
 	}
 }
 
-bool Map::canPlaceStartBuilding(size_t nodeId)
+bool Map::canPlaceStartBuilding(size_t nodeId) const
 {
-	Node& n = nodes[nodeId];
+	const Node& n = nodes[nodeId];
 	if (!n.isFree())
 		return false;
 	return n.neighborsNodeIsFree();
 }
 
-bool Map::canPlaceBuilding(size_t nodeId, const Player& player)
+bool Map::canPlaceBuilding(size_t nodeId, const Player& player) const
 {
 	if (!canPlaceStartBuilding(nodeId)) {
 		return false;
 	}
-	Node& n = nodes[nodeId];
+	const Node& n = nodes[nodeId];
 
 	for (auto& facet : n.getNeighborFacets()) {
 		if (facet->getRoad() && facet->getRoad()->getPlayer()->getId() == player.getId()) {
@@ -525,7 +525,7 @@ void Map::placeSettlement(size_t nodeId, Player* p)
 	n.setBuilding(p->getFreeSettlement());
 }
 
-bool Map::canPlaceRoad(size_t facetId, Player* p) const
+bool Map::canPlaceRoad(size_t facetId, const Player* p) const
 {
 	if (facetId >= facets.size()) {
 		return false;

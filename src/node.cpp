@@ -24,7 +24,7 @@ bool Node::isFree() const
 	return building == nullptr;
 }
 
-bool Node::isBusyBy(Player* p) const
+bool Node::isBusyBy(const Player* p) const
 {
 	if (isFree())
 	{
