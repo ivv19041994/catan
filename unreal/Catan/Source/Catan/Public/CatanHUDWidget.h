@@ -7,8 +7,13 @@
 
 class UButton;
 class UCommonTextBlock;
+class UComboBoxString;
 class UCatanGameSubsystem;
+class UBorder;
+class USpinBox;
 class UVerticalBox;
+class UWidgetSwitcher;
+enum class ECatanDevelopmentCard : uint8;
 
 UCLASS()
 class CATAN_API UCatanHUDWidget final : public UCommonActivatableWidget
@@ -32,7 +37,22 @@ private:
     UPROPERTY(Transient) TObjectPtr<UButton> RoadButton;
     UPROPERTY(Transient) TObjectPtr<UButton> CityButton;
     UPROPERTY(Transient) TObjectPtr<UButton> BuyCardButton;
+    UPROPERTY(Transient) TObjectPtr<UButton> UseCardButton;
     UPROPERTY(Transient) TObjectPtr<UButton> PassButton;
+    UPROPERTY(Transient) TObjectPtr<UBorder> ModalBorder;
+    UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> ModalSwitcher;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DropTitle;
+    UPROPERTY(Transient) TArray<TObjectPtr<USpinBox>> DropInputs;
+    UPROPERTY(Transient) TArray<TObjectPtr<UButton>> VictimButtons;
+    UPROPERTY(Transient) TObjectPtr<UButton> KnightButton;
+    UPROPERTY(Transient) TObjectPtr<UButton> RoadBuildingButton;
+    UPROPERTY(Transient) TObjectPtr<UButton> YearOfPlentyButton;
+    UPROPERTY(Transient) TObjectPtr<UButton> MonopolyButton;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> FirstResource;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> SecondResource;
+
+    FString LastDropPlayer;
+    bool bDevelopmentPanelOpen = false;
 
     void BuildLayout();
     UCommonTextBlock* AddText(UVerticalBox* Parent, const FString& Text, int32 Size);
@@ -44,5 +64,18 @@ private:
     UFUNCTION() void SelectRoad();
     UFUNCTION() void SelectCity();
     UFUNCTION() void BuyDevelopmentCard();
+    UFUNCTION() void ShowDevelopmentCards();
     UFUNCTION() void PassTurn();
+    UFUNCTION() void ConfirmDiscard();
+    UFUNCTION() void ChooseVictim0();
+    UFUNCTION() void ChooseVictim1();
+    UFUNCTION() void ChooseVictim2();
+    UFUNCTION() void PlayKnight();
+    UFUNCTION() void PlayRoadBuilding();
+    UFUNCTION() void PlayYearOfPlenty();
+    UFUNCTION() void PlayMonopoly();
+    UFUNCTION() void CloseDevelopmentCards();
+
+    void ChooseVictim(int32 Index);
+    void PlayDevelopmentCard(ECatanDevelopmentCard Card);
 };

@@ -38,6 +38,15 @@ enum class ECatanBoardAction : uint8
     MoveRobber
 };
 
+UENUM(BlueprintType)
+enum class ECatanDevelopmentCard : uint8
+{
+    Knight,
+    RoadBuilding,
+    YearOfPlenty,
+    Monopoly
+};
+
 USTRUCT(BlueprintType)
 struct FCatanResourceView
 {
@@ -64,6 +73,10 @@ struct FCatanPlayerView
     UPROPERTY(BlueprintReadOnly) int32 FreeCities = 0;
     UPROPERTY(BlueprintReadOnly) int32 FreeRoads = 0;
     UPROPERTY(BlueprintReadOnly) FCatanResourceView Resources;
+    UPROPERTY(BlueprintReadOnly) int32 Knights = 0;
+    UPROPERTY(BlueprintReadOnly) int32 RoadBuildingCards = 0;
+    UPROPERTY(BlueprintReadOnly) int32 YearOfPlentyCards = 0;
+    UPROPERTY(BlueprintReadOnly) int32 MonopolyCards = 0;
 };
 
 USTRUCT(BlueprintType)
@@ -109,6 +122,9 @@ struct FCatanGameView
     UPROPERTY(BlueprintReadOnly) int32 SecondDie = 0;
     UPROPERTY(BlueprintReadOnly) FString Winner;
     UPROPERTY(BlueprintReadOnly) FString StatusMessage;
+    UPROPERTY(BlueprintReadOnly) int32 RequiredDiscardCount = 0;
+    UPROPERTY(BlueprintReadOnly) int32 PendingRobberHex = INDEX_NONE;
+    UPROPERTY(BlueprintReadOnly) TArray<FString> RobberVictims;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanPlayerView> Players;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanHexView> Hexes;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanNodeView> Nodes;

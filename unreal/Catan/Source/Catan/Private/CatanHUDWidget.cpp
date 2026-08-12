@@ -6,11 +6,14 @@
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/ComboBoxString.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Spacer.h"
+#include "Components/SpinBox.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "Components/WidgetSwitcher.h"
 #include "Blueprint/WidgetTree.h"
 
 namespace
@@ -36,7 +39,7 @@ FString PhaseHint(ECatanGamePhase Phase)
     case ECatanGamePhase::SetupRoad: return TEXT("Click an adjacent edge to place a road");
     case ECatanGamePhase::RollDice: return TEXT("Roll both dice to start the turn");
     case ECatanGamePhase::CommonPlay: return TEXT("Choose an action, then click its target on the board");
-    case ECatanGamePhase::DropCards: return TEXT("Resource discard UI is the next interaction to implement");
+    case ECatanGamePhase::DropCards: return TEXT("Choose exactly half of the shown player's resources to discard");
     case ECatanGamePhase::MoveRobber: return TEXT("Click a different hex to move the robber");
     case ECatanGamePhase::RoadBuilding: return TEXT("Click up to two valid road edges");
     case ECatanGamePhase::Finished: return TEXT("Game finished");
@@ -58,6 +61,16 @@ FString PhaseTitle(ECatanGamePhase Phase)
     case ECatanGamePhase::Finished: return TEXT("Finished");
     }
     return TEXT("Unknown phase");
+}
+
+ECatanResource SelectedResource(const UComboBoxString* Combo)
+{
+    const FString Value = Combo ? Combo->GetSelectedOption() : TEXT("Wood");
+    if (Value == TEXT("Clay")) return ECatanResource::Clay;
+    if (Value == TEXT("Hay")) return ECatanResource::Hay;
+    if (Value == TEXT("Sheep")) return ECatanResource::Sheep;
+    if (Value == TEXT("Stone")) return ECatanResource::Stone;
+    return ECatanResource::Wood;
 }
 }
 
@@ -130,6 +143,7 @@ void UCatanHUDWidget::BuildLayout()
     RoadButton = AddAction(TEXT("ROAD"));
     CityButton = AddAction(TEXT("CITY"));
     BuyCardButton = AddAction(TEXT("BUY DEV"));
+    UseCardButton = AddAction(TEXT("USE DEV"));
     PassButton = AddAction(TEXT("END TURN"));
 
     RollButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::RollDice);
@@ -137,7 +151,79 @@ void UCatanHUDWidget::BuildLayout()
     RoadButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectRoad);
     CityButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectCity);
     BuyCardButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::BuyDevelopmentCard);
+    UseCardButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowDevelopmentCards);
     PassButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PassTurn);
+
+    ModalBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 0.5f), FVector2D(0.5f, 0.5f),
+        FMargin(0, 0, 620, 500));
+    ModalSwitcher = WidgetTree->ConstructWidget<UWidgetSwitcher>();
+    ModalBorder->SetContent(ModalSwitcher);
+
+    UVerticalBox* DropPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    ModalSwitcher->AddChild(DropPanel);
+    DropTitle = AddText(DropPanel, TEXT("DISCARD RESOURCES"), 25);
+    constexpr const TCHAR* ResourceNames[] = {TEXT("Wood"), TEXT("Clay"), TEXT("Hay"), TEXT("Sheep"), TEXT("Stone")};
+    for (const TCHAR* ResourceName : ResourceNames)
+    {
+        UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
+        UVerticalBoxSlot* RowSlot = DropPanel->AddChildToVerticalBox(Row);
+        RowSlot->SetPadding(FMargin(2, 5));
+        UCommonTextBlock* Label = WidgetTree->ConstructWidget<UCommonTextBlock>();
+        Label->SetText(FText::FromString(ResourceName));
+        FSlateFontInfo Font = Label->GetFont(); Font.Size = 18; Label->SetFont(Font);
+        UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(Label);
+        LabelSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        USpinBox* Input = WidgetTree->ConstructWidget<USpinBox>();
+        Input->SetMinValue(0.0f);
+        Input->SetMaxValue(0.0f);
+        Input->SetMinSliderValue(0.0f);
+        Input->SetMaxSliderValue(0.0f);
+        Input->SetDelta(1.0f);
+        Input->SetMinFractionalDigits(0);
+        Input->SetMaxFractionalDigits(0);
+        Row->AddChildToHorizontalBox(Input);
+        DropInputs.Add(Input);
+    }
+    UButton* ConfirmDrop = AddButton(DropPanel, TEXT("CONFIRM DISCARD"));
+    ConfirmDrop->OnClicked.AddDynamic(this, &UCatanHUDWidget::ConfirmDiscard);
+
+    UVerticalBox* VictimPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    ModalSwitcher->AddChild(VictimPanel);
+    AddText(VictimPanel, TEXT("CHOOSE A PLAYER TO STEAL FROM"), 24);
+    for (int32 Index = 0; Index < 3; ++Index)
+    {
+        VictimButtons.Add(AddButton(VictimPanel, TEXT("Player")));
+    }
+    VictimButtons[0]->OnClicked.AddDynamic(this, &UCatanHUDWidget::ChooseVictim0);
+    VictimButtons[1]->OnClicked.AddDynamic(this, &UCatanHUDWidget::ChooseVictim1);
+    VictimButtons[2]->OnClicked.AddDynamic(this, &UCatanHUDWidget::ChooseVictim2);
+
+    UVerticalBox* DevelopmentPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    ModalSwitcher->AddChild(DevelopmentPanel);
+    AddText(DevelopmentPanel, TEXT("DEVELOPMENT CARDS"), 25);
+    KnightButton = AddButton(DevelopmentPanel, TEXT("PLAY KNIGHT"));
+    RoadBuildingButton = AddButton(DevelopmentPanel, TEXT("PLAY ROAD BUILDING"));
+    AddText(DevelopmentPanel, TEXT("Resources for Year of Plenty / Monopoly"), 16);
+    FirstResource = WidgetTree->ConstructWidget<UComboBoxString>();
+    SecondResource = WidgetTree->ConstructWidget<UComboBoxString>();
+    for (const TCHAR* ResourceName : ResourceNames)
+    {
+        FirstResource->AddOption(ResourceName);
+        SecondResource->AddOption(ResourceName);
+    }
+    FirstResource->SetSelectedOption(TEXT("Wood"));
+    SecondResource->SetSelectedOption(TEXT("Clay"));
+    DevelopmentPanel->AddChildToVerticalBox(FirstResource);
+    DevelopmentPanel->AddChildToVerticalBox(SecondResource);
+    YearOfPlentyButton = AddButton(DevelopmentPanel, TEXT("PLAY YEAR OF PLENTY"));
+    MonopolyButton = AddButton(DevelopmentPanel, TEXT("PLAY MONOPOLY (FIRST RESOURCE)"));
+    UButton* CloseCards = AddButton(DevelopmentPanel, TEXT("CLOSE"));
+    KnightButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PlayKnight);
+    RoadBuildingButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PlayRoadBuilding);
+    YearOfPlentyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PlayYearOfPlenty);
+    MonopolyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PlayMonopoly);
+    CloseCards->OnClicked.AddDynamic(this, &UCatanHUDWidget::CloseDevelopmentCards);
+    ModalBorder->SetVisibility(ESlateVisibility::Collapsed);
 }
 
 UCommonTextBlock* UCatanHUDWidget::AddText(UVerticalBox* Parent, const FString& Text, int32 Size)
@@ -200,6 +286,64 @@ void UCatanHUDWidget::Refresh()
     CityButton->SetIsEnabled(bPlay);
     BuyCardButton->SetIsEnabled(bPlay);
     PassButton->SetIsEnabled(bPlay);
+    const FCatanPlayerView* CurrentPlayer = View.Players.FindByPredicate(
+        [](const FCatanPlayerView& Player) { return Player.bIsCurrent; });
+    const int32 ReadyCards = CurrentPlayer
+        ? CurrentPlayer->Knights + CurrentPlayer->RoadBuildingCards
+            + CurrentPlayer->YearOfPlentyCards + CurrentPlayer->MonopolyCards
+        : 0;
+    UseCardButton->SetIsEnabled((bPlay || bRoll) && ReadyCards > 0);
+
+    if (View.Phase == ECatanGamePhase::DropCards && CurrentPlayer)
+    {
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(0);
+        DropTitle->SetText(FText::FromString(FString::Printf(
+            TEXT("DISCARD %d RESOURCES — %s"), View.RequiredDiscardCount, *View.CurrentPlayer)));
+        const int32 Holdings[] = {
+            CurrentPlayer->Resources.Wood, CurrentPlayer->Resources.Clay, CurrentPlayer->Resources.Hay,
+            CurrentPlayer->Resources.Sheep, CurrentPlayer->Resources.Stone
+        };
+        if (LastDropPlayer != View.CurrentPlayer)
+        {
+            for (USpinBox* Input : DropInputs) Input->SetValue(0.0f);
+            LastDropPlayer = View.CurrentPlayer;
+        }
+        for (int32 Index = 0; Index < DropInputs.Num(); ++Index)
+        {
+            DropInputs[Index]->SetMaxValue(Holdings[Index]);
+            DropInputs[Index]->SetMaxSliderValue(Holdings[Index]);
+        }
+    }
+    else if (View.PendingRobberHex != INDEX_NONE && !View.RobberVictims.IsEmpty())
+    {
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(1);
+        for (int32 Index = 0; Index < VictimButtons.Num(); ++Index)
+        {
+            const bool bVisible = View.RobberVictims.IsValidIndex(Index);
+            VictimButtons[Index]->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+            if (bVisible)
+            {
+                if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(VictimButtons[Index]->GetChildAt(0)))
+                    Label->SetText(FText::FromString(View.RobberVictims[Index]));
+            }
+        }
+    }
+    else if (bDevelopmentPanelOpen && CurrentPlayer && (bPlay || bRoll))
+    {
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(2);
+        KnightButton->SetIsEnabled(CurrentPlayer->Knights > 0);
+        RoadBuildingButton->SetIsEnabled(bPlay && CurrentPlayer->RoadBuildingCards > 0);
+        YearOfPlentyButton->SetIsEnabled(bPlay && CurrentPlayer->YearOfPlentyCards > 0);
+        MonopolyButton->SetIsEnabled(bPlay && CurrentPlayer->MonopolyCards > 0);
+    }
+    else
+    {
+        ModalBorder->SetVisibility(ESlateVisibility::Collapsed);
+        if (View.Phase != ECatanGamePhase::DropCards) LastDropPlayer.Reset();
+    }
 }
 
 void UCatanHUDWidget::RollDice()
@@ -229,8 +373,59 @@ void UCatanHUDWidget::BuyDevelopmentCard()
     GameSubsystem->TryBuyDevelopmentCard(Error);
 }
 
+void UCatanHUDWidget::ShowDevelopmentCards()
+{
+    bDevelopmentPanelOpen = true;
+    Refresh();
+}
+
 void UCatanHUDWidget::PassTurn()
 {
     FString Error;
     GameSubsystem->TryPass(Error);
+}
+
+void UCatanHUDWidget::ConfirmDiscard()
+{
+    if (DropInputs.Num() != 5) return;
+    FCatanResourceView Resources;
+    Resources.Wood = FMath::RoundToInt(DropInputs[0]->GetValue());
+    Resources.Clay = FMath::RoundToInt(DropInputs[1]->GetValue());
+    Resources.Hay = FMath::RoundToInt(DropInputs[2]->GetValue());
+    Resources.Sheep = FMath::RoundToInt(DropInputs[3]->GetValue());
+    Resources.Stone = FMath::RoundToInt(DropInputs[4]->GetValue());
+    FString Error;
+    GameSubsystem->TryDropResources(Resources, Error);
+}
+
+void UCatanHUDWidget::ChooseVictim0() { ChooseVictim(0); }
+void UCatanHUDWidget::ChooseVictim1() { ChooseVictim(1); }
+void UCatanHUDWidget::ChooseVictim2() { ChooseVictim(2); }
+
+void UCatanHUDWidget::ChooseVictim(int32 Index)
+{
+    const FCatanGameView View = GameSubsystem->GetSnapshot();
+    if (!View.RobberVictims.IsValidIndex(Index)) return;
+    FString Error;
+    GameSubsystem->TryChooseRobberVictim(View.RobberVictims[Index], Error);
+}
+
+void UCatanHUDWidget::PlayKnight() { PlayDevelopmentCard(ECatanDevelopmentCard::Knight); }
+void UCatanHUDWidget::PlayRoadBuilding() { PlayDevelopmentCard(ECatanDevelopmentCard::RoadBuilding); }
+void UCatanHUDWidget::PlayYearOfPlenty() { PlayDevelopmentCard(ECatanDevelopmentCard::YearOfPlenty); }
+void UCatanHUDWidget::PlayMonopoly() { PlayDevelopmentCard(ECatanDevelopmentCard::Monopoly); }
+
+void UCatanHUDWidget::PlayDevelopmentCard(ECatanDevelopmentCard Card)
+{
+    FString Error;
+    const bool bSucceeded = GameSubsystem->TryUseDevelopmentCard(
+        Card, SelectedResource(FirstResource), SelectedResource(SecondResource), Error);
+    if (bSucceeded) bDevelopmentPanelOpen = false;
+    Refresh();
+}
+
+void UCatanHUDWidget::CloseDevelopmentCards()
+{
+    bDevelopmentPanelOpen = false;
+    Refresh();
 }
