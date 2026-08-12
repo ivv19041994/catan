@@ -77,6 +77,7 @@ public:
 	void Market(Resurse from, Resurse to);
 
 	void DownPriceOnMarket(Resurse resurse, size_t price);
+	size_t GetMarketPrice(Resurse resurse) const;
 
 	std::optional<Resurse> Still();
 
@@ -95,6 +96,8 @@ public:
 	void ResetKnightCard();
 	void SetRoadCard();
 	void ResetRoadCard();
+	bool HasLargestArmy() const;
+	bool HasLongestRoad() const;
 
 	size_t GetWinPoints() const;
 

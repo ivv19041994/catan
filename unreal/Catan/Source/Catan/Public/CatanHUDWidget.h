@@ -8,6 +8,7 @@
 class UButton;
 class UCommonTextBlock;
 class UComboBoxString;
+class UEditableTextBox;
 class UCatanGameSubsystem;
 class UBorder;
 class USpinBox;
@@ -60,14 +61,25 @@ private:
     UPROPERTY(Transient) TArray<TObjectPtr<USpinBox>> OfferedInputs;
     UPROPERTY(Transient) TArray<TObjectPtr<USpinBox>> RequestedInputs;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DealText;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> BankRateText;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> TradingPlayer;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> WinnerText;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> AvailabilityText;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> BuildCostText;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> PlayerCount;
+    UPROPERTY(Transient) TArray<TObjectPtr<UEditableTextBox>> PlayerNameInputs;
+    UPROPERTY(Transient) TArray<TObjectPtr<UCommonTextBlock>> PlayerSlotLabels;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> ConfirmationText;
 
     FString LastDropPlayer;
     bool bDevelopmentPanelOpen = false;
     bool bTradePanelOpen = false;
+    bool bSetupPanelOpen = true;
     FString PreviousToastStatus;
     float ToastRemaining = 0.0f;
+    float ResourcePulseRemaining = 0.0f;
+    FString PreviousResourceDigest;
+    int32 PendingExpensiveAction = 0;
 
     void BuildLayout();
     UCommonTextBlock* AddText(UVerticalBox* Parent, const FString& Text, int32 Size);
@@ -97,6 +109,10 @@ private:
     UFUNCTION() void CancelTrade();
     UFUNCTION() void CloseTrading();
     UFUNCTION() void StartNewGame();
+    UFUNCTION() void ConfirmNewGame();
+    UFUNCTION() void UpdatePlayerCount(FString SelectedItem, ESelectInfo::Type SelectionType);
+    UFUNCTION() void ConfirmExpensiveAction();
+    UFUNCTION() void CancelExpensiveAction();
     UFUNCTION() void QuitGame();
 
     void ChooseVictim(int32 Index);
