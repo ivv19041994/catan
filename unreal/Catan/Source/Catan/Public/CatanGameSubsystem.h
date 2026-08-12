@@ -59,6 +59,18 @@ public:
         ECatanResource SecondResource, FString& Error);
 
     UFUNCTION(BlueprintCallable, Category="Catan")
+    bool TryBankTrade(ECatanResource From, ECatanResource To, FString& Error);
+
+    UFUNCTION(BlueprintCallable, Category="Catan")
+    bool TryOfferTrade(const FCatanResourceView& Offered, const FCatanResourceView& Requested, FString& Error);
+
+    UFUNCTION(BlueprintCallable, Category="Catan")
+    bool TryAcceptTrade(const FString& Player, FString& Error);
+
+    UFUNCTION(BlueprintCallable, Category="Catan")
+    bool TryCancelTrade(const FString& Player, FString& Error);
+
+    UFUNCTION(BlueprintCallable, Category="Catan")
     void SelectBoardAction(ECatanBoardAction Action);
 
     UPROPERTY(BlueprintAssignable, Category="Catan")

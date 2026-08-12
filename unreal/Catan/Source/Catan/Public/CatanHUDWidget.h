@@ -38,6 +38,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<UButton> CityButton;
     UPROPERTY(Transient) TObjectPtr<UButton> BuyCardButton;
     UPROPERTY(Transient) TObjectPtr<UButton> UseCardButton;
+    UPROPERTY(Transient) TObjectPtr<UButton> TradeButton;
     UPROPERTY(Transient) TObjectPtr<UButton> PassButton;
     UPROPERTY(Transient) TObjectPtr<UBorder> ModalBorder;
     UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> ModalSwitcher;
@@ -50,9 +51,17 @@ private:
     UPROPERTY(Transient) TObjectPtr<UButton> MonopolyButton;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> FirstResource;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> SecondResource;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> BankFromResource;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> BankToResource;
+    UPROPERTY(Transient) TArray<TObjectPtr<USpinBox>> OfferedInputs;
+    UPROPERTY(Transient) TArray<TObjectPtr<USpinBox>> RequestedInputs;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DealText;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> TradingPlayer;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> WinnerText;
 
     FString LastDropPlayer;
     bool bDevelopmentPanelOpen = false;
+    bool bTradePanelOpen = false;
 
     void BuildLayout();
     UCommonTextBlock* AddText(UVerticalBox* Parent, const FString& Text, int32 Size);
@@ -65,6 +74,7 @@ private:
     UFUNCTION() void SelectCity();
     UFUNCTION() void BuyDevelopmentCard();
     UFUNCTION() void ShowDevelopmentCards();
+    UFUNCTION() void ShowTrading();
     UFUNCTION() void PassTurn();
     UFUNCTION() void ConfirmDiscard();
     UFUNCTION() void ChooseVictim0();
@@ -75,6 +85,13 @@ private:
     UFUNCTION() void PlayYearOfPlenty();
     UFUNCTION() void PlayMonopoly();
     UFUNCTION() void CloseDevelopmentCards();
+    UFUNCTION() void TradeWithBank();
+    UFUNCTION() void OfferTrade();
+    UFUNCTION() void AcceptTrade();
+    UFUNCTION() void CancelTrade();
+    UFUNCTION() void CloseTrading();
+    UFUNCTION() void StartNewGame();
+    UFUNCTION() void QuitGame();
 
     void ChooseVictim(int32 Index);
     void PlayDevelopmentCard(ECatanDevelopmentCard Card);

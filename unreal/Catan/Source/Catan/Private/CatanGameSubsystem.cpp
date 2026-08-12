@@ -73,6 +73,37 @@ int32 CountDevelopmentCards(const ivv::catan::Player& Player)
     }
     return static_cast<int32>(Count);
 }
+
+FCatanResourceView ToResourceView(const std::map<ivv::catan::Resurse, size_t>& Resources)
+{
+    FCatanResourceView View;
+    auto Count = [&Resources](ivv::catan::Resurse Resource)
+    {
+        const auto It = Resources.find(Resource);
+        return It == Resources.end() ? 0 : static_cast<int32>(It->second);
+    };
+    View.Wood = Count(ivv::catan::Resurse::Wood);
+    View.Clay = Count(ivv::catan::Resurse::Clay);
+    View.Hay = Count(ivv::catan::Resurse::Hay);
+    View.Sheep = Count(ivv::catan::Resurse::Sheep);
+    View.Stone = Count(ivv::catan::Resurse::Stone);
+    return View;
+}
+
+std::map<ivv::catan::Resurse, size_t> ToResourceMap(const FCatanResourceView& Resources)
+{
+    std::map<ivv::catan::Resurse, size_t> Result;
+    auto Add = [&Result](ivv::catan::Resurse Resource, int32 Count)
+    {
+        if (Count > 0) Result[Resource] = static_cast<size_t>(Count);
+    };
+    Add(ivv::catan::Resurse::Wood, Resources.Wood);
+    Add(ivv::catan::Resurse::Clay, Resources.Clay);
+    Add(ivv::catan::Resurse::Hay, Resources.Hay);
+    Add(ivv::catan::Resurse::Sheep, Resources.Sheep);
+    Add(ivv::catan::Resurse::Stone, Resources.Stone);
+    return Result;
+}
 }
 
 UCatanGameSubsystem::~UCatanGameSubsystem() = default;
@@ -123,6 +154,13 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
     if (const std::optional<std::string> Winner = Game->GetWinner())
     {
         View.Winner = UTF8_TO_TCHAR(Winner->c_str());
+    }
+    if (const auto& Deal = Game->GetActivDeal())
+    {
+        View.ActiveDeal.bIsActive = true;
+        View.ActiveDeal.OfferingPlayer = UTF8_TO_TCHAR(Game->GetCurrentPlayer().c_str());
+        View.ActiveDeal.Offered = ToResourceView(Deal->sell);
+        View.ActiveDeal.Requested = ToResourceView(Deal->buy);
     }
     std::ostringstream Step;
     Game->PrintStep(Step);
@@ -411,6 +449,69 @@ bool UCatanGameSubsystem::TryUseDevelopmentCard(ECatanDevelopmentCard Card,
     {
         Game->UseDevCard(Game->GetCurrentPlayer(), CoreCard, Param);
         return CompleteCommand(true, TEXT("Development card played"), Error);
+    }
+    catch (const std::exception& Exception)
+    {
+        return CompleteCommand(false, UTF8_TO_TCHAR(Exception.what()), Error);
+    }
+}
+
+bool UCatanGameSubsystem::TryBankTrade(ECatanResource From, ECatanResource To, FString& Error)
+{
+    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    if (From == To || From == ECatanResource::Desert || To == ECatanResource::Desert)
+    {
+        return CompleteCommand(false, TEXT("Choose two different resources"), Error);
+    }
+    try
+    {
+        Game->Market(Game->GetCurrentPlayer(), ToCoreResource(From), ToCoreResource(To));
+        return CompleteCommand(true, TEXT("Bank trade completed"), Error);
+    }
+    catch (const std::exception& Exception)
+    {
+        return CompleteCommand(false, UTF8_TO_TCHAR(Exception.what()), Error);
+    }
+}
+
+bool UCatanGameSubsystem::TryOfferTrade(const FCatanResourceView& Offered,
+    const FCatanResourceView& Requested, FString& Error)
+{
+    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    try
+    {
+        Game->SetDeal(Game->GetCurrentPlayer(), ToResourceMap(Offered), ToResourceMap(Requested));
+        return CompleteCommand(true, TEXT("Trade offered — another player may accept or decline"), Error);
+    }
+    catch (const std::exception& Exception)
+    {
+        return CompleteCommand(false, UTF8_TO_TCHAR(Exception.what()), Error);
+    }
+}
+
+bool UCatanGameSubsystem::TryAcceptTrade(const FString& Player, FString& Error)
+{
+    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    const auto& Deal = Game->GetActivDeal();
+    if (!Deal) return CompleteCommand(false, TEXT("There is no active trade"), Error);
+    try
+    {
+        Game->SetDeal(TCHAR_TO_UTF8(*Player), Deal->buy, Deal->sell);
+        return CompleteCommand(true, FString::Printf(TEXT("%s accepted the trade"), *Player), Error);
+    }
+    catch (const std::exception& Exception)
+    {
+        return CompleteCommand(false, UTF8_TO_TCHAR(Exception.what()), Error);
+    }
+}
+
+bool UCatanGameSubsystem::TryCancelTrade(const FString& Player, FString& Error)
+{
+    if (!Game) return CompleteCommand(false, TEXT("Game is not initialized"), Error);
+    try
+    {
+        Game->CancelDeal(TCHAR_TO_UTF8(*Player));
+        return CompleteCommand(true, TEXT("Trade cancelled"), Error);
     }
     catch (const std::exception& Exception)
     {

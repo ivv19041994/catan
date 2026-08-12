@@ -88,6 +88,7 @@ public:
 
 	void UseDevCard(std::string_view player, DevelopmentCard card, UseDevCardParam param);
 	void SetDeal(std::string_view player, std::map<Resurse, size_t> sell, std::map<Resurse, size_t> buy);
+	void CancelDeal(std::string_view player);
 
 	const std::optional<Deal>& GetActivDeal() const;
 	const Player& GetPlayer(std::string_view player) const;

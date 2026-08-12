@@ -270,14 +270,27 @@ void ACatanBoardActor::RefreshPieces()
     UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     if (!Subsystem) return;
     const FCatanGameView View = Subsystem->GetSnapshot();
-    for (int32 Index=0; Index<NodeSlots.Num(); ++Index)
+    for (int32 Index=0; Index<Labels.Num() && Index<View.Hexes.Num(); ++Index)
+    {
+        const FCatanHexView& Hex = View.Hexes[Index];
+        Labels[Index]->SetText(FText::FromString(Hex.bHasRobber
+            ? FString::Printf(TEXT("%d\nB"), Index)
+            : FString::Printf(TEXT("%d\n%d"), Index, Hex.Dice)));
+        if (UMaterialInstanceDynamic* Material = Cast<UMaterialInstanceDynamic>(HexMesh->GetMaterial(Index)))
+        {
+            const FLinearColor Color = ResourceColor(Hex.Resource);
+            Material->SetVectorParameterValue(TEXT("Color"), Color);
+            Material->SetVectorParameterValue(TEXT("BaseColor"), Color);
+        }
+    }
+    for (int32 Index=0; Index<NodeSlots.Num() && Index<View.Nodes.Num(); ++Index)
     {
         const FCatanNodeView& Node = View.Nodes[Index];
         const FLinearColor Color = Node.OwnerId != INDEX_NONE ? PlayerColor(Node.OwnerId) : FLinearColor(0.08f,0.1f,0.12f);
         Cast<UMaterialInstanceDynamic>(NodeSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
         NodeSlots[Index]->SetRelativeScale3D(Node.OwnerId != INDEX_NONE ? FVector(0.19f) : FVector(0.13f));
     }
-    for (int32 Index=0; Index<RoadSlots.Num(); ++Index)
+    for (int32 Index=0; Index<RoadSlots.Num() && Index<View.Roads.Num(); ++Index)
     {
         const FCatanRoadView& Road = View.Roads[Index];
         const FLinearColor Color = Road.OwnerId != INDEX_NONE ? PlayerColor(Road.OwnerId) : FLinearColor(0.14f,0.15f,0.16f);
