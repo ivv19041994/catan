@@ -1,6 +1,8 @@
 #include "CatanBoardActor.h"
 
 #include "CatanGameSubsystem.h"
+#include "CatanHexMeshBuilder.h"
+#include "CatanResourceVisualBuilder.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Engine/Engine.h"
@@ -390,25 +392,10 @@ void ACatanBoardActor::BuildHexes()
 
 void ACatanBoardActor::CreateHexSection(int32 Index, const FVector& Center, const FLinearColor& Color)
 {
-    TArray<FVector> Vertices{Center};
-    TArray<FVector> Normals{FVector::UpVector};
-    TArray<FVector2D> UVs{FVector2D(0.5f, 0.5f)};
-    TArray<FLinearColor> Colors{Color};
-    TArray<FProcMeshTangent> Tangents{FProcMeshTangent(1, 0, 0)};
-    TArray<int32> Triangles;
-    for (int32 Corner = 0; Corner < 6; ++Corner)
-    {
-        const float Angle = FMath::DegreesToRadians(30.0f + Corner * 60.0f);
-        Vertices.Add(Center + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.0f) * TileRadius * 0.96f);
-        Normals.Add(FVector::UpVector);
-        UVs.Add(FVector2D((FMath::Cos(Angle)+1)*0.5f, (FMath::Sin(Angle)+1)*0.5f));
-        Colors.Add(Color);
-        Tangents.Add(FProcMeshTangent(1, 0, 0));
-        Triangles.Add(0);
-        Triangles.Add((Corner + 1) % 6 + 1);
-        Triangles.Add(Corner + 1);
-    }
-    HexMesh->CreateMeshSection_LinearColor(Index, Vertices, Triangles, Normals, UVs, Colors, Tangents, false);
+    FCatanHexMeshBuffers Mesh;
+    CatanHexMesh::AppendTop(Mesh, Center, TileRadius * 0.96f, Color);
+    HexMesh->CreateMeshSection_LinearColor(Index, Mesh.Vertices, Mesh.Triangles, Mesh.Normals,
+        Mesh.UVs, Mesh.Colors, Mesh.Tangents, false);
     HexMesh->SetMaterial(Index, ColoredMaterial(this, BasicMaterial, Color));
 }
 
@@ -452,33 +439,43 @@ void ACatanBoardActor::BuildResourceDecorations()
     {
         const FVector Center = Centers[Index];
         const float Angle = static_cast<float>((Index * 47) % 360);
-        auto Offset = [Angle](const FVector& Value) { return FRotator(0, Angle, 0).RotateVector(Value); };
-        const auto Add = [this, Index, Center, &Offset, ResourceTag](const TCHAR* Kind, int32 Item, UStaticMesh* Mesh,
-            const FVector& Local, const FVector& Scale, const FLinearColor& Color, const FRotator& Rotation = FRotator::ZeroRotator)
+        FCatanResourceVisualCallbacks Callbacks;
+        Callbacks.AddStatic = [this, Index, Center, ResourceTag](const FString& Name, UStaticMesh* Mesh,
+            const FVector& Local, const FVector& Scale, const FLinearColor& Color, const FRotator& Rotation)
         {
-            UStaticMeshComponent* Component = AddDecoration(FString::Printf(TEXT("G%dHex%d%s%d"), ResourceGeneration, Index, Kind, Item), Mesh,
-                Center + Offset(Local), Scale, Color, Rotation);
+            UStaticMeshComponent* Component = AddDecoration(
+                FString::Printf(TEXT("G%dHex%d%s"), ResourceGeneration, Index, *Name), Mesh,
+                Center + Local, Scale, Color, Rotation);
             Component->ComponentTags.Add(ResourceTag);
             return Component;
         };
-        const auto Animate = [this, Index](UStaticMeshComponent* Component, uint8 Kind, float Phase)
+        Callbacks.Animate = [this, Index](UStaticMeshComponent* Component,
+            ECatanResourceAnimation Kind, float Phase)
         {
             AnimatedResourceParts.Add(Component);
-            ResourceAnimationKinds.Add(Kind);
+            switch (Kind)
+            {
+            case ECatanResourceAnimation::Sway: ResourceAnimationKinds.Add(ResourceSway); break;
+            case ECatanResourceAnimation::Bob: ResourceAnimationKinds.Add(ResourceBob); break;
+            case ECatanResourceAnimation::Pulse: ResourceAnimationKinds.Add(ResourcePulse); break;
+            case ECatanResourceAnimation::Drift: ResourceAnimationKinds.Add(ResourceDrift); break;
+            default: ResourceAnimationKinds.Add(0); break;
+            }
             ResourceAnimationPhases.Add(Phase + Index * 0.37f);
             ResourceAnimationLocations.Add(Component->GetRelativeLocation());
             ResourceAnimationScales.Add(Component->GetRelativeScale3D());
             ResourceAnimationRotations.Add(Component->GetRelativeRotation());
-            return Component;
         };
-        const auto AddHexPyramid = [this, ResourceTag](const FString& Name, const FVector& Position,
+        Callbacks.AddHexPyramid = [this, Center, ResourceTag](const FString& Name, const FVector& Local,
             float Radius, float Height, const FLinearColor& Color)
         {
-            UProceduralMeshComponent* Pyramid = NewObject<UProceduralMeshComponent>(this, *Name);
+            UProceduralMeshComponent* Pyramid = NewObject<UProceduralMeshComponent>(this,
+                *FString::Printf(TEXT("G%d%s"), ResourceGeneration, *Name));
             Pyramid->SetupAttachment(SceneRoot);
             Pyramid->RegisterComponent();
             Pyramid->SetCollisionEnabled(ECollisionEnabled::NoCollision);
             Pyramid->ComponentTags.Add(ResourceTag);
+            const FVector Position = Center + Local;
             TArray<FVector> Vertices{Position + FVector(0, 0, Height)};
             TArray<FVector> Normals{FVector::UpVector};
             TArray<FVector2D> UVs{FVector2D(0.5f, 0.0f)};
@@ -500,88 +497,9 @@ void ACatanBoardActor::BuildResourceDecorations()
             Pyramid->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UVs, Colors, Tangents, false);
             Pyramid->SetMaterial(0, ColoredMaterial(this, BasicMaterial, Color));
             ResourceProceduralParts.Add(Pyramid);
-            return Pyramid;
         };
-
-        switch (View.Hexes[Index].Resource)
-        {
-        case ECatanResource::Wood:
-            for (int32 Item = 0; Item < 5; ++Item)
-            {
-                const FVector Local(-112.0f + Item * 56.0f, 70.0f + (Item % 2) * 25.0f, 22.0f);
-                const float Height = 0.27f + (Item % 3) * 0.035f;
-                Add(TEXT("Trunk"), Item, Cylinder, Local, FVector(0.085f, 0.085f, Height), FLinearColor(0.24f, 0.09f, 0.025f));
-                Animate(Add(TEXT("TreeLower"), Item, Cone, Local + FVector(0, 0, 38),
-                    FVector(0.39f, 0.39f, 0.46f), FLinearColor(0.018f, 0.20f + Item * 0.012f, 0.04f)), ResourceSway, Item * 0.65f);
-                Animate(Add(TEXT("TreeUpper"), Item, Cone, Local + FVector(0, 0, 66),
-                    FVector(0.29f, 0.29f, 0.39f), FLinearColor(0.025f, 0.28f + Item * 0.01f, 0.055f)), ResourceSway, Item * 0.65f + 0.2f);
-            }
-            Add(TEXT("ForestStone"), 0, Sphere, FVector(112, 72, 13), FVector(0.19f, 0.14f, 0.10f), FLinearColor(0.25f, 0.27f, 0.22f));
-            break;
-        case ECatanResource::Clay:
-            Add(TEXT("Quarry"), 0, Cylinder, FVector(0, 86, 7), FVector(1.28f, 0.82f, 0.06f), FLinearColor(0.28f, 0.055f, 0.018f));
-            for (int32 Item = 0; Item < 7; ++Item)
-            {
-                const int32 Row = Item / 4;
-                const FVector Local(-105.0f + (Item % 4) * 66.0f + Row * 22.0f, 70.0f + Row * 38.0f, 17.0f + Row * 12.0f);
-                Add(TEXT("Brick"), Item, Cube, Local, FVector(0.30f, 0.19f, 0.11f),
-                    FLinearColor(0.62f + Item * 0.018f, 0.095f, 0.025f), FRotator(0, Angle + (Item % 2) * 7.0f, 0));
-            }
-            for (int32 Item = 0; Item < 3; ++Item)
-                Animate(Add(TEXT("ClayDust"), Item, Sphere, FVector(-70 + Item * 70, 126, 28 + Item * 5),
-                    FVector(0.10f + Item * 0.025f), FLinearColor(0.70f, 0.30f, 0.10f)), ResourceDrift, Item * 1.4f);
-            break;
-        case ECatanResource::Hay:
-            for (int32 Item = 0; Item < 11; ++Item)
-            {
-                const int32 Row = Item / 6;
-                const FVector Local(-120.0f + (Item % 6) * 47.0f, 66.0f + Row * 46.0f + (Item % 2) * 7.0f, 27.0f);
-                Animate(Add(TEXT("HayStalk"), Item, Cylinder, Local, FVector(0.028f, 0.028f, 0.43f + (Item % 3) * 0.035f),
-                    FLinearColor(0.94f, 0.66f + (Item % 3) * 0.045f, 0.035f), FRotator(Item % 2 ? 3.0f : -3.0f, Angle, 0)),
-                    ResourceSway, Item * 0.34f);
-                Animate(Add(TEXT("HayHead"), Item, Sphere, Local + FVector(0, 0, 45 + (Item % 3) * 3),
-                    FVector(0.055f, 0.055f, 0.12f), FLinearColor(1.0f, 0.82f, 0.12f)), ResourceSway, Item * 0.34f);
-            }
-            break;
-        case ECatanResource::Sheep:
-            for (int32 Item = 0; Item < 3; ++Item)
-            {
-                const FVector Local(-92.0f + Item * 92.0f, 74.0f + (Item % 2) * 42.0f, 30.0f);
-                const float Phase = Item * 1.8f;
-                Animate(Add(TEXT("SheepBody"), Item, Sphere, Local, FVector(0.34f, 0.25f, 0.25f),
-                    FLinearColor(0.94f, 0.95f, 0.89f)), ResourceBob, Phase);
-                Animate(Add(TEXT("SheepHead"), Item, Sphere, Local + FVector(29, 0, -3), FVector(0.135f),
-                    FLinearColor(0.10f, 0.09f, 0.08f)), ResourceBob, Phase);
-                for (int32 Leg = 0; Leg < 4; ++Leg)
-                    Animate(Add(TEXT("SheepLeg"), Item * 4 + Leg, Cylinder,
-                        Local + FVector(Leg < 2 ? -16 : 16, Leg % 2 ? -12 : 12, -20), FVector(0.035f, 0.035f, 0.17f),
-                        FLinearColor(0.12f, 0.10f, 0.08f)), ResourceBob, Phase);
-            }
-            break;
-        case ECatanResource::Stone:
-            {
-                const FVector LargeBase = Center + Offset(FVector(-42, 82, 1));
-                const FVector SmallBase = Center + Offset(FVector(62, 92, 1));
-                AddHexPyramid(FString::Printf(TEXT("G%dHex%dLargeMountain"), ResourceGeneration, Index),
-                    LargeBase, 75.6f, 142.8f, FLinearColor(0.30f, 0.34f, 0.41f));
-                AddHexPyramid(FString::Printf(TEXT("G%dHex%dLargeSnow"), ResourceGeneration, Index),
-                    LargeBase + FVector(0, 0, 91.0f), 28.0f, 51.8f, FLinearColor(0.90f, 0.95f, 1.0f));
-                AddHexPyramid(FString::Printf(TEXT("G%dHex%dSmallMountain"), ResourceGeneration, Index),
-                    SmallBase, 54.6f, 100.8f, FLinearColor(0.36f, 0.39f, 0.46f));
-                AddHexPyramid(FString::Printf(TEXT("G%dHex%dSmallSnow"), ResourceGeneration, Index),
-                    SmallBase + FVector(0, 0, 64.4f), 21.0f, 36.4f, FLinearColor(0.92f, 0.96f, 1.0f));
-            }
-            break;
-        case ECatanResource::Desert:
-            for (int32 Item = 0; Item < 5; ++Item)
-                Animate(Add(TEXT("Dune"), Item, Sphere, FVector(-112.0f + Item * 56.0f, 72.0f + (Item % 2) * 36.0f, 11.0f),
-                    FVector(0.48f, 0.25f + (Item % 2) * 0.04f, 0.10f), FLinearColor(0.70f + Item * 0.028f, 0.48f, 0.20f)),
-                    ResourcePulse, Item * 0.72f);
-            Add(TEXT("CactusStem"), 0, Cylinder, FVector(103, 88, 29), FVector(0.075f, 0.075f, 0.36f), FLinearColor(0.08f, 0.34f, 0.12f));
-            Animate(Add(TEXT("CactusTop"), 0, Sphere, FVector(103, 88, 66), FVector(0.085f, 0.085f, 0.13f),
-                FLinearColor(0.10f, 0.43f, 0.15f)), ResourceSway, 0.4f);
-            break;
-        }
+        CatanResourceVisuals::BuildCluster(View.Hexes[Index].Resource, Index, Angle,
+            Cube, Sphere, Cylinder, Cone, Callbacks);
 
         UStaticMeshComponent* Token = AddDecoration(FString::Printf(TEXT("G%dToken%d"), ResourceGeneration, Index), Cylinder,
             Center + FVector(0, 0, 12), FVector(0.62f, 0.62f, 0.08f), FLinearColor(0.92f, 0.85f, 0.68f));

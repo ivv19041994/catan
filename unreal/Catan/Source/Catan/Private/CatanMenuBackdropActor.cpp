@@ -1,0 +1,218 @@
+#include "CatanMenuBackdropActor.h"
+
+#include "CatanHexMeshBuilder.h"
+#include "CatanResourceVisualBuilder.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
+#include "Net/UnrealNetwork.h"
+#include "ProceduralMeshComponent.h"
+
+namespace
+{
+constexpr int32 FieldRadius = 7;
+constexpr float HexRadius = 220.0f;
+constexpr float RootThree = 1.73205080757f;
+
+const FLinearColor TerrainColors[] = {
+    FLinearColor(0.035f, 0.28f, 0.065f),
+    FLinearColor(0.55f, 0.14f, 0.045f),
+    FLinearColor(0.90f, 0.62f, 0.055f),
+    FLinearColor(0.34f, 0.70f, 0.19f),
+    FLinearColor(0.34f, 0.38f, 0.45f),
+    FLinearColor(0.76f, 0.61f, 0.34f)
+};
+
+FVector AxialToWorld(int32 Q, int32 R, float Height)
+{
+    return FVector(HexRadius * 1.5f * Q,
+        HexRadius * RootThree * (R + Q * 0.5f), Height);
+}
+
+UMaterialInstanceDynamic* TerrainMaterial(UObject* Owner, UMaterialInterface* Base, const FLinearColor& Color)
+{
+    UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Base, Owner);
+    Material->SetVectorParameterValue(TEXT("Color"), Color);
+    Material->SetVectorParameterValue(TEXT("BaseColor"), Color);
+    Material->SetScalarParameterValue(TEXT("Roughness"), 0.88f);
+    return Material;
+}
+
+}
+
+ACatanMenuBackdropActor::ACatanMenuBackdropActor()
+{
+    PrimaryActorTick.bCanEverTick = false;
+    bReplicates = true;
+    SetReplicateMovement(false);
+    HexField = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("MenuHexField"));
+    RootComponent = HexField;
+    HexField->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    HexField->SetCastShadow(true);
+    Shore = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("MenuShore"));
+    Shore->SetupAttachment(HexField);
+    Shore->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Sea = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MenuSea"));
+    Sea->SetupAttachment(HexField);
+    Sea->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Sea->SetCastShadow(false);
+}
+
+void ACatanMenuBackdropActor::BeginPlay()
+{
+    Super::BeginPlay();
+    BasicMaterial = LoadObject<UMaterialInterface>(nullptr,
+        TEXT("/Engine/BasicShapes/BasicShapeMaterial_Inst.BasicShapeMaterial_Inst"));
+    BuildEnvironment();
+    if (HasAuthority())
+    {
+        LayoutSeed = FMath::RandRange(1, MAX_int32);
+        ForceNetUpdate();
+        BuildField();
+    }
+    else if (LayoutSeed != 0)
+    {
+        BuildField();
+    }
+}
+
+void ACatanMenuBackdropActor::BuildEnvironment()
+{
+    if (!BasicMaterial) return;
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    Sea->SetStaticMesh(Cube);
+    Sea->SetRelativeLocation(FVector(0, 0, -48));
+    Sea->SetRelativeScale3D(FVector(150.0f, 150.0f, 1.0f));
+    Sea->SetMaterial(0, TerrainMaterial(this, BasicMaterial, FLinearColor(0.012f, 0.18f, 0.38f)));
+
+    struct FLayer { float RadiusScale; float Height; FLinearColor Color; };
+    const FLayer Layers[] = {
+        {1.28f, 5.0f, FLinearColor(0.28f, 0.20f, 0.12f)},
+        {1.17f, 9.0f, FLinearColor(0.80f, 0.62f, 0.31f)},
+        {1.07f, 12.0f, FLinearColor(0.68f, 0.48f, 0.23f)}
+    };
+    for (int32 Layer = 0; Layer < UE_ARRAY_COUNT(Layers); ++Layer)
+    {
+        FCatanHexMeshBuffers Mesh;
+        for (int32 Q = -FieldRadius; Q <= FieldRadius; ++Q)
+        {
+            const int32 MinR = FMath::Max(-FieldRadius, -Q - FieldRadius);
+            const int32 MaxR = FMath::Min(FieldRadius, -Q + FieldRadius);
+            for (int32 R = MinR; R <= MaxR; ++R)
+                CatanHexMesh::AppendTop(Mesh, AxialToWorld(Q, R, Layers[Layer].Height),
+                    HexRadius * Layers[Layer].RadiusScale, Layers[Layer].Color, 0.0f);
+        }
+        Shore->CreateMeshSection_LinearColor(Layer, Mesh.Vertices, Mesh.Triangles, Mesh.Normals,
+            Mesh.UVs, Mesh.Colors, Mesh.Tangents, false);
+        Shore->SetMaterial(Layer, TerrainMaterial(this, BasicMaterial, Layers[Layer].Color));
+    }
+}
+
+void ACatanMenuBackdropActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+    DOREPLIFETIME(ACatanMenuBackdropActor, LayoutSeed);
+}
+
+void ACatanMenuBackdropActor::OnRep_Seed()
+{
+    BuildField();
+}
+
+void ACatanMenuBackdropActor::BuildField()
+{
+    if (bBuilt || LayoutSeed == 0 || !BasicMaterial) return;
+    bBuilt = true;
+    int32 BuiltHexes = 0;
+
+    for (int32 Terrain = 0; Terrain < UE_ARRAY_COUNT(TerrainColors); ++Terrain)
+    {
+        FCatanHexMeshBuffers Mesh;
+
+        for (int32 Q = -FieldRadius; Q <= FieldRadius; ++Q)
+        {
+            const int32 MinR = FMath::Max(-FieldRadius, -Q - FieldRadius);
+            const int32 MaxR = FMath::Min(FieldRadius, -Q + FieldRadius);
+            for (int32 R = MinR; R <= MaxR; ++R)
+            {
+                const uint32 CellSeed = HashCombine(GetTypeHash(LayoutSeed),
+                    HashCombine(GetTypeHash(Q), GetTypeHash(R)));
+                FRandomStream CellRandom(static_cast<int32>(CellSeed));
+                const int32 ChosenTerrain = CellRandom.RandRange(0, UE_ARRAY_COUNT(TerrainColors) - 1);
+                const float Height = CellRandom.FRandRange(15.0f, 38.0f);
+                if (ChosenTerrain != Terrain) continue;
+                ++BuiltHexes;
+
+                const FVector Center = AxialToWorld(Q, R, Height);
+                CatanHexMesh::AppendPrism(Mesh, Center, HexRadius * 0.985f, 24.0f, 12.0f,
+                    TerrainColors[Terrain], TerrainColors[Terrain] * 0.62f, 0.0f);
+                BuildResourceCluster(BuiltHexes, Center + FVector(0, 0, 24),
+                    static_cast<uint8>(Terrain));
+            }
+        }
+
+        HexField->CreateMeshSection_LinearColor(Terrain, Mesh.Vertices, Mesh.Triangles, Mesh.Normals,
+            Mesh.UVs, Mesh.Colors, Mesh.Tangents, false);
+        HexField->SetMaterial(Terrain, TerrainMaterial(this, BasicMaterial, TerrainColors[Terrain]));
+    }
+    UE_LOG(LogTemp, Display, TEXT("CATAN_MENU backdrop ready radius=%d hexes=%d seed=%d"),
+        FieldRadius, BuiltHexes, LayoutSeed);
+}
+
+void ACatanMenuBackdropActor::BuildResourceCluster(int32 VisualId, const FVector& SurfaceCenter, uint8 Terrain)
+{
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+    UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+    UStaticMesh* Cone = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone"));
+
+    FCatanResourceVisualCallbacks Callbacks;
+    Callbacks.AddStatic = [this, SurfaceCenter](const FString& Name, UStaticMesh* Mesh,
+        const FVector& Local, const FVector& Scale, const FLinearColor& Color, const FRotator& Rotation)
+    {
+        UStaticMeshComponent* Part = NewObject<UStaticMeshComponent>(this, *FString::Printf(TEXT("Menu%s"), *Name));
+        Part->SetupAttachment(HexField);
+        Part->RegisterComponent();
+        Part->SetStaticMesh(Mesh);
+        Part->SetRelativeLocation(SurfaceCenter + Local);
+        Part->SetRelativeScale3D(Scale);
+        Part->SetRelativeRotation(Rotation);
+        Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Part->SetMaterial(0, TerrainMaterial(this, BasicMaterial, Color));
+        ResourceParts.Add(Part);
+        return Part;
+    };
+    Callbacks.AddHexPyramid = [this, SurfaceCenter](const FString& Name, const FVector& Local,
+        float Radius, float Height, const FLinearColor& Color)
+    {
+        UProceduralMeshComponent* Pyramid = NewObject<UProceduralMeshComponent>(this,
+            *FString::Printf(TEXT("Menu%s"), *Name));
+        Pyramid->SetupAttachment(HexField);
+        Pyramid->RegisterComponent();
+        Pyramid->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        const FVector Position = SurfaceCenter + Local;
+        TArray<FVector> Vertices{Position + FVector(0, 0, Height)};
+        TArray<FVector> Normals{FVector::UpVector};
+        TArray<FVector2D> UVs{FVector2D(0.5f, 0.0f)};
+        TArray<FLinearColor> Colors{Color};
+        TArray<FProcMeshTangent> Tangents{FProcMeshTangent(1, 0, 0)};
+        TArray<int32> Triangles;
+        for (int32 Side = 0; Side < 6; ++Side)
+        {
+            const float Angle = FMath::DegreesToRadians(30.0f + Side * 60.0f);
+            Vertices.Add(Position + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0) * Radius);
+            Normals.Add(FVector::UpVector);
+            UVs.Add(FVector2D(static_cast<float>(Side) / 6.0f, 1.0f));
+            Colors.Add(Color * (0.83f + (Side % 3) * 0.08f));
+            Tangents.Add(FProcMeshTangent(1, 0, 0));
+            Triangles.Append({0, (Side + 1) % 6 + 1, Side + 1});
+        }
+        Pyramid->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UVs, Colors, Tangents, false);
+        Pyramid->SetMaterial(0, TerrainMaterial(this, BasicMaterial, Color));
+        ResourcePyramids.Add(Pyramid);
+    };
+    Callbacks.Animate = [](UStaticMeshComponent*, ECatanResourceAnimation, float) {};
+    CatanResourceVisuals::BuildCluster(static_cast<ECatanResource>(Terrain), VisualId,
+        static_cast<float>((VisualId * 47) % 360), Cube, Sphere, Cylinder, Cone, Callbacks);
+}
