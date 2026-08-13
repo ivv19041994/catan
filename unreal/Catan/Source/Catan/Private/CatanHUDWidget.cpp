@@ -318,19 +318,11 @@ void UCatanHUDWidget::BuildLayout()
     ModalSwitcher->AddChild(DevelopmentPanel);
     AddText(DevelopmentPanel, TEXT("DEVELOPMENT CARDS"), 25);
     DevelopmentAvailabilityText = AddText(DevelopmentPanel, FString(), 15);
-    if (UTexture2D* CardAtlas = LoadObject<UTexture2D>(nullptr, TEXT("/Game/UI/development-card-icons-atlas.development-card-icons-atlas")))
-    {
-        UImage* CardIcons = WidgetTree->ConstructWidget<UImage>();
-        CardIcons->SetBrushFromTexture(CardAtlas, true);
-        CardIcons->SetDesiredSizeOverride(FVector2D(560.0f, 155.0f));
-        DevelopmentPanel->AddChildToVerticalBox(CardIcons);
-        UCommonTextBlock* CardLegend = AddText(DevelopmentPanel,
-            TEXT("KNIGHT          ROADS          PLENTY          MONOPOLY          VICTORY"), 12);
-        CardLegend->SetJustification(ETextJustify::Center);
-    }
     KnightButton = AddButton(DevelopmentPanel, TEXT("PLAY KNIGHT"));
     RoadBuildingButton = AddButton(DevelopmentPanel, TEXT("PLAY ROAD BUILDING"));
-    AddText(DevelopmentPanel, TEXT("Resources for Year of Plenty / Monopoly"), 16);
+    DevelopmentResourcePanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    DevelopmentPanel->AddChildToVerticalBox(DevelopmentResourcePanel);
+    AddText(DevelopmentResourcePanel, TEXT("Resources for Year of Plenty / Monopoly"), 16);
     FirstResource = WidgetTree->ConstructWidget<UComboBoxString>();
     SecondResource = WidgetTree->ConstructWidget<UComboBoxString>();
     for (const TCHAR* ResourceName : ResourceNames)
@@ -340,8 +332,8 @@ void UCatanHUDWidget::BuildLayout()
     }
     FirstResource->SetSelectedOption(TEXT("Wood"));
     SecondResource->SetSelectedOption(TEXT("Clay"));
-    DevelopmentPanel->AddChildToVerticalBox(FirstResource);
-    DevelopmentPanel->AddChildToVerticalBox(SecondResource);
+    DevelopmentResourcePanel->AddChildToVerticalBox(FirstResource);
+    DevelopmentResourcePanel->AddChildToVerticalBox(SecondResource);
     YearOfPlentyButton = AddButton(DevelopmentPanel, TEXT("PLAY YEAR OF PLENTY"));
     MonopolyButton = AddButton(DevelopmentPanel, TEXT("PLAY MONOPOLY (FIRST RESOURCE)"));
     UButton* CloseCards = AddButton(DevelopmentPanel, TEXT("CLOSE"));
@@ -732,7 +724,11 @@ void UCatanHUDWidget::Refresh()
         ? LocalPlayer->Knights + LocalPlayer->RoadBuildingCards
             + LocalPlayer->YearOfPlentyCards + LocalPlayer->MonopolyCards
         : 0;
-    SetActionVisible(UseCardButton, bLocalTurn && (bPlay || bRoll) && ReadyCards > 0);
+    SetActionVisible(UseCardButton, bLocalTurn && (bPlay || bRoll)
+        && LocalPlayer && LocalPlayer->DevelopmentCards > 0);
+    if (UCommonTextBlock* Label = UseCardButton
+        ? Cast<UCommonTextBlock>(UseCardButton->GetChildAt(0)) : nullptr)
+        Label->SetText(FText::FromString(ReadyCards > 0 ? TEXT("USE DEV") : TEXT("VIEW DEV")));
     auto MarkSelected = [&View](UButton* Button, ECatanBoardAction Action)
     {
         Button->SetBackgroundColor(View.BoardAction == Action
@@ -843,10 +839,24 @@ void UCatanHUDWidget::Refresh()
         ShowCard(RoadBuildingButton, bPlay && LocalPlayer->RoadBuildingCards > 0);
         ShowCard(YearOfPlentyButton, bPlay && LocalPlayer->YearOfPlentyCards > 0);
         ShowCard(MonopolyButton, bPlay && LocalPlayer->MonopolyCards > 0);
-        DevelopmentAvailabilityText->SetText(FText::FromString(LocalPlayer->PendingDevelopmentCards > 0
-            ? FString::Printf(TEXT("%d card(s) bought this turn — available next turn."),
-                LocalPlayer->PendingDevelopmentCards)
-            : TEXT("Choose a ready card to play.")));
+        const int32 ReadyCount = LocalPlayer->Knights + LocalPlayer->RoadBuildingCards
+            + LocalPlayer->YearOfPlentyCards + LocalPlayer->MonopolyCards;
+        const int32 PassiveVictoryCards = FMath::Max(0, LocalPlayer->DevelopmentCards
+            - ReadyCount - LocalPlayer->PendingDevelopmentCards);
+        FString CardState;
+        if (ReadyCount > 0)
+            CardState += FString::Printf(TEXT("Ready to play: %d."), ReadyCount);
+        if (LocalPlayer->PendingDevelopmentCards > 0)
+            CardState += FString::Printf(TEXT("%sBought this turn: %d — available next turn."),
+                CardState.IsEmpty() ? TEXT("") : TEXT("\n"), LocalPlayer->PendingDevelopmentCards);
+        if (PassiveVictoryCards > 0)
+            CardState += FString::Printf(TEXT("%sVictory point cards: %d — passive, they are never played."),
+                CardState.IsEmpty() ? TEXT("") : TEXT("\n"), PassiveVictoryCards);
+        if (CardState.IsEmpty()) CardState = TEXT("You have no development cards available to play.");
+        DevelopmentAvailabilityText->SetText(FText::FromString(CardState));
+        DevelopmentResourcePanel->SetVisibility(
+            bPlay && (LocalPlayer->YearOfPlentyCards > 0 || LocalPlayer->MonopolyCards > 0)
+                ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     }
     else if (bTradePanelOpen && LocalPlayer && bLocalTurn && bPlay)
     {
