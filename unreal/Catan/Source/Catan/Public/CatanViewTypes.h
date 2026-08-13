@@ -67,7 +67,11 @@ struct FCatanPlayerView
     UPROPERTY(BlueprintReadOnly) int32 Id = INDEX_NONE;
     UPROPERTY(BlueprintReadOnly) FString Name;
     UPROPERTY(BlueprintReadOnly) bool bIsCurrent = false;
+    UPROPERTY(BlueprintReadOnly) bool bIsBot = false;
+    UPROPERTY(BlueprintReadOnly) bool bIsLocalPlayer = false;
+    UPROPERTY(BlueprintReadOnly) bool bResourcesVisible = false;
     UPROPERTY(BlueprintReadOnly) int32 VictoryPoints = 0;
+    UPROPERTY(BlueprintReadOnly) int32 ResourceCards = 0;
     UPROPERTY(BlueprintReadOnly) int32 DevelopmentCards = 0;
     UPROPERTY(BlueprintReadOnly) int32 FreeSettlements = 0;
     UPROPERTY(BlueprintReadOnly) int32 FreeCities = 0;

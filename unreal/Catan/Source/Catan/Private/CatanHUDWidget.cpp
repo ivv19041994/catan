@@ -3,6 +3,7 @@
 #include "CatanGameSubsystem.h"
 #include "CatanNetworkSubsystem.h"
 #include "CatanGameState.h"
+#include "CatanGameMode.h"
 #include "CatanPlayerController.h"
 #include "CatanPlayerState.h"
 #include "CommonTextBlock.h"
@@ -227,17 +228,25 @@ void UCatanHUDWidget::BuildLayout()
 
     UBorder* ActionBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 1), FVector2D(0.5f, 1),
         FMargin(0, -24, 1100, 155));
+    if (UCanvasPanelSlot* ActionSlot = Cast<UCanvasPanelSlot>(ActionBorder->Slot))
+    {
+        ActionSlot->SetAutoSize(true);
+        ActionSlot->SetPosition(FVector2D(0, -24));
+    }
     UVerticalBox* ActionPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ActionBorder->SetContent(ActionPanel);
-    AddText(ActionPanel, TEXT("ACTIONS"), 18);
+    UCommonTextBlock* ActionTitle = AddText(ActionPanel, TEXT("ACTIONS"), 18);
+    ActionTitle->SetJustification(ETextJustify::Center);
     UHorizontalBox* Buttons = WidgetTree->ConstructWidget<UHorizontalBox>();
-    ActionPanel->AddChildToVerticalBox(Buttons);
+    UVerticalBoxSlot* ButtonsRow = ActionPanel->AddChildToVerticalBox(Buttons);
+    ButtonsRow->SetHorizontalAlignment(HAlign_Center);
 
     auto AddAction = [this, Buttons](const FString& Label)
     {
         UVerticalBox* Box = WidgetTree->ConstructWidget<UVerticalBox>();
         UHorizontalBoxSlot* BoxSlot = Buttons->AddChildToHorizontalBox(Box);
         BoxSlot->SetPadding(FMargin(5));
+        BoxSlot->SetHorizontalAlignment(HAlign_Center);
         return AddButton(Box, Label);
     };
     RollButton = AddAction(TEXT("ROLL DICE"));
@@ -406,17 +415,15 @@ void UCatanHUDWidget::BuildLayout()
 
     UVerticalBox* SetupPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(SetupPanel);
-    AddText(SetupPanel, TEXT("CATAN — LOCAL NETWORK"), 32);
+    AddText(SetupPanel, TEXT("CATAN"), 32);
     AddText(SetupPanel,
-        TEXT("Host a discoverable LAN lobby or join one automatically/by IP.\n"
-             "Against bots is planned for a later phase."), 16);
+        TEXT("Play against local bots, host a discoverable LAN lobby, or join by search/IP."), 16);
     PlayerCount = WidgetTree->ConstructWidget<UComboBoxString>();
     PlayerCount->AddOption(TEXT("2 players"));
     PlayerCount->AddOption(TEXT("3 players"));
     PlayerCount->AddOption(TEXT("4 players"));
     PlayerCount->SetSelectedIndex(0);
     PlayerCount->OnSelectionChanged.AddDynamic(this, &UCatanHUDWidget::UpdatePlayerCount);
-    PlayerCount->SetVisibility(ESlateVisibility::Collapsed);
     SetupPanel->AddChildToVerticalBox(PlayerCount);
     constexpr const TCHAR* SlotColors[] = {TEXT("RED"), TEXT("BLUE"), TEXT("YELLOW"), TEXT("GREEN")};
     for (int32 Index = 0; Index < 4; ++Index)
@@ -457,8 +464,8 @@ void UCatanHUDWidget::BuildLayout()
     SetupPanel->AddChildToVerticalBox(ManualAddressInput);
     UButton* JoinAddress = AddButton(SetupPanel, TEXT("JOIN BY ADDRESS"));
     JoinAddress->OnClicked.AddDynamic(this, &UCatanHUDWidget::JoinManualLobby);
-    UButton* Bots = AddButton(SetupPanel, TEXT("AGAINST BOTS — COMING LATER"));
-    Bots->SetIsEnabled(false);
+    UButton* Bots = AddButton(SetupPanel, TEXT("PLAY AGAINST BOTS"));
+    Bots->OnClicked.AddDynamic(this, &UCatanHUDWidget::StartBotMatch);
     NetworkStatusText = AddText(SetupPanel, TEXT("LAN ready"), 14);
 
     UVerticalBox* ConfirmationPanel = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -605,19 +612,27 @@ void UCatanHUDWidget::Refresh()
         FString Awards;
         if (Player.bHasLongestRoad) Awards += TEXT("  ★ LONGEST ROAD");
         if (Player.bHasLargestArmy) Awards += TEXT("  ★ LARGEST ARMY");
-        Players += FString::Printf(
-            TEXT("%s %s  |  VP %d  DEV %d%s\nW %d  C %d  H %d  S %d  O %d\n"
-                 "Ready cards: Knight %d | Roads %d | Plenty %d | Monopoly %d\n"
-                 "Pieces: %d settlements, %d cities, %d roads\n\n"),
-            Player.bIsCurrent ? TEXT("▶") : TEXT(" "), *Player.Name,
-            Player.VictoryPoints, Player.DevelopmentCards, *Awards,
-            Player.Resources.Wood, Player.Resources.Clay, Player.Resources.Hay,
-            Player.Resources.Sheep, Player.Resources.Stone,
-            Player.Knights, Player.RoadBuildingCards, Player.YearOfPlentyCards, Player.MonopolyCards,
+        Players += FString::Printf(TEXT("%s %s  |  VP %d  RES %d  DEV %d%s\n"),
+            Player.bIsCurrent ? TEXT("▶") : TEXT(" "),
+            *FString::Printf(TEXT("%s%s%s"), *Player.Name,
+                Player.bIsLocalPlayer ? TEXT(" [YOU]") : TEXT(""), Player.bIsBot ? TEXT(" [BOT]") : TEXT("")),
+            Player.VictoryPoints, Player.ResourceCards, Player.DevelopmentCards, *Awards);
+        if (Player.bResourcesVisible)
+            Players += FString::Printf(
+                TEXT("YOUR HAND: W %d  C %d  H %d  S %d  O %d\n"
+                     "Ready cards: Knight %d | Roads %d | Plenty %d | Monopoly %d\n"),
+                Player.Resources.Wood, Player.Resources.Clay, Player.Resources.Hay,
+                Player.Resources.Sheep, Player.Resources.Stone,
+                Player.Knights, Player.RoadBuildingCards,
+                Player.YearOfPlentyCards, Player.MonopolyCards);
+        else
+            Players += TEXT("Hand contents hidden\n");
+        Players += FString::Printf(TEXT("Pieces: %d settlements, %d cities, %d roads\n\n"),
             Player.FreeSettlements, Player.FreeCities, Player.FreeRoads);
-        ResourceDigest += FString::Printf(TEXT("%d/%d/%d/%d/%d;"),
-            Player.Resources.Wood, Player.Resources.Clay, Player.Resources.Hay,
-            Player.Resources.Sheep, Player.Resources.Stone);
+        if (Player.bResourcesVisible)
+            ResourceDigest = FString::Printf(TEXT("%d/%d/%d/%d/%d"),
+                Player.Resources.Wood, Player.Resources.Clay, Player.Resources.Hay,
+                Player.Resources.Sheep, Player.Resources.Stone);
     }
     PlayersText->SetText(FText::FromString(Players));
     if (!PreviousResourceDigest.IsEmpty() && PreviousResourceDigest != ResourceDigest)
@@ -628,20 +643,34 @@ void UCatanHUDWidget::Refresh()
     const bool bPlay = View.Phase == ECatanGamePhase::CommonPlay;
     const FCatanPlayerView* CurrentPlayer = View.Players.FindByPredicate(
         [](const FCatanPlayerView& Player) { return Player.bIsCurrent; });
+    const FCatanPlayerView* LocalPlayer = View.Players.FindByPredicate(
+        [](const FCatanPlayerView& Player) { return Player.bIsLocalPlayer; });
     const FCatanResourceView EmptyResources;
-    const FCatanResourceView& Have = CurrentPlayer ? CurrentPlayer->Resources : EmptyResources;
+    const FCatanResourceView& Have = LocalPlayer && LocalPlayer->bResourcesVisible
+        ? LocalPlayer->Resources : EmptyResources;
     const bool bCanRoad = CanAfford(Have, 1, 1, 0, 0, 0);
     const bool bCanSettlement = CanAfford(Have, 1, 1, 1, 1, 0);
     const bool bCanCity = CanAfford(Have, 0, 0, 2, 0, 3);
     const bool bCanCard = CanAfford(Have, 0, 0, 1, 1, 1);
-    RollButton->SetIsEnabled(bLocalTurn && bRoll);
-    SettlementButton->SetIsEnabled(bLocalTurn && bPlay && bCanSettlement && CurrentPlayer && CurrentPlayer->FreeSettlements > 0);
-    RoadButton->SetIsEnabled(bLocalTurn && ((bPlay && bCanRoad && CurrentPlayer && CurrentPlayer->FreeRoads > 0)
-        || View.Phase == ECatanGamePhase::RoadBuilding));
-    CityButton->SetIsEnabled(bLocalTurn && bPlay && bCanCity && CurrentPlayer && CurrentPlayer->FreeCities > 0);
-    BuyCardButton->SetIsEnabled(bLocalTurn && bPlay && bCanCard);
-    TradeButton->SetIsEnabled(bLocalTurn && bPlay);
-    PassButton->SetIsEnabled(bLocalTurn && bPlay);
+    auto SetActionVisible = [](UButton* Button, bool bVisible)
+    {
+        if (!Button) return;
+        Button->SetIsEnabled(bVisible);
+        if (UWidget* SlotWidget = Button->GetParent())
+            SlotWidget->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        else
+            Button->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    };
+    SetActionVisible(RollButton, bLocalTurn && bRoll);
+    SetActionVisible(SettlementButton, bLocalTurn && bPlay && bCanSettlement
+        && LocalPlayer && LocalPlayer->FreeSettlements > 0);
+    SetActionVisible(RoadButton, bLocalTurn && ((bPlay && bCanRoad
+        && LocalPlayer && LocalPlayer->FreeRoads > 0) || View.Phase == ECatanGamePhase::RoadBuilding));
+    SetActionVisible(CityButton, bLocalTurn && bPlay && bCanCity
+        && LocalPlayer && LocalPlayer->FreeCities > 0);
+    SetActionVisible(BuyCardButton, bLocalTurn && bPlay && bCanCard);
+    SetActionVisible(TradeButton, bLocalTurn && bPlay);
+    SetActionVisible(PassButton, bLocalTurn && bPlay);
     BuildCostText->SetText(FText::FromString(
         CostLine(TEXT("ROAD"), Have, 1, 1, 0, 0, 0) + TEXT("\n")
         + CostLine(TEXT("SETTLEMENT"), Have, 1, 1, 1, 1, 0) + TEXT("\n")
@@ -662,11 +691,11 @@ void UCatanHUDWidget::Refresh()
             : FString::Printf(TEXT("Need more resources for: %s."), *FString::Join(Missing, TEXT(", ")));
     }
     AvailabilityText->SetText(FText::FromString(Availability));
-    const int32 ReadyCards = CurrentPlayer
-        ? CurrentPlayer->Knights + CurrentPlayer->RoadBuildingCards
-            + CurrentPlayer->YearOfPlentyCards + CurrentPlayer->MonopolyCards
+    const int32 ReadyCards = LocalPlayer
+        ? LocalPlayer->Knights + LocalPlayer->RoadBuildingCards
+            + LocalPlayer->YearOfPlentyCards + LocalPlayer->MonopolyCards
         : 0;
-    UseCardButton->SetIsEnabled(bLocalTurn && (bPlay || bRoll) && ReadyCards > 0);
+    SetActionVisible(UseCardButton, bLocalTurn && (bPlay || bRoll) && ReadyCards > 0);
     auto MarkSelected = [&View](UButton* Button, ECatanBoardAction Action)
     {
         Button->SetBackgroundColor(View.BoardAction == Action
@@ -693,8 +722,7 @@ void UCatanHUDWidget::Refresh()
             Standings += FString::Printf(
                 TEXT("%s — %d VP | %d dev | %d resources\n  %d settlements, %d cities, %d roads remaining\n"),
                 *Player.Name, Player.VictoryPoints, Player.DevelopmentCards,
-                Player.Resources.Wood + Player.Resources.Clay + Player.Resources.Hay
-                    + Player.Resources.Sheep + Player.Resources.Stone,
+                Player.ResourceCards,
                 Player.FreeSettlements, Player.FreeCities, Player.FreeRoads);
         }
         WinnerText->SetText(FText::FromString(Standings));
@@ -709,15 +737,15 @@ void UCatanHUDWidget::Refresh()
             ? TEXT("Upgrade a settlement to a city?\nThis costs 2 hay and 3 ore. After confirming, choose your settlement on the board.")
             : TEXT("Buy a random development card?\nThis costs 1 hay, 1 sheep and 1 ore.")));
     }
-    else if (View.Phase == ECatanGamePhase::DropCards && CurrentPlayer)
+    else if (View.Phase == ECatanGamePhase::DropCards && bLocalTurn && LocalPlayer)
     {
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(0);
         DropTitle->SetText(FText::FromString(FString::Printf(
             TEXT("DISCARD %d RESOURCES — %s"), View.RequiredDiscardCount, *View.CurrentPlayer)));
         const int32 Holdings[] = {
-            CurrentPlayer->Resources.Wood, CurrentPlayer->Resources.Clay, CurrentPlayer->Resources.Hay,
-            CurrentPlayer->Resources.Sheep, CurrentPlayer->Resources.Stone
+            LocalPlayer->Resources.Wood, LocalPlayer->Resources.Clay, LocalPlayer->Resources.Hay,
+            LocalPlayer->Resources.Sheep, LocalPlayer->Resources.Stone
         };
         if (LastDropPlayer != View.CurrentPlayer)
         {
@@ -730,7 +758,7 @@ void UCatanHUDWidget::Refresh()
             DropInputs[Index]->SetMaxSliderValue(Holdings[Index]);
         }
     }
-    else if (View.PendingRobberHex != INDEX_NONE && !View.RobberVictims.IsEmpty())
+    else if (bLocalTurn && View.PendingRobberHex != INDEX_NONE && !View.RobberVictims.IsEmpty())
     {
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(1);
@@ -765,27 +793,27 @@ void UCatanHUDWidget::Refresh()
             TradingPlayer->SetSelectedIndex(0);
         bTradePanelOpen = false;
     }
-    else if (bDevelopmentPanelOpen && CurrentPlayer && (bPlay || bRoll))
+    else if (bDevelopmentPanelOpen && LocalPlayer && bLocalTurn && (bPlay || bRoll))
     {
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(2);
-        KnightButton->SetIsEnabled(CurrentPlayer->Knights > 0);
-        RoadBuildingButton->SetIsEnabled(bPlay && CurrentPlayer->RoadBuildingCards > 0);
-        YearOfPlentyButton->SetIsEnabled(bPlay && CurrentPlayer->YearOfPlentyCards > 0);
-        MonopolyButton->SetIsEnabled(bPlay && CurrentPlayer->MonopolyCards > 0);
+        KnightButton->SetIsEnabled(LocalPlayer->Knights > 0);
+        RoadBuildingButton->SetIsEnabled(bPlay && LocalPlayer->RoadBuildingCards > 0);
+        YearOfPlentyButton->SetIsEnabled(bPlay && LocalPlayer->YearOfPlentyCards > 0);
+        MonopolyButton->SetIsEnabled(bPlay && LocalPlayer->MonopolyCards > 0);
     }
-    else if (bTradePanelOpen && CurrentPlayer && bPlay)
+    else if (bTradePanelOpen && LocalPlayer && bLocalTurn && bPlay)
     {
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(3);
         BankRateText->SetText(FText::FromString(FString::Printf(
             TEXT("Your bank rates: Wood %d:1 | Clay %d:1 | Hay %d:1 | Sheep %d:1 | Ore %d:1"),
-            CurrentPlayer->TradeRates.Wood, CurrentPlayer->TradeRates.Clay,
-            CurrentPlayer->TradeRates.Hay, CurrentPlayer->TradeRates.Sheep,
-            CurrentPlayer->TradeRates.Stone)));
+            LocalPlayer->TradeRates.Wood, LocalPlayer->TradeRates.Clay,
+            LocalPlayer->TradeRates.Hay, LocalPlayer->TradeRates.Sheep,
+            LocalPlayer->TradeRates.Stone)));
         const int32 Holdings[] = {
-            CurrentPlayer->Resources.Wood, CurrentPlayer->Resources.Clay, CurrentPlayer->Resources.Hay,
-            CurrentPlayer->Resources.Sheep, CurrentPlayer->Resources.Stone
+            LocalPlayer->Resources.Wood, LocalPlayer->Resources.Clay, LocalPlayer->Resources.Hay,
+            LocalPlayer->Resources.Sheep, LocalPlayer->Resources.Stone
         };
         for (int32 Index = 0; Index < OfferedInputs.Num(); ++Index)
         {
@@ -805,6 +833,18 @@ void UCatanHUDWidget::HostLanLobby()
     FString PlayerName;
     if (!GetValidatedPlayerName(PlayerName)) return;
     NetworkSubsystem->HostLobby(PlayerName, LobbyNameInput->GetText().ToString());
+}
+
+void UCatanHUDWidget::StartBotMatch()
+{
+    FString PlayerName;
+    if (!GetValidatedPlayerName(PlayerName)) return;
+    const int32 TotalPlayers = PlayerCount ? PlayerCount->GetSelectedIndex() + 2 : 2;
+    if (ACatanGameMode* Mode = GetWorld()->GetAuthGameMode<ACatanGameMode>())
+    {
+        bSetupPanelOpen = false;
+        Mode->StartSinglePlayerGame(PlayerName, TotalPlayers - 1);
+    }
 }
 
 void UCatanHUDWidget::FindLanLobbies()

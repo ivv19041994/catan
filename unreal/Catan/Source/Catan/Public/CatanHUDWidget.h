@@ -125,6 +125,7 @@ private:
     UFUNCTION() void CancelExpensiveAction();
     UFUNCTION() void QuitGame();
     UFUNCTION() void HostLanLobby();
+    UFUNCTION() void StartBotMatch();
     UFUNCTION() void FindLanLobbies();
     UFUNCTION() void JoinSelectedLobby();
     UFUNCTION() void JoinManualLobby();
