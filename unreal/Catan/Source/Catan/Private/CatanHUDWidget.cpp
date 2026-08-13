@@ -24,6 +24,8 @@
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/WidgetSwitcher.h"
+#include "Components/WrapBox.h"
+#include "Components/WrapBoxSlot.h"
 #include "Blueprint/WidgetTree.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Engine/Texture2D.h"
@@ -254,7 +256,7 @@ void UCatanHUDWidget::BuildLayout()
     ToastBorder->SetContent(ToastText);
     ToastBorder->SetVisibility(ESlateVisibility::Collapsed);
 
-    UBorder* ActionBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 1), FVector2D(0.5f, 1),
+    ActionBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 1), FVector2D(0.5f, 1),
         FMargin(0, -24, 1100, 155));
     if (UCanvasPanelSlot* ActionSlot = Cast<UCanvasPanelSlot>(ActionBorder->Slot))
     {
@@ -263,17 +265,20 @@ void UCatanHUDWidget::BuildLayout()
     }
     UVerticalBox* ActionPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ActionBorder->SetContent(ActionPanel);
-    UCommonTextBlock* ActionTitle = AddText(ActionPanel, TEXT("ACTIONS"), 18);
+    ActionTitle = AddText(ActionPanel, TEXT("ACTIONS"), 18);
     ActionTitle->SetJustification(ETextJustify::Center);
-    UHorizontalBox* Buttons = WidgetTree->ConstructWidget<UHorizontalBox>();
-    UVerticalBoxSlot* ButtonsRow = ActionPanel->AddChildToVerticalBox(Buttons);
+    ActionButtons = WidgetTree->ConstructWidget<UWrapBox>();
+    ActionButtons->SetHorizontalAlignment(HAlign_Center);
+    ActionButtons->SetInnerSlotPadding(FVector2D(5.0f, 4.0f));
+    ActionButtons->SetExplicitWrapSize(true);
+    ActionButtons->SetWrapSize(1100.0f);
+    UVerticalBoxSlot* ButtonsRow = ActionPanel->AddChildToVerticalBox(ActionButtons);
     ButtonsRow->SetHorizontalAlignment(HAlign_Center);
 
-    auto AddAction = [this, Buttons](const FString& Label)
+    auto AddAction = [this](const FString& Label)
     {
         UVerticalBox* Box = WidgetTree->ConstructWidget<UVerticalBox>();
-        UHorizontalBoxSlot* BoxSlot = Buttons->AddChildToHorizontalBox(Box);
-        BoxSlot->SetPadding(FMargin(5));
+        UWrapBoxSlot* BoxSlot = ActionButtons->AddChildToWrapBox(Box);
         BoxSlot->SetHorizontalAlignment(HAlign_Center);
         return AddButton(Box, Label);
     };
@@ -581,6 +586,40 @@ void UCatanHUDWidget::ApplyAdaptiveLayout(bool bCompact)
         Label->SetText(FText::FromString(bLeftDetailsOpen ? TEXT("HIDE EVENTS & HELP") : TEXT("SHOW EVENTS & HELP")));
     if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(RightDetailsButton->GetChildAt(0)))
         Label->SetText(FText::FromString(bRightDetailsOpen ? TEXT("HIDE PLAYERS & COSTS") : TEXT("SHOW PLAYERS & COSTS")));
+
+    if (ActionButtons)
+    {
+        ActionButtons->SetWrapSize(bCompact ? 760.0f : 1100.0f);
+        ActionButtons->SetInnerSlotPadding(bCompact ? FVector2D(3.0f, 3.0f) : FVector2D(5.0f, 4.0f));
+    }
+    if (ActionTitle) ActionTitle->SetVisibility(bCompact ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+    UpdateActionLabels();
+}
+
+void UCatanHUDWidget::UpdateActionLabels()
+{
+    struct FActionLabel
+    {
+        UButton* Button;
+        const TCHAR* Compact;
+        const TCHAR* Full;
+    };
+    const FActionLabel Labels[] = {
+        {RollButton, TEXT("ROLL"), TEXT("ROLL DICE")},
+        {SettlementButton, TEXT("SETTLE"), TEXT("SETTLEMENT")},
+        {RoadButton, TEXT("ROAD"), TEXT("ROAD")},
+        {CityButton, TEXT("CITY"), TEXT("CITY")},
+        {BuyCardButton, TEXT("BUY DEV"), TEXT("BUY DEV")},
+        {UseCardButton, TEXT("DEV"), TEXT("USE DEV")},
+        {TradeButton, TEXT("TRADE"), TEXT("TRADE")},
+        {PassButton, TEXT("END"), TEXT("END TURN")}
+    };
+    for (const FActionLabel& Entry : Labels)
+    {
+        if (UCommonTextBlock* Label = Entry.Button
+            ? Cast<UCommonTextBlock>(Entry.Button->GetChildAt(0)) : nullptr)
+            Label->SetText(FText::FromString(bCompactLayout ? Entry.Compact : Entry.Full));
+    }
 }
 
 void UCatanHUDWidget::ToggleLeftDetails()
@@ -831,7 +870,8 @@ void UCatanHUDWidget::Refresh()
         && LocalPlayer && LocalPlayer->DevelopmentCards > 0);
     if (UCommonTextBlock* Label = UseCardButton
         ? Cast<UCommonTextBlock>(UseCardButton->GetChildAt(0)) : nullptr)
-        Label->SetText(FText::FromString(ReadyCards > 0 ? TEXT("USE DEV") : TEXT("VIEW DEV")));
+        Label->SetText(FText::FromString(bCompactLayout
+            ? TEXT("DEV") : (ReadyCards > 0 ? TEXT("USE DEV") : TEXT("VIEW DEV"))));
     auto MarkSelected = [&View](UButton* Button, ECatanBoardAction Action)
     {
         Button->SetBackgroundColor(View.BoardAction == Action
