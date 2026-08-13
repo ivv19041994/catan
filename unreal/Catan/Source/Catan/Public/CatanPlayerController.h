@@ -33,4 +33,8 @@ public:
 
     UFUNCTION(Client, Reliable)
     void ClientCatanCommandResult(bool bSuccess, const FString& Message);
+
+private:
+    FString LastAutomatedSetupKey;
+    void RunAutomatedSetupStep();
 };

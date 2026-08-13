@@ -27,7 +27,8 @@ public:
 
     void NotifyNetworkStateChanged();
     void PublishAuthoritativeState();
-    bool HasAuthoritativeGame() const { return Game != nullptr; }
+    bool HasAuthoritativeGame() const;
+    bool CanLocalPlayerAct(const FCatanGameView& View) const;
 
     UFUNCTION(BlueprintPure, Category="Catan")
     FCatanGameView GetSnapshot() const;

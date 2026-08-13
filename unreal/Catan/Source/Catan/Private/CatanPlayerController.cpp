@@ -77,6 +77,48 @@ void ACatanPlayerController::ClientCatanCommandResult_Implementation(bool bSucce
     UE_LOG(LogTemp, Log, TEXT("Catan command %s: %s"), bSuccess ? TEXT("accepted") : TEXT("rejected"), *Message);
 }
 
+void ACatanPlayerController::RunAutomatedSetupStep()
+{
+    if (!IsLocalController()) return;
+    UCatanGameSubsystem* Proxy = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
+    if (!Proxy) return;
+    const FCatanGameView View = Proxy->GetSnapshot();
+    if (View.Phase == ECatanGamePhase::RollDice)
+    {
+        if (LastAutomatedSetupKey != TEXT("complete"))
+        {
+            LastAutomatedSetupKey = TEXT("complete");
+            UE_LOG(LogCatanNetworkController, Display, TEXT("CATAN_SETUP_E2E complete player=%s"),
+                PlayerState ? *PlayerState->GetPlayerName() : TEXT("unknown"));
+        }
+        return;
+    }
+    if (!Proxy->CanLocalPlayerAct(View)) return;
+    if (View.Phase != ECatanGamePhase::SetupSettlement && View.Phase != ECatanGamePhase::SetupRoad) return;
+    const FString Key = FString::Printf(TEXT("%s:%d"), *View.CurrentPlayer, static_cast<int32>(View.Phase));
+    if (Key == LastAutomatedSetupKey) return;
+    FString Error;
+    bool bSent = false;
+    int32 Target = INDEX_NONE;
+    if (View.Phase == ECatanGamePhase::SetupSettlement && !View.ValidNodeTargets.IsEmpty())
+    {
+        Target = View.ValidNodeTargets[0];
+        bSent = Proxy->TryBuildSettlement(Target, Error);
+    }
+    else if (View.Phase == ECatanGamePhase::SetupRoad && !View.ValidRoadTargets.IsEmpty())
+    {
+        Target = View.ValidRoadTargets[0];
+        bSent = Proxy->TryBuildRoad(Target, Error);
+    }
+    if (bSent)
+    {
+        LastAutomatedSetupKey = Key;
+        UE_LOG(LogCatanNetworkController, Display,
+            TEXT("CATAN_SETUP_E2E sent player=%s phase=%d target=%d"),
+            *View.CurrentPlayer, static_cast<int32>(View.Phase), Target);
+    }
+}
+
 void ACatanPlayerController::BeginPlay()
 {
     Super::BeginPlay();
@@ -102,5 +144,11 @@ void ACatanPlayerController::BeginPlay()
                 PlayerState ? *PlayerState->GetPlayerName() : TEXT("unknown"));
             ServerSetLobbyReady(true);
         }, 2.0f, false);
+    }
+    if (FParse::Param(FCommandLine::Get(), TEXT("CatanAutoSetup")))
+    {
+        FTimerHandle SetupHandle;
+        GetWorldTimerManager().SetTimer(SetupHandle, this,
+            &ACatanPlayerController::RunAutomatedSetupStep, 0.25f, true, 2.5f);
     }
 }

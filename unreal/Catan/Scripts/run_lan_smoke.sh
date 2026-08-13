@@ -24,22 +24,22 @@ trap cleanup EXIT INT TERM
 
 "$editor_binary" "$project_file" "/Engine/Maps/Templates/Template_Default?listen?Name=Host?Port=$smoke_port" \
   -game -windowed -ResX=960 -ResY=540 -abslog="$log_dir/host.log" \
-  -CatanAutoReady -CatanAutoStart="$player_count" &
+  -CatanAutoReady -CatanAutoSetup -CatanAutoStart="$player_count" &
 pids+=("$!")
 sleep 4
 
 for index in {$((player_count - 1))..1}; do
   "$editor_binary" "$project_file" "127.0.0.1:$smoke_port?Name=Client${index}" \
     -game -windowed -ResX=960 -ResY=540 -abslog="$log_dir/client${index}.log" \
-    -CatanAutoReady &
+    -CatanAutoReady -CatanAutoSetup &
   pids+=("$!")
   sleep 4
 done
 
 print "LAN smoke running with $player_count instances"
 print "Logs: $log_dir"
-print "Waiting up to 45 seconds for an automatically started match..."
-for attempt in {1..45}; do
+print "Waiting up to 60 seconds for a match and remote-client setup turns..."
+for attempt in {1..60}; do
   failed=false
   if rg -q "Assertion failed|=== Critical error|SIGSEGV" "$log_dir"/*.log 2>/dev/null; then failed=true; fi
   if [[ "$failed" == true ]]; then
@@ -54,9 +54,14 @@ for attempt in {1..45}; do
       (( boards_ready += 1 ))
     fi
   done
+  remote_settlements="$(grep -c "Authenticated command player=.*command=0 success=1" "$log_dir/host.log" 2>/dev/null || true)"
+  remote_roads="$(grep -c "Authenticated command player=.*command=1 success=1" "$log_dir/host.log" 2>/dev/null || true)"
   if grep -q "CATAN_SMOKE match started players=$player_count" "$log_dir/host.log" 2>/dev/null \
-      && (( boards_ready == player_count )); then
-    print "PASS: lobby started and all $player_count instances built their replicated board"
+      && grep -q "CATAN_SETUP_E2E complete" "$log_dir/host.log" 2>/dev/null \
+      && (( boards_ready == player_count )) \
+      && (( remote_settlements >= player_count - 1 )) \
+      && (( remote_roads >= player_count - 1 )); then
+    print "PASS: all boards replicated and remote clients completed setup turns through host RPCs"
     exit 0
   fi
   sleep 1

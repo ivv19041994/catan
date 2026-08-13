@@ -180,6 +180,23 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
     return BuildAuthoritativeSnapshot();
 }
 
+bool UCatanGameSubsystem::HasAuthoritativeGame() const
+{
+    const UWorld* World = GetWorld();
+    return Game != nullptr && (!World || World->GetNetMode() != NM_Client);
+}
+
+bool UCatanGameSubsystem::CanLocalPlayerAct(const FCatanGameView& View) const
+{
+    const UWorld* World = GetWorld();
+    if (!World) return false;
+    if (World->GetNetMode() == NM_Standalone) return true;
+    const APlayerController* Controller = UGameplayStatics::GetPlayerController(World, 0);
+    const APlayerState* PlayerState = Controller ? Controller->PlayerState : nullptr;
+    return PlayerState && !View.CurrentPlayer.IsEmpty()
+        && View.CurrentPlayer == PlayerState->GetPlayerName();
+}
+
 FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
 {
     FCatanGameView View;
@@ -312,7 +329,7 @@ FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
 
 bool UCatanGameSubsystem::TryBuildSettlement(int32 NodeId, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::BuildSettlement, NodeId, 0, FString(), {}, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::BuildSettlement, NodeId, 0, FString(), {}, {}, Error);
     try
     {
         Game->BuildSettlement(Game->GetCurrentPlayer(), static_cast<size_t>(NodeId));
@@ -326,7 +343,7 @@ bool UCatanGameSubsystem::TryBuildSettlement(int32 NodeId, FString& Error)
 
 bool UCatanGameSubsystem::TryBuildRoad(int32 RoadId, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::BuildRoad, RoadId, 0, FString(), {}, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::BuildRoad, RoadId, 0, FString(), {}, {}, Error);
     try
     {
         Game->BuildRoad(Game->GetCurrentPlayer(), static_cast<size_t>(RoadId));
@@ -340,7 +357,7 @@ bool UCatanGameSubsystem::TryBuildRoad(int32 RoadId, FString& Error)
 
 bool UCatanGameSubsystem::TryBuildCity(int32 NodeId, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::BuildCity, NodeId, 0, FString(), {}, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::BuildCity, NodeId, 0, FString(), {}, {}, Error);
     try
     {
         Game->BuildCastle(Game->GetCurrentPlayer(), static_cast<size_t>(NodeId));
@@ -354,7 +371,7 @@ bool UCatanGameSubsystem::TryBuildCity(int32 NodeId, FString& Error)
 
 bool UCatanGameSubsystem::TryMoveRobber(int32 HexId, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::MoveRobber, HexId, 0, FString(), {}, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::MoveRobber, HexId, 0, FString(), {}, {}, Error);
     if (HexId < 0 || HexId >= static_cast<int32>(Game->GetMap().GetGexes().size()))
     {
         return CompleteCommand(false, TEXT("Invalid robber hex"), Error);
@@ -404,7 +421,7 @@ bool UCatanGameSubsystem::TryMoveRobber(int32 HexId, FString& Error)
 
 bool UCatanGameSubsystem::TryChooseRobberVictim(const FString& Victim, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::ChooseRobberVictim, 0, 0, Victim, {}, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::ChooseRobberVictim, 0, 0, Victim, {}, {}, Error);
     if (PendingRobberHex == INDEX_NONE)
     {
         return CompleteCommand(false, TEXT("Choose a robber hex first"), Error);
@@ -428,7 +445,7 @@ bool UCatanGameSubsystem::TryChooseRobberVictim(const FString& Victim, FString& 
 
 bool UCatanGameSubsystem::TryDropResources(const FCatanResourceView& Resources, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::DropResources, 0, 0, FString(), Resources, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::DropResources, 0, 0, FString(), Resources, {}, Error);
     std::map<ivv::catan::Resurse, size_t> Drop;
     auto Add = [&Drop](ivv::catan::Resurse Resource, int32 Count)
     {
@@ -452,7 +469,7 @@ bool UCatanGameSubsystem::TryDropResources(const FCatanResourceView& Resources, 
 
 bool UCatanGameSubsystem::TryRollDice(FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::RollDice, 0, 0, FString(), {}, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::RollDice, 0, 0, FString(), {}, {}, Error);
     try
     {
         Game->Dice(Game->GetCurrentPlayer());
@@ -466,7 +483,7 @@ bool UCatanGameSubsystem::TryRollDice(FString& Error)
 
 bool UCatanGameSubsystem::TryBuyDevelopmentCard(FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::BuyDevelopmentCard, 0, 0, FString(), {}, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::BuyDevelopmentCard, 0, 0, FString(), {}, {}, Error);
     try
     {
         Game->DevCard(Game->GetCurrentPlayer());
@@ -480,7 +497,7 @@ bool UCatanGameSubsystem::TryBuyDevelopmentCard(FString& Error)
 
 bool UCatanGameSubsystem::TryPass(FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::Pass, 0, 0, FString(), {}, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::Pass, 0, 0, FString(), {}, {}, Error);
     try
     {
         Game->Pass(Game->GetCurrentPlayer());
@@ -495,7 +512,7 @@ bool UCatanGameSubsystem::TryPass(FString& Error)
 bool UCatanGameSubsystem::TryUseDevelopmentCard(ECatanDevelopmentCard Card,
     ECatanResource FirstResource, ECatanResource SecondResource, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::UseDevelopmentCard,
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::UseDevelopmentCard,
         static_cast<int32>(Card), static_cast<int32>(FirstResource),
         FString::FromInt(static_cast<int32>(SecondResource)), {}, {}, Error);
     using ivv::catan::DevelopmentCard;
@@ -531,7 +548,7 @@ bool UCatanGameSubsystem::TryUseDevelopmentCard(ECatanDevelopmentCard Card,
 
 bool UCatanGameSubsystem::TryBankTrade(ECatanResource From, ECatanResource To, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::BankTrade,
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::BankTrade,
         static_cast<int32>(From), static_cast<int32>(To), FString(), {}, {}, Error);
     if (From == To || From == ECatanResource::Desert || To == ECatanResource::Desert)
     {
@@ -551,7 +568,7 @@ bool UCatanGameSubsystem::TryBankTrade(ECatanResource From, ECatanResource To, F
 bool UCatanGameSubsystem::TryOfferTrade(const FCatanResourceView& Offered,
     const FCatanResourceView& Requested, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::OfferTrade, 0, 0, FString(), Offered, Requested, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::OfferTrade, 0, 0, FString(), Offered, Requested, Error);
     try
     {
         Game->SetDeal(Game->GetCurrentPlayer(), ToResourceMap(Offered), ToResourceMap(Requested));
@@ -565,7 +582,7 @@ bool UCatanGameSubsystem::TryOfferTrade(const FCatanResourceView& Offered,
 
 bool UCatanGameSubsystem::TryAcceptTrade(const FString& Player, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::AcceptTrade, 0, 0, FString(), {}, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::AcceptTrade, 0, 0, FString(), {}, {}, Error);
     const auto& Deal = Game->GetActivDeal();
     if (!Deal) return CompleteCommand(false, TEXT("There is no active trade"), Error);
     try
@@ -581,7 +598,7 @@ bool UCatanGameSubsystem::TryAcceptTrade(const FString& Player, FString& Error)
 
 bool UCatanGameSubsystem::TryCancelTrade(const FString& Player, FString& Error)
 {
-    if (!Game) return RouteRemoteCommand(ECatanServerCommand::CancelTrade, 0, 0, FString(), {}, {}, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::CancelTrade, 0, 0, FString(), {}, {}, Error);
     try
     {
         Game->CancelDeal(TCHAR_TO_UTF8(*Player));
@@ -595,7 +612,7 @@ bool UCatanGameSubsystem::TryCancelTrade(const FString& Player, FString& Error)
 
 void UCatanGameSubsystem::SelectBoardAction(ECatanBoardAction Action)
 {
-    if (!Game)
+    if (!HasAuthoritativeGame())
     {
         FString Error;
         RouteRemoteCommand(ECatanServerCommand::SelectBoardAction, static_cast<int32>(Action), 0,

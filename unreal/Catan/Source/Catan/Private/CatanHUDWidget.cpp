@@ -573,12 +573,15 @@ void UCatanHUDWidget::Refresh()
         return;
     }
     const FCatanGameView View = GameSubsystem->GetSnapshot();
+    const bool bLocalTurn = GameSubsystem->CanLocalPlayerAct(View);
     PhaseText->SetText(FText::FromString(FString::Printf(
         TEXT("%s\nCurrent: %s"), *PhaseTitle(View.Phase), *View.CurrentPlayer)));
     DiceText->SetText(View.FirstDie > 0
         ? FText::FromString(FString::Printf(TEXT("Dice: %d + %d = %d"), View.FirstDie, View.SecondDie, View.FirstDie + View.SecondDie))
         : FText::GetEmpty());
-    HintText->SetText(FText::FromString(PhaseHint(View.Phase)));
+    HintText->SetText(FText::FromString(bLocalTurn
+        ? PhaseHint(View.Phase)
+        : FString::Printf(TEXT("Waiting for %s"), *View.CurrentPlayer)));
     StatusText->SetText(FText::FromString(View.StatusMessage));
     if (!PreviousToastStatus.IsEmpty() && PreviousToastStatus != View.StatusMessage)
     {
@@ -631,14 +634,14 @@ void UCatanHUDWidget::Refresh()
     const bool bCanSettlement = CanAfford(Have, 1, 1, 1, 1, 0);
     const bool bCanCity = CanAfford(Have, 0, 0, 2, 0, 3);
     const bool bCanCard = CanAfford(Have, 0, 0, 1, 1, 1);
-    RollButton->SetIsEnabled(bRoll);
-    SettlementButton->SetIsEnabled(bPlay && bCanSettlement && CurrentPlayer && CurrentPlayer->FreeSettlements > 0);
-    RoadButton->SetIsEnabled((bPlay && bCanRoad && CurrentPlayer && CurrentPlayer->FreeRoads > 0)
-        || View.Phase == ECatanGamePhase::RoadBuilding);
-    CityButton->SetIsEnabled(bPlay && bCanCity && CurrentPlayer && CurrentPlayer->FreeCities > 0);
-    BuyCardButton->SetIsEnabled(bPlay && bCanCard);
-    TradeButton->SetIsEnabled(bPlay);
-    PassButton->SetIsEnabled(bPlay);
+    RollButton->SetIsEnabled(bLocalTurn && bRoll);
+    SettlementButton->SetIsEnabled(bLocalTurn && bPlay && bCanSettlement && CurrentPlayer && CurrentPlayer->FreeSettlements > 0);
+    RoadButton->SetIsEnabled(bLocalTurn && ((bPlay && bCanRoad && CurrentPlayer && CurrentPlayer->FreeRoads > 0)
+        || View.Phase == ECatanGamePhase::RoadBuilding));
+    CityButton->SetIsEnabled(bLocalTurn && bPlay && bCanCity && CurrentPlayer && CurrentPlayer->FreeCities > 0);
+    BuyCardButton->SetIsEnabled(bLocalTurn && bPlay && bCanCard);
+    TradeButton->SetIsEnabled(bLocalTurn && bPlay);
+    PassButton->SetIsEnabled(bLocalTurn && bPlay);
     BuildCostText->SetText(FText::FromString(
         CostLine(TEXT("ROAD"), Have, 1, 1, 0, 0, 0) + TEXT("\n")
         + CostLine(TEXT("SETTLEMENT"), Have, 1, 1, 1, 1, 0) + TEXT("\n")
@@ -663,7 +666,7 @@ void UCatanHUDWidget::Refresh()
         ? CurrentPlayer->Knights + CurrentPlayer->RoadBuildingCards
             + CurrentPlayer->YearOfPlentyCards + CurrentPlayer->MonopolyCards
         : 0;
-    UseCardButton->SetIsEnabled((bPlay || bRoll) && ReadyCards > 0);
+    UseCardButton->SetIsEnabled(bLocalTurn && (bPlay || bRoll) && ReadyCards > 0);
     auto MarkSelected = [&View](UButton* Button, ECatanBoardAction Action)
     {
         Button->SetBackgroundColor(View.BoardAction == Action
