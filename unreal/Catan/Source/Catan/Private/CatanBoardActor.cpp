@@ -223,13 +223,11 @@ void ACatanBoardActor::BeginPlay()
 {
     Super::BeginPlay();
     BasicMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial_Inst.BasicShapeMaterial_Inst"));
-    BuildBoard();
     if (UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>())
     {
         Subsystem->OnGameStateChanged.AddDynamic(this, &ACatanBoardActor::RefreshPieces);
     }
     RefreshPieces();
-    UE_LOG(LogTemp, Display, TEXT("Catan board ready. WASD/QE and mouse wheel control the camera."));
 }
 
 void ACatanBoardActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -253,9 +251,30 @@ void ACatanBoardActor::BuildBoard()
     BuildDice();
 }
 
+bool ACatanBoardActor::TryBuildBoard()
+{
+    if (bBoardBuilt) return true;
+    const UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
+    if (!Subsystem) return false;
+    const FCatanGameView View = Subsystem->GetSnapshot();
+    constexpr int32 ExpectedHexes = 19;
+    constexpr int32 ExpectedNodes = 54;
+    constexpr int32 ExpectedRoads = 72;
+    if (View.Hexes.Num() != ExpectedHexes || View.Nodes.Num() != ExpectedNodes
+        || View.Roads.Num() != ExpectedRoads)
+    {
+        return false;
+    }
+    BuildBoard();
+    bBoardBuilt = true;
+    UE_LOG(LogTemp, Display, TEXT("CATAN_SMOKE client board ready. WASD/QE and mouse wheel control the camera."));
+    return true;
+}
+
 void ACatanBoardActor::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (!bBoardBuilt) TryBuildBoard();
     AnimateFeedback(DeltaSeconds);
 }
 
@@ -1087,6 +1106,7 @@ void ACatanBoardActor::RefreshPieces()
 {
     UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     if (!Subsystem) return;
+    if (!TryBuildBoard()) return;
     const FCatanGameView View = Subsystem->GetSnapshot();
     if ((View.FirstDie != PreviousFirstDie || View.SecondDie != PreviousSecondDie) && View.FirstDie > 0)
     {

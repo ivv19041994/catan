@@ -2,7 +2,7 @@
 set -eu
 
 project_file="${0:A:h:h}/Catan.uproject"
-editor_binary="${UE_EDITOR:-/Users/Shared/Epic Games/UE_5.8/Engine/Binaries/Mac/UnrealEditor}"
+editor_binary="${UE_EDITOR:-/Users/Shared/Epic Games/UE_5.8/Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor}"
 player_count="${1:-3}"
 smoke_port="${CATAN_SMOKE_PORT:-17777}"
 
@@ -40,8 +40,23 @@ print "LAN smoke running with $player_count instances"
 print "Logs: $log_dir"
 print "Waiting up to 45 seconds for an automatically started match..."
 for attempt in {1..45}; do
-  if grep -q "CATAN_SMOKE match started players=$player_count" "$log_dir/host.log" 2>/dev/null; then
-    print "PASS: lobby filled, every player became ready, host started the match"
+  failed=false
+  if rg -q "Assertion failed|=== Critical error|SIGSEGV" "$log_dir"/*.log 2>/dev/null; then failed=true; fi
+  if [[ "$failed" == true ]]; then
+    print -u2 "FAIL: an Unreal instance crashed or exited; inspect $log_dir"
+    rg -n "Assertion failed|=== Critical error|SIGSEGV" "$log_dir"/*.log 2>/dev/null || true
+    exit 1
+  fi
+
+  boards_ready=0
+  for log_file in "$log_dir"/*.log; do
+    if grep -q "CATAN_SMOKE client board ready" "$log_file" 2>/dev/null; then
+      (( boards_ready += 1 ))
+    fi
+  done
+  if grep -q "CATAN_SMOKE match started players=$player_count" "$log_dir/host.log" 2>/dev/null \
+      && (( boards_ready == player_count )); then
+    print "PASS: lobby started and all $player_count instances built their replicated board"
     exit 0
   fi
   sleep 1
