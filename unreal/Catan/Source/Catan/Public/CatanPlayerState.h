@@ -14,7 +14,9 @@ class CATAN_API ACatanPlayerState final : public APlayerState
 public:
     ACatanPlayerState();
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+    virtual FString GetPlayerNameCustom() const override { return DisplayName; }
 
+    UPROPERTY(Replicated, BlueprintReadOnly) FString DisplayName;
     UPROPERTY(ReplicatedUsing=OnRep_LobbyState, BlueprintReadOnly) bool bLobbyReady = false;
     UPROPERTY(Replicated, BlueprintReadOnly) bool bLobbyHost = false;
     UPROPERTY(ReplicatedUsing=OnRep_PrivateState, BlueprintReadOnly) FCatanPrivatePlayerView PrivateView;

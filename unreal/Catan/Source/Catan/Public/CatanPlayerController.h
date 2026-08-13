@@ -15,6 +15,8 @@ public:
     ACatanPlayerController();
     virtual void BeginPlay() override;
 
+    FString RequestedPlayerName;
+
     UFUNCTION(Server, Reliable)
     void ServerSetLobbyReady(bool bReady);
 

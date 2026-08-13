@@ -43,6 +43,10 @@ FString ACatanGameMode::InitNewPlayer(APlayerController* NewPlayerController,
     };
     while (Exists(Unique)) Unique = FString::Printf(TEXT("%s %d"), *Requested, Suffix++);
     NewPlayerController->PlayerState->SetPlayerName(Unique);
+    if (ACatanPlayerState* State = NewPlayerController->GetPlayerState<ACatanPlayerState>())
+        State->DisplayName = Unique;
+    if (ACatanPlayerController* CatanController = Cast<ACatanPlayerController>(NewPlayerController))
+        CatanController->RequestedPlayerName = Unique;
     return FString();
 }
 
@@ -50,6 +54,16 @@ void ACatanGameMode::PostLogin(APlayerController* NewPlayer)
 {
     Super::PostLogin(NewPlayer);
     if (GetNetMode() == NM_Standalone) return;
+    if (ACatanPlayerController* CatanController = Cast<ACatanPlayerController>(NewPlayer))
+        if (!CatanController->RequestedPlayerName.IsEmpty() && NewPlayer->PlayerState)
+        {
+            NewPlayer->PlayerState->SetPlayerName(CatanController->RequestedPlayerName);
+            if (ACatanPlayerState* State = NewPlayer->GetPlayerState<ACatanPlayerState>())
+                State->DisplayName = CatanController->RequestedPlayerName;
+        }
+    UE_LOG(LogCatanNetworkMode, Display, TEXT("CATAN_E2E post login player=%s total=%d"),
+        NewPlayer && NewPlayer->PlayerState ? *NewPlayer->PlayerState->GetPlayerName() : TEXT("unknown"),
+        GameState ? GameState->PlayerArray.Num() : 0);
     if (ACatanPlayerState* State = NewPlayer->GetPlayerState<ACatanPlayerState>())
     {
         State->bLobbyHost = GameState->PlayerArray.Num() == 1;

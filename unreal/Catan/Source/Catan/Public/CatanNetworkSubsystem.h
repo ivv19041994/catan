@@ -4,11 +4,13 @@
 #include "CatanNetworkTypes.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Interfaces/OnlineSessionInterface.h"
+#include "Containers/Ticker.h"
 
 #include "CatanNetworkSubsystem.generated.h"
 
 class FOnlineSessionSearch;
 class FOnlineSessionSearchResult;
+class FSocket;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCatanNetworkChanged);
 
@@ -38,7 +40,23 @@ private:
     FString PendingPlayerName;
     FString PendingLobbyName;
     FString Status;
+    FString LanAddress;
+    FDelegateHandle CreateSessionHandle;
+    FDelegateHandle FindSessionsHandle;
+    FDelegateHandle JoinSessionHandle;
+    FTSTicker::FDelegateHandle DiscoveryHostTicker;
+    FTSTicker::FDelegateHandle DiscoveryClientTicker;
+    FSocket* DiscoveryHostSocket = nullptr;
+    FSocket* DiscoveryClientSocket = nullptr;
+    double DiscoveryDeadline = 0.0;
+    bool bAutoJoinDiscovered = false;
 
+    void ConfigureLanAdapter();
+    void StartDiscoveryHost();
+    void StopDiscoverySockets();
+    bool TickDiscoveryHost(float DeltaTime);
+    bool TickDiscoveryClient(float DeltaTime);
+    void FinishDiscovery();
     void OnCreateSessionComplete(FName SessionName, bool bSuccess);
     void OnFindSessionsComplete(bool bSuccess);
     void OnJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result);

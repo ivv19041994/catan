@@ -37,3 +37,15 @@ The script starts one visible listen host and two clients, marks all players rea
 to start at the expected population, and passes when the authoritative match-start log appears.
 Set `UE_EDITOR` when UnrealEditor is installed elsewhere. Runtime logs include `LAN discovery`,
 `Authenticated command`, and `CATAN_SMOKE` markers.
+
+To exercise the same path as the main menu (host session creation, UDP discovery join, and a
+separate manual-address join), run:
+
+```sh
+unreal/Catan/Scripts/run_lan_lobby_e2e.sh
+```
+
+Discovery uses a small Catan UDP query on port `15001`, sent both to loopback and the selected
+private-network broadcast. This avoids `OnlineSubsystemNull` sharing its fixed beacon port between
+multiple processes on one machine. The actual game connection still uses Unreal networking on
+UDP `7777`.

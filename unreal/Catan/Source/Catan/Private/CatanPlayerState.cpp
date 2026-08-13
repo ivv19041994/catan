@@ -6,11 +6,13 @@
 ACatanPlayerState::ACatanPlayerState()
 {
     bReplicates = true;
+    bUseCustomPlayerNames = true;
 }
 
 void ACatanPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+    DOREPLIFETIME(ACatanPlayerState, DisplayName);
     DOREPLIFETIME(ACatanPlayerState, bLobbyReady);
     DOREPLIFETIME(ACatanPlayerState, bLobbyHost);
     DOREPLIFETIME_CONDITION(ACatanPlayerState, PrivateView, COND_OwnerOnly);
