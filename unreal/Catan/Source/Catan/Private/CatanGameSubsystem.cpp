@@ -8,6 +8,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Containers/Ticker.h"
+#include "HAL/PlatformMisc.h"
 #include "game_controller.hpp"
 
 #include <sstream>
@@ -184,7 +185,13 @@ void UCatanGameSubsystem::StartBotGame(const FString& HumanName, int32 BotCount)
     StartLocalGame(Names);
     LocalPlayerName = Names[0];
     for (int32 Index = 1; Index < Names.Num(); ++Index) BotPlayers.Add(Names[Index]);
-    if (FParse::Param(FCommandLine::Get(), TEXT("CatanBotAutoplay"))) BotPlayers.Add(Names[0]);
+    bBotAutoplay = FParse::Param(FCommandLine::Get(), TEXT("CatanBotAutoplay"));
+    if (bBotAutoplay) BotPlayers.Add(Names[0]);
+    FParse::Value(FCommandLine::Get(), TEXT("CatanBotMaxActions="), BotE2EMaxActions);
+    BotE2EMaxActions = FMath::Max(100, BotE2EMaxActions);
+    BotE2EActions = 0;
+    BotE2EUnchangedActions = 0;
+    bBotE2EExitRequested = false;
     BotRandom.Initialize(FMath::Rand());
     BotActionDelay = 0.75f;
     StatusMessage = FString::Printf(TEXT("Single-player game started with %d bot%s"),
@@ -202,11 +209,59 @@ void UCatanGameSubsystem::TickBots(float DeltaSeconds)
 {
     if (!HasAuthoritativeGame() || BotPlayers.IsEmpty()) return;
     const FCatanGameView View = BuildAuthoritativeSnapshot();
-    if (View.Phase == ECatanGamePhase::Finished || !IsBotPlayer(View.CurrentPlayer)) return;
+    if (View.Phase == ECatanGamePhase::Finished)
+    {
+        if (bBotAutoplay && !bBotE2EExitRequested)
+            FinishBotE2E(!View.Winner.IsEmpty(), FString::Printf(TEXT("winner=%s actions=%d"),
+                View.Winner.IsEmpty() ? TEXT("none") : *View.Winner, BotE2EActions));
+        return;
+    }
+    if (!IsBotPlayer(View.CurrentPlayer)) return;
     BotActionDelay -= DeltaSeconds;
     if (BotActionDelay > 0.0f) return;
-    BotActionDelay = 0.48f;
+    BotActionDelay = bBotAutoplay ? 0.001f : 0.48f;
+    const FString Before = BotStateFingerprint(View);
     PerformBotAction();
+    if (!bBotAutoplay) return;
+    ++BotE2EActions;
+    const FCatanGameView After = BuildAuthoritativeSnapshot();
+    BotE2EUnchangedActions = BotStateFingerprint(After) == Before ? BotE2EUnchangedActions + 1 : 0;
+    if (After.Phase == ECatanGamePhase::Finished)
+        FinishBotE2E(!After.Winner.IsEmpty(), FString::Printf(TEXT("winner=%s actions=%d"),
+            After.Winner.IsEmpty() ? TEXT("none") : *After.Winner, BotE2EActions));
+    else if (BotE2EUnchangedActions >= 30)
+        FinishBotE2E(false, FString::Printf(TEXT("stalled player=%s phase=%d actions=%d"),
+            *After.CurrentPlayer, static_cast<int32>(After.Phase), BotE2EActions));
+    else if (BotE2EActions >= BotE2EMaxActions)
+        FinishBotE2E(false, FString::Printf(TEXT("action limit reached player=%s phase=%d actions=%d"),
+            *After.CurrentPlayer, static_cast<int32>(After.Phase), BotE2EActions));
+}
+
+FString UCatanGameSubsystem::BotStateFingerprint(const FCatanGameView& View) const
+{
+    FString Result = FString::Printf(TEXT("%s|%d|%d|%d|%d|%d|%d"), *View.CurrentPlayer,
+        static_cast<int32>(View.Phase), static_cast<int32>(View.BoardAction), View.FirstDie,
+        View.SecondDie, View.PendingRobberHex, View.EventLog.Num());
+    for (const FCatanPlayerView& Player : View.Players)
+        Result += FString::Printf(TEXT("|%s:%d:%d:%d:%d:%d:%d:%d"), *Player.Name,
+            Player.VictoryPoints, Player.ResourceCards, Player.DevelopmentCards,
+            Player.FreeSettlements, Player.FreeCities, Player.FreeRoads, Player.Knights);
+    return Result;
+}
+
+void UCatanGameSubsystem::FinishBotE2E(bool bSucceeded, const FString& Message)
+{
+    if (bBotE2EExitRequested) return;
+    bBotE2EExitRequested = true;
+    if (bSucceeded)
+    {
+        UE_LOG(LogTemp, Display, TEXT("CATAN_BOT_E2E PASS %s"), *Message);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("CATAN_BOT_E2E FAIL %s"), *Message);
+    }
+    FPlatformMisc::RequestExitWithStatus(false, bSucceeded ? 0 : 2, TEXT("CatanBotE2E"));
 }
 
 FCatanGameView UCatanGameSubsystem::GetSnapshot() const
@@ -889,7 +944,6 @@ void UCatanGameSubsystem::AppendEvent(const FString& Message)
 void UCatanGameSubsystem::CaptureResourceChanges()
 {
     if (!Game) return;
-    constexpr const TCHAR* Names[] = {TEXT("wood"), TEXT("clay"), TEXT("hay"), TEXT("sheep"), TEXT("stone")};
     for (const FString& PlayerName : PlayerNames)
     {
         const ivv::catan::Player& Player = Game->GetPlayer(TCHAR_TO_UTF8(*PlayerName));
@@ -904,13 +958,11 @@ void UCatanGameSubsystem::CaptureResourceChanges()
         {
             const int32 Before[] = {Previous->Wood, Previous->Clay, Previous->Hay, Previous->Sheep, Previous->Stone};
             const int32 After[] = {Current.Wood, Current.Clay, Current.Hay, Current.Sheep, Current.Stone};
-            FString Changes;
+            int32 TotalDelta = 0;
             for (int32 Index = 0; Index < 5; ++Index)
-            {
-                const int32 Delta = After[Index] - Before[Index];
-                if (Delta != 0) Changes += FString::Printf(TEXT("%s%+d %s"), Changes.IsEmpty() ? TEXT("") : TEXT(", "), Delta, Names[Index]);
-            }
-            if (!Changes.IsEmpty()) AppendEvent(FString::Printf(TEXT("%s: %s"), *PlayerName, *Changes));
+                TotalDelta += After[Index] - Before[Index];
+            if (TotalDelta != 0) AppendEvent(FString::Printf(TEXT("%s: %+d resource card%s"),
+                *PlayerName, TotalDelta, FMath::Abs(TotalDelta) == 1 ? TEXT("") : TEXT("s")));
         }
         LastResources.Add(PlayerName, Current);
     }

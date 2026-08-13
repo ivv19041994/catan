@@ -180,7 +180,7 @@ void UCatanHUDWidget::BuildLayout()
         FMargin(-24, 24, 440, 455));
     UVerticalBox* PlayerPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     PlayerBorder->SetContent(PlayerPanel);
-    AddText(PlayerPanel, TEXT("PLAYERS"), 22);
+    HandTitleText = AddText(PlayerPanel, TEXT("YOUR HAND"), 22);
     UHorizontalBox* ResourceBadges = WidgetTree->ConstructWidget<UHorizontalBox>();
     PlayerPanel->AddChildToVerticalBox(ResourceBadges);
     struct FResourceBadge { const TCHAR* Symbol; const TCHAR* Name; FLinearColor Color; };
@@ -200,15 +200,18 @@ void UCatanHUDWidget::BuildLayout()
         UBorder* Icon = WidgetTree->ConstructWidget<UBorder>();
         Icon->SetBrushColor(Badge.Color);
         Icon->SetPadding(FMargin(8));
-        UCommonTextBlock* Symbol = WidgetTree->ConstructWidget<UCommonTextBlock>();
-        Symbol->SetText(FText::FromString(Badge.Symbol));
-        Symbol->SetJustification(ETextJustify::Center);
-        FSlateFontInfo SymbolFont = Symbol->GetFont(); SymbolFont.Size = 22; Symbol->SetFont(SymbolFont);
-        Icon->SetContent(Symbol);
+        UCommonTextBlock* Count = WidgetTree->ConstructWidget<UCommonTextBlock>();
+        Count->SetText(FText::FromString(FString::Printf(TEXT("%s  0"), Badge.Symbol)));
+        Count->SetJustification(ETextJustify::Center);
+        FSlateFontInfo SymbolFont = Count->GetFont(); SymbolFont.Size = 22; Count->SetFont(SymbolFont);
+        Icon->SetContent(Count);
+        ResourceCountTexts.Add(Count);
         BadgeBox->AddChildToVerticalBox(Icon);
         UCommonTextBlock* Name = AddText(BadgeBox, Badge.Name, 10);
         Name->SetJustification(ETextJustify::Center);
     }
+    DevelopmentHandText = AddText(PlayerPanel, TEXT("Development: 0"), 14);
+    AddText(PlayerPanel, TEXT("PLAYERS"), 20);
     PlayersText = AddText(PlayerPanel, FString(), 17);
 
     UBorder* CostBorder = AddPanel(WidgetTree, Canvas, FAnchors(1, 0), FVector2D(1, 0),
@@ -607,6 +610,45 @@ void UCatanHUDWidget::Refresh()
 
     FString Players;
     FString ResourceDigest;
+    const FCatanPlayerView* VisibleLocalPlayer = View.Players.FindByPredicate(
+        [](const FCatanPlayerView& Player) { return Player.bIsLocalPlayer && Player.bResourcesVisible; });
+    if (VisibleLocalPlayer)
+    {
+        const int32 Counts[] = {VisibleLocalPlayer->Resources.Wood, VisibleLocalPlayer->Resources.Clay,
+            VisibleLocalPlayer->Resources.Hay, VisibleLocalPlayer->Resources.Sheep, VisibleLocalPlayer->Resources.Stone};
+        constexpr const TCHAR* Symbols[] = {TEXT("W"), TEXT("C"), TEXT("H"), TEXT("S"), TEXT("O")};
+        for (int32 Index = 0; Index < ResourceCountTexts.Num() && Index < 5; ++Index)
+            ResourceCountTexts[Index]->SetText(FText::FromString(FString::Printf(TEXT("%s  %d"), Symbols[Index], Counts[Index])));
+        HandTitleText->SetText(FText::FromString(FString::Printf(TEXT("YOUR HAND — %d RESOURCE CARDS"),
+            VisibleLocalPlayer->ResourceCards)));
+        DevelopmentHandText->SetText(FText::FromString(FString::Printf(
+            TEXT("DEV %d  |  Knight %d  Roads %d  Plenty %d  Monopoly %d"),
+            VisibleLocalPlayer->DevelopmentCards, VisibleLocalPlayer->Knights,
+            VisibleLocalPlayer->RoadBuildingCards, VisibleLocalPlayer->YearOfPlentyCards,
+            VisibleLocalPlayer->MonopolyCards)));
+        if (bHavePreviousLocalResources)
+        {
+            const int32 Before[] = {PreviousLocalResources.Wood, PreviousLocalResources.Clay,
+                PreviousLocalResources.Hay, PreviousLocalResources.Sheep, PreviousLocalResources.Stone};
+            constexpr const TCHAR* ResourceNames[] = {TEXT("wood"), TEXT("clay"), TEXT("hay"), TEXT("sheep"), TEXT("ore")};
+            FString Changes;
+            for (int32 Index = 0; Index < 5; ++Index)
+            {
+                const int32 Delta = Counts[Index] - Before[Index];
+                if (Delta != 0) Changes += FString::Printf(TEXT("%s%+d %s"),
+                    Changes.IsEmpty() ? TEXT("") : TEXT(", "), Delta, ResourceNames[Index]);
+            }
+            if (!Changes.IsEmpty())
+            {
+                ToastText->SetText(FText::FromString(FString::Printf(TEXT("YOUR RESOURCES: %s"), *Changes)));
+                ToastBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
+                ToastBorder->SetRenderOpacity(1.0f);
+                ToastRemaining = 2.8f;
+            }
+        }
+        PreviousLocalResources = VisibleLocalPlayer->Resources;
+        bHavePreviousLocalResources = true;
+    }
     for (const FCatanPlayerView& Player : View.Players)
     {
         FString Awards;
@@ -617,16 +659,6 @@ void UCatanHUDWidget::Refresh()
             *FString::Printf(TEXT("%s%s%s"), *Player.Name,
                 Player.bIsLocalPlayer ? TEXT(" [YOU]") : TEXT(""), Player.bIsBot ? TEXT(" [BOT]") : TEXT("")),
             Player.VictoryPoints, Player.ResourceCards, Player.DevelopmentCards, *Awards);
-        if (Player.bResourcesVisible)
-            Players += FString::Printf(
-                TEXT("YOUR HAND: W %d  C %d  H %d  S %d  O %d\n"
-                     "Ready cards: Knight %d | Roads %d | Plenty %d | Monopoly %d\n"),
-                Player.Resources.Wood, Player.Resources.Clay, Player.Resources.Hay,
-                Player.Resources.Sheep, Player.Resources.Stone,
-                Player.Knights, Player.RoadBuildingCards,
-                Player.YearOfPlentyCards, Player.MonopolyCards);
-        else
-            Players += TEXT("Hand contents hidden\n");
         Players += FString::Printf(TEXT("Pieces: %d settlements, %d cities, %d roads\n\n"),
             Player.FreeSettlements, Player.FreeCities, Player.FreeRoads);
         if (Player.bResourcesVisible)

@@ -103,6 +103,11 @@ private:
     float BotActionDelay = 0.0f;
     FRandomStream BotRandom;
     FTSTicker::FDelegateHandle BotTickerHandle;
+    bool bBotAutoplay = false;
+    bool bBotE2EExitRequested = false;
+    int32 BotE2EActions = 0;
+    int32 BotE2EUnchangedActions = 0;
+    int32 BotE2EMaxActions = 12000;
 
     bool CompleteCommand(bool bSucceeded, const FString& Message, FString& Error);
     void AppendEvent(const FString& Message);
@@ -114,4 +119,6 @@ private:
     FCatanGameView BuildAuthoritativeSnapshot() const;
     void PerformBotAction();
     bool TickBotTicker(float DeltaSeconds);
+    FString BotStateFingerprint(const FCatanGameView& View) const;
+    void FinishBotE2E(bool bSucceeded, const FString& Message);
 };
