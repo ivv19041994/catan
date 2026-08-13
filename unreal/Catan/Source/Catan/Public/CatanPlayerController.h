@@ -36,5 +36,7 @@ public:
 
 private:
     FString LastAutomatedSetupKey;
+    bool bReconnectSnapshotReported = false;
     void RunAutomatedSetupStep();
+    void RunMultiplayerE2EStep();
 };

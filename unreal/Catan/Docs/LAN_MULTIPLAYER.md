@@ -38,6 +38,20 @@ to start at the expected population, and passes when the authoritative match-sta
 Set `UE_EDITOR` when UnrealEditor is installed elsewhere. Runtime logs include `LAN discovery`,
 `Authenticated command`, and `CATAN_SMOKE` markers.
 
+## Automated multiplayer E2E
+
+The reproducible headless scenario starts a host and two clients, readies the
+lobby, completes setup and normal turns, then disconnects and reconnects one
+client and verifies that its public and private state is restored:
+
+```bash
+unreal/Catan/Scripts/run_multiplayer_e2e.sh
+```
+
+Set `UE_EDITOR` to override the UnrealEditor executable or
+`CATAN_E2E_ADDRESS` to use a non-default listen address. Separate process logs
+are retained in the temporary directory printed by the script.
+
 To exercise the same path as the main menu (host session creation, UDP discovery join, and a
 separate manual-address join), run:
 

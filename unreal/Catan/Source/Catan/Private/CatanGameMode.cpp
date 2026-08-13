@@ -71,6 +71,8 @@ void ACatanGameMode::PostLogin(APlayerController* NewPlayer)
         State->bLobbyReady = false;
     }
     PublishLobby();
+    if (bLobbyGameStarted)
+        GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->PublishAuthoritativeState();
 }
 
 void ACatanGameMode::Logout(AController* Exiting)
@@ -93,11 +95,24 @@ void ACatanGameMode::SetPlayerReady(APlayerController* Player, bool bReady)
 
 void ACatanGameMode::SetPlayerDisplayName(APlayerController* Player, const FString& RequestedName)
 {
-    if (!Player || bLobbyGameStarted) return;
+    if (!Player) return;
     FString Base = RequestedName.TrimStartAndEnd().Left(24);
     Base.ReplaceInline(TEXT("\t"), TEXT(" "));
     Base.ReplaceInline(TEXT("\n"), TEXT(" "));
     if (Base.IsEmpty()) Base = TEXT("Player");
+    if (bLobbyGameStarted)
+    {
+        const FCatanGameView View = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->GetSnapshot();
+        const bool bKnownPlayer = View.Players.ContainsByPredicate(
+            [&Base](const FCatanPlayerView& Item) { return Item.Name.Equals(Base, ESearchCase::IgnoreCase); });
+        const bool bAlreadyConnected = GameState->PlayerArray.ContainsByPredicate(
+            [Player, &Base](const APlayerState* State)
+            {
+                return State != Player->PlayerState
+                    && State->GetPlayerName().Equals(Base, ESearchCase::IgnoreCase);
+            });
+        if (!bKnownPlayer || bAlreadyConnected) return;
+    }
     FString Unique = Base;
     int32 Suffix = 2;
     auto Exists = [this, Player](const FString& Candidate)
@@ -115,6 +130,11 @@ void ACatanGameMode::SetPlayerDisplayName(APlayerController* Player, const FStri
     }
     UE_LOG(LogCatanNetworkMode, Display, TEXT("CATAN_E2E identity player=%s"), *Unique);
     PublishLobby();
+    if (bLobbyGameStarted)
+    {
+        GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->PublishAuthoritativeState();
+        UE_LOG(LogCatanNetworkMode, Display, TEXT("CATAN_MP_E2E reconnect restored player=%s"), *Unique);
+    }
 }
 
 void ACatanGameMode::StartLobbyGame(APlayerController* Requester)
