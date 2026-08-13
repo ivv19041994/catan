@@ -93,7 +93,11 @@ void ACatanPlayerController::RunAutomatedSetupStep()
         }
         return;
     }
-    if (!Proxy->CanLocalPlayerAct(View)) return;
+    if (!Proxy->CanLocalPlayerAct(View))
+    {
+        LastAutomatedSetupKey.Reset();
+        return;
+    }
     if (View.Phase != ECatanGamePhase::SetupSettlement && View.Phase != ECatanGamePhase::SetupRoad) return;
     const FString Key = FString::Printf(TEXT("%s:%d"), *View.CurrentPlayer, static_cast<int32>(View.Phase));
     if (Key == LastAutomatedSetupKey) return;
@@ -117,6 +121,110 @@ void ACatanPlayerController::RunAutomatedSetupStep()
             TEXT("CATAN_SETUP_E2E sent player=%s phase=%d target=%d"),
             *View.CurrentPlayer, static_cast<int32>(View.Phase), Target);
     }
+}
+
+void ACatanPlayerController::RunMultiplayerE2EStep()
+{
+    if (!IsLocalController() || !GetWorld() || GetWorld()->GetNetMode() == NM_Standalone) return;
+    UCatanGameSubsystem* Proxy = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
+    if (!Proxy) return;
+    const FCatanGameView View = Proxy->GetSnapshot();
+    if (!bReconnectSnapshotReported
+        && FParse::Param(FCommandLine::Get(), TEXT("CatanExpectReconnect")))
+    {
+        const FCatanPlayerView* LocalPlayer = View.Players.FindByPredicate(
+            [](const FCatanPlayerView& Item) { return Item.bIsLocalPlayer; });
+        if (LocalPlayer && LocalPlayer->bResourcesVisible && !View.CurrentPlayer.IsEmpty())
+        {
+            bReconnectSnapshotReported = true;
+            UE_LOG(LogCatanNetworkController, Display,
+                TEXT("CATAN_MP_E2E reconnect snapshot player=%s current=%s phase=%d resources=%d"),
+                *LocalPlayer->Name, *View.CurrentPlayer, static_cast<int32>(View.Phase),
+                LocalPlayer->ResourceCards);
+        }
+    }
+    if (!Proxy->CanLocalPlayerAct(View)) return;
+
+    const FString LocalName = PlayerState ? PlayerState->GetPlayerName() : FString();
+    const FString Key = FString::Printf(TEXT("%s:%d:%d:%d:%d:%d"), *View.CurrentPlayer,
+        static_cast<int32>(View.Phase), View.FirstDie, View.SecondDie,
+        View.PendingRobberHex, View.EventLog.Num());
+    if (Key == LastAutomatedSetupKey) return;
+
+    FString Error;
+    bool bSent = false;
+    FString Action;
+    if (View.PendingRobberHex != INDEX_NONE && !View.RobberVictims.IsEmpty())
+    {
+        Action = TEXT("robber-victim");
+        bSent = Proxy->TryChooseRobberVictim(View.RobberVictims[0], Error);
+    }
+    else switch (View.Phase)
+    {
+    case ECatanGamePhase::SetupSettlement:
+        if (!View.ValidNodeTargets.IsEmpty())
+        {
+            Action = TEXT("setup-settlement");
+            bSent = Proxy->TryBuildSettlement(View.ValidNodeTargets[0], Error);
+        }
+        break;
+    case ECatanGamePhase::SetupRoad:
+    case ECatanGamePhase::RoadBuilding:
+        if (!View.ValidRoadTargets.IsEmpty())
+        {
+            Action = View.Phase == ECatanGamePhase::SetupRoad ? TEXT("setup-road") : TEXT("free-road");
+            bSent = Proxy->TryBuildRoad(View.ValidRoadTargets[0], Error);
+        }
+        else if (View.Phase == ECatanGamePhase::RoadBuilding)
+        {
+            Action = TEXT("skip-free-road");
+            bSent = Proxy->TryPass(Error);
+        }
+        break;
+    case ECatanGamePhase::RollDice:
+        Action = TEXT("roll");
+        bSent = Proxy->TryRollDice(Error);
+        break;
+    case ECatanGamePhase::DropCards:
+        if (const FCatanPlayerView* Player = View.Players.FindByPredicate(
+            [&View](const FCatanPlayerView& Item) { return Item.Name == View.CurrentPlayer; }))
+        {
+            FCatanResourceView Drop;
+            int32 Remaining = View.RequiredDiscardCount;
+            const int32 Holdings[] = {Player->Resources.Wood, Player->Resources.Clay, Player->Resources.Hay,
+                Player->Resources.Sheep, Player->Resources.Stone};
+            int32* Counts[] = {&Drop.Wood, &Drop.Clay, &Drop.Hay, &Drop.Sheep, &Drop.Stone};
+            for (int32 Resource = 0; Resource < 5 && Remaining > 0; ++Resource)
+            {
+                *Counts[Resource] = FMath::Min(Holdings[Resource], Remaining);
+                Remaining -= *Counts[Resource];
+            }
+            if (Remaining == 0)
+            {
+                Action = TEXT("discard");
+                bSent = Proxy->TryDropResources(Drop, Error);
+            }
+        }
+        break;
+    case ECatanGamePhase::MoveRobber:
+        if (!View.ValidHexTargets.IsEmpty())
+        {
+            Action = TEXT("move-robber");
+            bSent = Proxy->TryMoveRobber(View.ValidHexTargets[0], Error);
+        }
+        break;
+    case ECatanGamePhase::CommonPlay:
+        Action = TEXT("pass");
+        bSent = Proxy->TryPass(Error);
+        break;
+    case ECatanGamePhase::Finished:
+        break;
+    }
+    if (!bSent) return;
+    LastAutomatedSetupKey = Key;
+    UE_LOG(LogCatanNetworkController, Display,
+        TEXT("CATAN_MP_E2E action player=%s action=%s phase=%d"),
+        *LocalName, *Action, static_cast<int32>(View.Phase));
 }
 
 void ACatanPlayerController::BeginPlay()
@@ -150,5 +258,11 @@ void ACatanPlayerController::BeginPlay()
         FTimerHandle SetupHandle;
         GetWorldTimerManager().SetTimer(SetupHandle, this,
             &ACatanPlayerController::RunAutomatedSetupStep, 0.25f, true, 2.5f);
+    }
+    if (FParse::Param(FCommandLine::Get(), TEXT("CatanMultiplayerE2E")))
+    {
+        FTimerHandle MultiplayerHandle;
+        GetWorldTimerManager().SetTimer(MultiplayerHandle, this,
+            &ACatanPlayerController::RunMultiplayerE2EStep, 0.35f, true, 2.5f);
     }
 }

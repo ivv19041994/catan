@@ -681,6 +681,7 @@ bool UCatanGameSubsystem::TryMoveRobber(int32 HexId, FString& Error)
         StatusMessage = TEXT("Choose a player to steal from");
         Error.Reset();
         OnGameStateChanged.Broadcast();
+        PublishAuthoritativeState();
         return true;
     }
     try
