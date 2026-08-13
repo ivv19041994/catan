@@ -224,7 +224,8 @@ ACatanBoardActor::ACatanBoardActor()
 void ACatanBoardActor::BeginPlay()
 {
     Super::BeginPlay();
-    BasicMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial_Inst.BasicShapeMaterial_Inst"));
+    BasicMaterial = LoadObject<UMaterialInterface>(nullptr,
+        TEXT("/Game/Materials/M_CatanColor.M_CatanColor"));
     if (UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>())
     {
         Subsystem->OnGameStateChanged.AddDynamic(this, &ACatanBoardActor::RefreshPieces);
@@ -277,6 +278,13 @@ void ACatanBoardActor::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     if (!bBoardBuilt) TryBuildBoard();
+#if PLATFORM_ANDROID
+    MobileAnimationAccumulator += DeltaSeconds;
+    constexpr float MobileAnimationStep = 1.0f / 30.0f;
+    if (MobileAnimationAccumulator < MobileAnimationStep) return;
+    DeltaSeconds = MobileAnimationAccumulator;
+    MobileAnimationAccumulator = 0.0f;
+#endif
     AnimateFeedback(DeltaSeconds);
 }
 
@@ -359,6 +367,7 @@ void ACatanBoardActor::BuildHexHitTargets()
         Slot->SetHiddenInGame(true);
         Slot->ComponentTags.Add(*FString::Printf(TEXT("Hex:%d"), Index));
         Slot->OnClicked.AddDynamic(this, &ACatanBoardActor::HandleSlotClicked);
+        Slot->OnInputTouchBegin.AddDynamic(this, &ACatanBoardActor::HandleSlotTouched);
         HexSlots.Add(Slot);
     }
 }
@@ -554,6 +563,7 @@ void ACatanBoardActor::BuildNodes()
         Slot->ComponentTags.Add(*FString::Printf(TEXT("Node:%d"), Index));
         Slot->SetMaterial(0, ColoredMaterial(this, BasicMaterial, FLinearColor(0.08f, 0.1f, 0.12f)));
         Slot->OnClicked.AddDynamic(this, &ACatanBoardActor::HandleSlotClicked);
+        Slot->OnInputTouchBegin.AddDynamic(this, &ACatanBoardActor::HandleSlotTouched);
         NodeSlots.Add(Slot);
 
         UStaticMeshComponent* Body = AddDecoration(FString::Printf(TEXT("BuildingBody%d"), Index), Cube,
@@ -657,6 +667,7 @@ void ACatanBoardActor::BuildRoads()
         Slot->ComponentTags.Add(*FString::Printf(TEXT("Road:%d"), Index));
         Slot->SetMaterial(0, ColoredMaterial(this, BasicMaterial, FLinearColor(0.14f, 0.15f, 0.16f)));
         Slot->OnClicked.AddDynamic(this, &ACatanBoardActor::HandleSlotClicked);
+        Slot->OnInputTouchBegin.AddDynamic(this, &ACatanBoardActor::HandleSlotTouched);
         RoadSlots.Add(Slot);
 
         const FVector RoadDirection = FRotator(0, Placements[Index].Angle, 0).RotateVector(FVector::XAxisVector);
@@ -1073,6 +1084,9 @@ void ACatanBoardActor::RefreshPieces()
                 ? FVector(1.24f, 1.24f, 0.16f)
                 : FVector(0.62f, 0.62f, 0.08f);
         const bool bValidTarget = bCanLocalPlayerAct && View.ValidHexTargets.Contains(Index);
+        if (HexSlots.IsValidIndex(Index))
+            HexSlots[Index]->SetCollisionEnabled(bValidTarget
+                ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
         Labels[Index]->SetText(Hex.Dice > 0
             ? FText::AsNumber(Hex.Dice)
             : FText::FromString(TEXT("—")));
@@ -1210,6 +1224,11 @@ void ACatanBoardActor::HandleSlotClicked(UPrimitiveComponent* TouchedComponent, 
     {
         ShowStatus(Error.IsEmpty() ? TEXT("Unknown board slot") : Error, FColor::Red);
     }
+}
+
+void ACatanBoardActor::HandleSlotTouched(ETouchIndex::Type FingerIndex, UPrimitiveComponent* TouchedComponent)
+{
+    HandleSlotClicked(TouchedComponent, EKeys::LeftMouseButton);
 }
 
 void ACatanBoardActor::ShowStatus(const FString& Message, const FColor& Color) const

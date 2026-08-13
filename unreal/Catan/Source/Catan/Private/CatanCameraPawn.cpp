@@ -1,4 +1,5 @@
 #include "CatanCameraPawn.h"
+#include "CatanHUD.h"
 
 #include "Camera/CameraComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -59,6 +60,53 @@ void ACatanCameraPawn::Tick(float DeltaSeconds)
             const float DragScale = FMath::Clamp(DesiredArmLength * 0.0018f, 0.9f, 7.0f);
             MousePan = (-GetActorRightVector() * MouseX + GetActorForwardVector() * MouseY) * DragScale;
         }
+#if PLATFORM_ANDROID
+        const ACatanHUD* HUD = Controller->GetHUD<ACatanHUD>();
+        const bool bUIConsumesTouch = HUD && HUD->IsModalOpen();
+        float TouchOneX = 0.0f;
+        float TouchOneY = 0.0f;
+        float TouchTwoX = 0.0f;
+        float TouchTwoY = 0.0f;
+        bool bTouchOne = false;
+        bool bTouchTwo = false;
+        Controller->GetInputTouchState(ETouchIndex::Touch1, TouchOneX, TouchOneY, bTouchOne);
+        Controller->GetInputTouchState(ETouchIndex::Touch2, TouchTwoX, TouchTwoY, bTouchTwo);
+        if (bUIConsumesTouch)
+        {
+            bTrackingTouch = false;
+            bTrackingPinch = false;
+        }
+        else if (bTouchOne && bTouchTwo)
+        {
+            const float PinchDistance = FVector2D::Distance(
+                FVector2D(TouchOneX, TouchOneY), FVector2D(TouchTwoX, TouchTwoY));
+            if (bTrackingPinch)
+                DesiredArmLength = FMath::Clamp(DesiredArmLength
+                    - (PinchDistance - PreviousPinchDistance) * 3.2f, 420.0f, 5200.0f);
+            PreviousPinchDistance = PinchDistance;
+            bTrackingPinch = true;
+            bTrackingTouch = false;
+        }
+        else if (bTouchOne)
+        {
+            const FVector2D TouchPosition(TouchOneX, TouchOneY);
+            if (bTrackingTouch)
+            {
+                const FVector2D TouchDelta = TouchPosition - PreviousTouchPosition;
+                const float DragScale = FMath::Clamp(DesiredArmLength * 0.0021f, 1.1f, 8.0f);
+                MousePan += (-GetActorRightVector() * TouchDelta.X
+                    + GetActorForwardVector() * TouchDelta.Y) * DragScale;
+            }
+            PreviousTouchPosition = TouchPosition;
+            bTrackingTouch = true;
+            bTrackingPinch = false;
+        }
+        else
+        {
+            bTrackingTouch = false;
+            bTrackingPinch = false;
+        }
+#endif
     }
 
     const float MoveSpeed = FMath::GetMappedRangeValueClamped(

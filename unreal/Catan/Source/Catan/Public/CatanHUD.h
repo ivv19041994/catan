@@ -5,6 +5,8 @@
 
 #include "CatanHUD.generated.h"
 
+class UCatanHUDWidget;
+
 UCLASS()
 class CATAN_API ACatanHUD final : public AHUD
 {
@@ -12,4 +14,9 @@ class CATAN_API ACatanHUD final : public AHUD
 
 public:
     virtual void BeginPlay() override;
+    bool IsModalOpen() const;
+
+private:
+    UPROPERTY(Transient)
+    TObjectPtr<UCatanHUDWidget> CatanWidget;
 };

@@ -75,6 +75,7 @@ private:
     TArray<FRotator> ResourceAnimationRotations;
     int32 ResourceGeneration = 0;
     float ResourceAnimationClock = 0.0f;
+    float MobileAnimationAccumulator = 0.0f;
     TArray<int32> PreviousNodeOwners;
     TArray<int32> PreviousRoadOwners;
     TArray<FVector> BuildingBodyTargets;
@@ -144,4 +145,7 @@ private:
 
     UFUNCTION()
     void HandleSlotClicked(UPrimitiveComponent* TouchedComponent, FKey ButtonPressed);
+
+    UFUNCTION()
+    void HandleSlotTouched(ETouchIndex::Type FingerIndex, UPrimitiveComponent* TouchedComponent);
 };

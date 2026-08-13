@@ -23,6 +23,9 @@ class CATAN_API UCatanHUDWidget final : public UCommonActivatableWidget
 {
     GENERATED_BODY()
 
+public:
+    bool IsModalOpen() const;
+
 protected:
     virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativeConstruct() override;
@@ -86,6 +89,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> LobbyAddressText;
     UPROPERTY(Transient) TObjectPtr<UButton> ReadyButton;
     UPROPERTY(Transient) TObjectPtr<UButton> StartLobbyButton;
+    UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> SetupSwitcher;
 
     FString LastDropPlayer;
     bool bDevelopmentPanelOpen = false;
@@ -134,6 +138,9 @@ private:
     UFUNCTION() void QuitGame();
     UFUNCTION() void HostLanLobby();
     UFUNCTION() void StartBotMatch();
+    UFUNCTION() void ShowOnlineSetup();
+    UFUNCTION() void ShowBotSetup();
+    UFUNCTION() void ShowMainSetup();
     UFUNCTION() void FindLanLobbies();
     UFUNCTION() void JoinSelectedLobby();
     UFUNCTION() void JoinManualLobby();

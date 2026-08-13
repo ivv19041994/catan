@@ -63,7 +63,7 @@ void ACatanMenuBackdropActor::BeginPlay()
 {
     Super::BeginPlay();
     BasicMaterial = LoadObject<UMaterialInterface>(nullptr,
-        TEXT("/Engine/BasicShapes/BasicShapeMaterial_Inst.BasicShapeMaterial_Inst"));
+        TEXT("/Game/Materials/M_CatanColor.M_CatanColor"));
     BuildEnvironment();
     if (HasAuthority())
     {
