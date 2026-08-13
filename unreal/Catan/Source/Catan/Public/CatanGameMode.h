@@ -5,6 +5,8 @@
 
 #include "CatanGameMode.generated.h"
 
+class ACatanMenuBackdropActor;
+
 UCLASS()
 class CATAN_API ACatanGameMode final : public AGameModeBase
 {
@@ -26,4 +28,7 @@ public:
 
 private:
     bool bLobbyGameStarted = false;
+
+    UPROPERTY(Transient)
+    TObjectPtr<ACatanMenuBackdropActor> MenuBackdrop;
 };

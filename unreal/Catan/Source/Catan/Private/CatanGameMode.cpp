@@ -3,6 +3,7 @@
 #include "CatanBoardActor.h"
 #include "CatanCameraPawn.h"
 #include "CatanHUD.h"
+#include "CatanMenuBackdropActor.h"
 #include "CatanGameState.h"
 #include "CatanPlayerState.h"
 #include "CatanGameSubsystem.h"
@@ -130,6 +131,11 @@ void ACatanGameMode::StartLobbyGame(APlayerController* Requester)
         Names.Add(State->GetPlayerName());
     }
     bLobbyGameStarted = true;
+    if (MenuBackdrop)
+    {
+        MenuBackdrop->Destroy();
+        MenuBackdrop = nullptr;
+    }
     GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->StartLocalGame(Names);
     if (ACatanGameState* State = GetGameState<ACatanGameState>()) State->NetworkMode = ECatanNetworkMode::Playing;
     PublishLobby();
@@ -178,11 +184,11 @@ void ACatanGameMode::BeginPlay()
     Super::BeginPlay();
     if (ACatanGameState* State = GetGameState<ACatanGameState>())
         State->NetworkMode = GetNetMode() == NM_Standalone ? ECatanNetworkMode::MainMenu : ECatanNetworkMode::Lobby;
+    MenuBackdrop = GetWorld()->SpawnActor<ACatanMenuBackdropActor>(
+        ACatanMenuBackdropActor::StaticClass(), FVector(0.0f, 0.0f, 0.0f), FRotator::ZeroRotator);
     if (GetNetMode() == NM_Standalone)
     {
         UCatanGameSubsystem* Proxy = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
         Proxy->StartLocalGame(TArray<FString>{TEXT("Player 1"), TEXT("Player 2")});
-        GetWorld()->SpawnActor<ACatanBoardActor>(
-            ACatanBoardActor::StaticClass(), FVector(0.0f, 0.0f, 20.0f), FRotator::ZeroRotator);
     }
 }
