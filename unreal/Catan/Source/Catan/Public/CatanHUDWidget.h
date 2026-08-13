@@ -90,6 +90,14 @@ private:
     UPROPERTY(Transient) TObjectPtr<UButton> ReadyButton;
     UPROPERTY(Transient) TObjectPtr<UButton> StartLobbyButton;
     UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> SetupSwitcher;
+    UPROPERTY(Transient) TObjectPtr<UBorder> InfoBorder;
+    UPROPERTY(Transient) TObjectPtr<UBorder> EventBorder;
+    UPROPERTY(Transient) TObjectPtr<UBorder> PlayerBorder;
+    UPROPERTY(Transient) TObjectPtr<UBorder> CostBorder;
+    UPROPERTY(Transient) TObjectPtr<UVerticalBox> InfoDetails;
+    UPROPERTY(Transient) TObjectPtr<UVerticalBox> PlayerDetails;
+    UPROPERTY(Transient) TObjectPtr<UButton> LeftDetailsButton;
+    UPROPERTY(Transient) TObjectPtr<UButton> RightDetailsButton;
 
     FString LastDropPlayer;
     bool bDevelopmentPanelOpen = false;
@@ -102,6 +110,10 @@ private:
     FCatanResourceView PreviousLocalResources;
     bool bHavePreviousLocalResources = false;
     int32 PendingExpensiveAction = 0;
+    bool bCompactLayout = false;
+    bool bAdaptiveLayoutInitialized = false;
+    bool bLeftDetailsOpen = false;
+    bool bRightDetailsOpen = false;
 
     void BuildLayout();
     UCommonTextBlock* AddText(UVerticalBox* Parent, const FString& Text, int32 Size);
@@ -147,8 +159,11 @@ private:
     UFUNCTION() void ToggleLobbyReady();
     UFUNCTION() void StartLobbyMatch();
     UFUNCTION() void LeaveLobby();
+    UFUNCTION() void ToggleLeftDetails();
+    UFUNCTION() void ToggleRightDetails();
 
     void ChooseVictim(int32 Index);
     void PlayDevelopmentCard(ECatanDevelopmentCard Card);
     bool GetValidatedPlayerName(FString& OutName);
+    void ApplyAdaptiveLayout(bool bCompact);
 };

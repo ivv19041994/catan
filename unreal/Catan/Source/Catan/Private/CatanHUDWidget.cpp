@@ -145,6 +145,12 @@ bool UCatanHUDWidget::IsModalOpen() const
 void UCatanHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
     Super::NativeTick(MyGeometry, InDeltaTime);
+    const FVector2D ViewSize = MyGeometry.GetLocalSize();
+    const bool bShouldUseCompactLayout = PLATFORM_ANDROID || ViewSize.X < 1700.0f || ViewSize.Y < 900.0f;
+    if (!bAdaptiveLayoutInitialized || bShouldUseCompactLayout != bCompactLayout)
+    {
+        ApplyAdaptiveLayout(bShouldUseCompactLayout);
+    }
     if (ToastRemaining > 0.0f && ToastBorder)
     {
         ToastRemaining = FMath::Max(0.0f, ToastRemaining - InDeltaTime);
@@ -169,38 +175,42 @@ void UCatanHUDWidget::BuildLayout()
     SafeZone->AddChild(Canvas);
     WidgetTree->RootWidget = SafeZone;
 
-    UBorder* InfoBorder = AddPanel(WidgetTree, Canvas, FAnchors(0, 0), FVector2D::ZeroVector,
+    InfoBorder = AddPanel(WidgetTree, Canvas, FAnchors(0, 0), FVector2D::ZeroVector,
         FMargin(24, 24, 470, 235));
     UVerticalBox* Info = WidgetTree->ConstructWidget<UVerticalBox>();
     InfoBorder->SetContent(Info);
     AddText(Info, TEXT("CATAN"), 32);
     PhaseText = AddText(Info, TEXT("Starting..."), 22);
     DiceText = AddText(Info, FString(), 19);
-    HintText = AddText(Info, FString(), 17);
-    StatusText = AddText(Info, FString(), 16);
+    LeftDetailsButton = AddButton(Info, TEXT("SHOW EVENTS & HELP"));
+    LeftDetailsButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ToggleLeftDetails);
+    InfoDetails = WidgetTree->ConstructWidget<UVerticalBox>();
+    Info->AddChildToVerticalBox(InfoDetails);
+    HintText = AddText(InfoDetails, FString(), 17);
+    StatusText = AddText(InfoDetails, FString(), 16);
     StatusText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.72f, 0.18f)));
 
-    UBorder* EventBorder = AddPanel(WidgetTree, Canvas, FAnchors(0, 0), FVector2D::ZeroVector,
+    EventBorder = AddPanel(WidgetTree, Canvas, FAnchors(0, 0), FVector2D::ZeroVector,
         FMargin(24, 280, 470, 290));
     UVerticalBox* EventPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     EventBorder->SetContent(EventPanel);
     AddText(EventPanel, TEXT("EVENTS"), 20);
     EventText = AddText(EventPanel, FString(), 15);
 
-    UBorder* PlayerBorder = AddPanel(WidgetTree, Canvas, FAnchors(1, 0), FVector2D(1, 0),
+    PlayerBorder = AddPanel(WidgetTree, Canvas, FAnchors(1, 0), FVector2D(1, 0),
         FMargin(-24, 24, 440, 455));
     UVerticalBox* PlayerPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     PlayerBorder->SetContent(PlayerPanel);
     HandTitleText = AddText(PlayerPanel, TEXT("YOUR HAND"), 22);
     UHorizontalBox* ResourceBadges = WidgetTree->ConstructWidget<UHorizontalBox>();
     PlayerPanel->AddChildToVerticalBox(ResourceBadges);
-    struct FResourceBadge { const TCHAR* Symbol; const TCHAR* Name; FLinearColor Color; };
+    struct FResourceBadge { const TCHAR* Name; FLinearColor Color; };
     const FResourceBadge Badges[] = {
-        {TEXT("W"), TEXT("WOOD"), FLinearColor(0.08f, 0.52f, 0.16f)},
-        {TEXT("C"), TEXT("CLAY"), FLinearColor(0.76f, 0.18f, 0.05f)},
-        {TEXT("H"), TEXT("HAY"), FLinearColor(0.95f, 0.70f, 0.06f)},
-        {TEXT("S"), TEXT("SHEEP"), FLinearColor(0.48f, 0.82f, 0.28f)},
-        {TEXT("O"), TEXT("ORE"), FLinearColor(0.42f, 0.48f, 0.58f)}
+        {TEXT("WOOD"), FLinearColor(0.08f, 0.52f, 0.16f)},
+        {TEXT("CLAY"), FLinearColor(0.76f, 0.18f, 0.05f)},
+        {TEXT("HAY"), FLinearColor(0.95f, 0.70f, 0.06f)},
+        {TEXT("SHEEP"), FLinearColor(0.48f, 0.82f, 0.28f)},
+        {TEXT("ORE"), FLinearColor(0.42f, 0.48f, 0.58f)}
     };
     for (const FResourceBadge& Badge : Badges)
     {
@@ -212,7 +222,7 @@ void UCatanHUDWidget::BuildLayout()
         Icon->SetBrushColor(Badge.Color);
         Icon->SetPadding(FMargin(8));
         UCommonTextBlock* Count = WidgetTree->ConstructWidget<UCommonTextBlock>();
-        Count->SetText(FText::FromString(FString::Printf(TEXT("%s  0"), Badge.Symbol)));
+        Count->SetText(FText::AsNumber(0));
         Count->SetJustification(ETextJustify::Center);
         FSlateFontInfo SymbolFont = Count->GetFont(); SymbolFont.Size = 22; Count->SetFont(SymbolFont);
         Icon->SetContent(Count);
@@ -221,11 +231,15 @@ void UCatanHUDWidget::BuildLayout()
         UCommonTextBlock* Name = AddText(BadgeBox, Badge.Name, 10);
         Name->SetJustification(ETextJustify::Center);
     }
-    DevelopmentHandText = AddText(PlayerPanel, TEXT("Development: 0"), 14);
-    AddText(PlayerPanel, TEXT("PLAYERS"), 20);
-    PlayersText = AddText(PlayerPanel, FString(), 17);
+    RightDetailsButton = AddButton(PlayerPanel, TEXT("SHOW PLAYERS & COSTS"));
+    RightDetailsButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ToggleRightDetails);
+    PlayerDetails = WidgetTree->ConstructWidget<UVerticalBox>();
+    PlayerPanel->AddChildToVerticalBox(PlayerDetails);
+    DevelopmentHandText = AddText(PlayerDetails, TEXT("Development: 0"), 14);
+    AddText(PlayerDetails, TEXT("PLAYERS"), 20);
+    PlayersText = AddText(PlayerDetails, FString(), 17);
 
-    UBorder* CostBorder = AddPanel(WidgetTree, Canvas, FAnchors(1, 0), FVector2D(1, 0),
+    CostBorder = AddPanel(WidgetTree, Canvas, FAnchors(1, 0), FVector2D(1, 0),
         FMargin(-24, 500, 440, 150));
     UVerticalBox* Costs = WidgetTree->ConstructWidget<UVerticalBox>();
     CostBorder->SetContent(Costs);
@@ -522,6 +536,67 @@ void UCatanHUDWidget::BuildLayout()
     MonopolyButton->SetToolTipText(FText::FromString(TEXT("Take the selected resource from every opponent")));
 }
 
+void UCatanHUDWidget::ApplyAdaptiveLayout(bool bCompact)
+{
+    const bool bEnteringCompactLayout = bCompact && (!bAdaptiveLayoutInitialized || !bCompactLayout);
+    bCompactLayout = bCompact;
+    bAdaptiveLayoutInitialized = true;
+    if (!InfoBorder || !EventBorder || !PlayerBorder || !CostBorder) return;
+
+    LeftDetailsButton->SetVisibility(bCompact ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    RightDetailsButton->SetVisibility(bCompact ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+
+    if (!bCompact)
+    {
+        bLeftDetailsOpen = true;
+        bRightDetailsOpen = true;
+    }
+    else if (bEnteringCompactLayout)
+    {
+        bLeftDetailsOpen = false;
+        bRightDetailsOpen = false;
+    }
+
+    InfoDetails->SetVisibility(!bCompact || bLeftDetailsOpen
+        ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    EventBorder->SetVisibility(!bCompact || bLeftDetailsOpen
+        ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    PlayerDetails->SetVisibility(!bCompact || bRightDetailsOpen
+        ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    CostBorder->SetVisibility(!bCompact || bRightDetailsOpen
+        ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+
+    if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(InfoBorder->Slot))
+        Slot->SetSize(FVector2D(470.0f, bCompact
+            ? (bLeftDetailsOpen ? 330.0f : 260.0f) : 235.0f));
+    if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(EventBorder->Slot))
+        Slot->SetPosition(FVector2D(24.0f, bCompact && bLeftDetailsOpen ? 370.0f : 280.0f));
+    if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(PlayerBorder->Slot))
+        Slot->SetSize(FVector2D(440.0f, bCompact
+            ? (bRightDetailsOpen ? 560.0f : 240.0f) : 455.0f));
+    if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(CostBorder->Slot))
+        Slot->SetPosition(FVector2D(-24.0f, bCompact && bRightDetailsOpen ? 610.0f : 500.0f));
+
+    if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(LeftDetailsButton->GetChildAt(0)))
+        Label->SetText(FText::FromString(bLeftDetailsOpen ? TEXT("HIDE EVENTS & HELP") : TEXT("SHOW EVENTS & HELP")));
+    if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(RightDetailsButton->GetChildAt(0)))
+        Label->SetText(FText::FromString(bRightDetailsOpen ? TEXT("HIDE PLAYERS & COSTS") : TEXT("SHOW PLAYERS & COSTS")));
+}
+
+void UCatanHUDWidget::ToggleLeftDetails()
+{
+    bLeftDetailsOpen = !bLeftDetailsOpen;
+    if (bCompactLayout && bLeftDetailsOpen) bRightDetailsOpen = false;
+    ApplyAdaptiveLayout(bCompactLayout);
+}
+
+void UCatanHUDWidget::ToggleRightDetails()
+{
+    bRightDetailsOpen = !bRightDetailsOpen;
+    if (bCompactLayout && bRightDetailsOpen) bLeftDetailsOpen = false;
+    ApplyAdaptiveLayout(bCompactLayout);
+}
+
 UCommonTextBlock* UCatanHUDWidget::AddText(UVerticalBox* Parent, const FString& Text, int32 Size)
 {
     UCommonTextBlock* TextBlock = WidgetTree->ConstructWidget<UCommonTextBlock>();
@@ -638,9 +713,8 @@ void UCatanHUDWidget::Refresh()
     {
         const int32 Counts[] = {VisibleLocalPlayer->Resources.Wood, VisibleLocalPlayer->Resources.Clay,
             VisibleLocalPlayer->Resources.Hay, VisibleLocalPlayer->Resources.Sheep, VisibleLocalPlayer->Resources.Stone};
-        constexpr const TCHAR* Symbols[] = {TEXT("W"), TEXT("C"), TEXT("H"), TEXT("S"), TEXT("O")};
         for (int32 Index = 0; Index < ResourceCountTexts.Num() && Index < 5; ++Index)
-            ResourceCountTexts[Index]->SetText(FText::FromString(FString::Printf(TEXT("%s  %d"), Symbols[Index], Counts[Index])));
+            ResourceCountTexts[Index]->SetText(FText::AsNumber(Counts[Index]));
         HandTitleText->SetText(FText::FromString(FString::Printf(TEXT("YOUR HAND — %d RESOURCE CARDS"),
             VisibleLocalPlayer->ResourceCards)));
         DevelopmentHandText->SetText(FText::FromString(FString::Printf(
