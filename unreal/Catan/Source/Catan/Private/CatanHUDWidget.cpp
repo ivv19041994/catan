@@ -18,6 +18,9 @@
 #include "Components/Image.h"
 #include "Components/Spacer.h"
 #include "Components/SpinBox.h"
+#include "Components/SizeBox.h"
+#include "Components/SafeZone.h"
+#include "Components/ScrollBox.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/WidgetSwitcher.h"
@@ -134,6 +137,11 @@ void UCatanHUDWidget::NativeDestruct()
     Super::NativeDestruct();
 }
 
+bool UCatanHUDWidget::IsModalOpen() const
+{
+    return ModalBorder && ModalBorder->GetVisibility() != ESlateVisibility::Collapsed;
+}
+
 void UCatanHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
     Super::NativeTick(MyGeometry, InDeltaTime);
@@ -155,8 +163,11 @@ void UCatanHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 void UCatanHUDWidget::BuildLayout()
 {
+    USafeZone* SafeZone = WidgetTree->ConstructWidget<USafeZone>();
+    SafeZone->SetSidesToPad(true, true, true, true);
     UCanvasPanel* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>();
-    WidgetTree->RootWidget = Canvas;
+    SafeZone->AddChild(Canvas);
+    WidgetTree->RootWidget = SafeZone;
 
     UBorder* InfoBorder = AddPanel(WidgetTree, Canvas, FAnchors(0, 0), FVector2D::ZeroVector,
         FMargin(24, 24, 470, 235));
@@ -272,8 +283,12 @@ void UCatanHUDWidget::BuildLayout()
 
     ModalBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 0.5f), FVector2D(0.5f, 0.5f),
         FMargin(0, 0, 680, 650));
+    ModalBorder->SetClipping(EWidgetClipping::ClipToBounds);
+    UScrollBox* ModalScroll = WidgetTree->ConstructWidget<UScrollBox>();
+    ModalScroll->SetConsumeMouseWheel(EConsumeMouseWheel::WhenScrollingPossible);
     ModalSwitcher = WidgetTree->ConstructWidget<UWidgetSwitcher>();
-    ModalBorder->SetContent(ModalSwitcher);
+    ModalScroll->AddChild(ModalSwitcher);
+    ModalBorder->SetContent(ModalScroll);
 
     UVerticalBox* DropPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(DropPanel);
@@ -409,60 +424,69 @@ void UCatanHUDWidget::BuildLayout()
     NewGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::StartNewGame);
     ExitGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::QuitGame);
 
+    SetupSwitcher = WidgetTree->ConstructWidget<UWidgetSwitcher>();
+    ModalSwitcher->AddChild(SetupSwitcher);
+
     UVerticalBox* SetupPanel = WidgetTree->ConstructWidget<UVerticalBox>();
-    ModalSwitcher->AddChild(SetupPanel);
+    SetupSwitcher->AddChild(SetupPanel);
     AddText(SetupPanel, TEXT("CATAN"), 32);
-    AddText(SetupPanel,
-        TEXT("Play against local bots, host a discoverable LAN lobby, or join by search/IP."), 16);
+    AddText(SetupPanel, TEXT("Choose a game mode"), 20);
+    PlayerSlotLabels.Add(AddText(SetupPanel, TEXT("PLAYER NAME"), 18));
+    UEditableTextBox* MainName = WidgetTree->ConstructWidget<UEditableTextBox>();
+    MainName->SetText(FText::FromString(TEXT("Player")));
+    MainName->SetHintText(FText::FromString(TEXT("Player name")));
+    MainName->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
+    SetupPanel->AddChildToVerticalBox(MainName);
+    PlayerNameInputs.Add(MainName);
+    UButton* OnlineMode = AddButton(SetupPanel, TEXT("ONLINE"));
+    UButton* BotMode = AddButton(SetupPanel, TEXT("PLAY AGAINST BOTS"));
+    OnlineMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowOnlineSetup);
+    BotMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowBotSetup);
+
+    UVerticalBox* OnlinePanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    SetupSwitcher->AddChild(OnlinePanel);
+    AddText(OnlinePanel, TEXT("ONLINE — LOCAL NETWORK"), 27);
+    AddText(OnlinePanel, TEXT("Host a LAN lobby, find one automatically, or enter its address."), 16);
+    LobbyNameInput = WidgetTree->ConstructWidget<UEditableTextBox>();
+    LobbyNameInput->SetText(FText::FromString(TEXT("Catan LAN Lobby")));
+    LobbyNameInput->SetHintText(FText::FromString(TEXT("Lobby name")));
+    LobbyNameInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
+    OnlinePanel->AddChildToVerticalBox(LobbyNameInput);
+    UButton* HostGame = AddButton(OnlinePanel, TEXT("HOST ONLINE (LAN)"));
+    HostGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::HostLanLobby);
+    LobbyResults = WidgetTree->ConstructWidget<UComboBoxString>();
+    LobbyResults->AddOption(TEXT("No search results yet"));
+    LobbyResults->SetSelectedIndex(0);
+    OnlinePanel->AddChildToVerticalBox(LobbyResults);
+    UButton* SearchGame = AddButton(OnlinePanel, TEXT("REFRESH LAN LOBBIES"));
+    UButton* JoinGame = AddButton(OnlinePanel, TEXT("JOIN SELECTED"));
+    SearchGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::FindLanLobbies);
+    JoinGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::JoinSelectedLobby);
+    ManualAddressInput = WidgetTree->ConstructWidget<UEditableTextBox>();
+    ManualAddressInput->SetHintText(FText::FromString(TEXT("Host address, e.g. 192.168.1.20:7777")));
+    ManualAddressInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
+    OnlinePanel->AddChildToVerticalBox(ManualAddressInput);
+    UButton* JoinAddress = AddButton(OnlinePanel, TEXT("JOIN BY ADDRESS"));
+    JoinAddress->OnClicked.AddDynamic(this, &UCatanHUDWidget::JoinManualLobby);
+    UButton* OnlineBack = AddButton(OnlinePanel, TEXT("BACK"));
+    OnlineBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMainSetup);
+    NetworkStatusText = AddText(OnlinePanel, TEXT("LAN ready"), 14);
+
+    UVerticalBox* BotPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    SetupSwitcher->AddChild(BotPanel);
+    AddText(BotPanel, TEXT("PLAY AGAINST BOTS"), 27);
+    AddText(BotPanel, TEXT("Choose the total number of players."), 17);
     PlayerCount = WidgetTree->ConstructWidget<UComboBoxString>();
     PlayerCount->AddOption(TEXT("2 players"));
     PlayerCount->AddOption(TEXT("3 players"));
     PlayerCount->AddOption(TEXT("4 players"));
     PlayerCount->SetSelectedIndex(0);
     PlayerCount->OnSelectionChanged.AddDynamic(this, &UCatanHUDWidget::UpdatePlayerCount);
-    SetupPanel->AddChildToVerticalBox(PlayerCount);
-    constexpr const TCHAR* SlotColors[] = {TEXT("RED"), TEXT("BLUE"), TEXT("YELLOW"), TEXT("GREEN")};
-    for (int32 Index = 0; Index < 4; ++Index)
-    {
-        PlayerSlotLabels.Add(AddText(SetupPanel,
-            Index == 0 ? TEXT("YOUR PLAYER NAME — REQUIRED")
-                : FString::Printf(TEXT("PLAYER %d — %s"), Index + 1, SlotColors[Index]),
-            Index == 0 ? 20 : 16));
-        UEditableTextBox* Name = WidgetTree->ConstructWidget<UEditableTextBox>();
-        Name->SetText(Index == 0 ? FText::GetEmpty()
-            : FText::FromString(FString::Printf(TEXT("Player %d"), Index + 1)));
-        Name->SetHintText(FText::FromString(Index == 0
-            ? TEXT("Enter your name before hosting or joining") : TEXT("Player name")));
-        SetupPanel->AddChildToVerticalBox(Name);
-        PlayerNameInputs.Add(Name);
-        if (Index > 0)
-        {
-            Name->SetVisibility(ESlateVisibility::Collapsed);
-            PlayerSlotLabels[Index]->SetVisibility(ESlateVisibility::Collapsed);
-        }
-    }
-    LobbyNameInput = WidgetTree->ConstructWidget<UEditableTextBox>();
-    LobbyNameInput->SetText(FText::FromString(TEXT("Catan LAN Lobby")));
-    LobbyNameInput->SetHintText(FText::FromString(TEXT("Lobby name")));
-    SetupPanel->AddChildToVerticalBox(LobbyNameInput);
-    UButton* HostGame = AddButton(SetupPanel, TEXT("HOST ONLINE (LAN)"));
-    HostGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::HostLanLobby);
-    LobbyResults = WidgetTree->ConstructWidget<UComboBoxString>();
-    LobbyResults->AddOption(TEXT("No search results yet"));
-    LobbyResults->SetSelectedIndex(0);
-    SetupPanel->AddChildToVerticalBox(LobbyResults);
-    UButton* SearchGame = AddButton(SetupPanel, TEXT("REFRESH LAN LOBBIES"));
-    UButton* JoinGame = AddButton(SetupPanel, TEXT("JOIN SELECTED"));
-    SearchGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::FindLanLobbies);
-    JoinGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::JoinSelectedLobby);
-    ManualAddressInput = WidgetTree->ConstructWidget<UEditableTextBox>();
-    ManualAddressInput->SetHintText(FText::FromString(TEXT("Host address, e.g. 192.168.1.20:7777")));
-    SetupPanel->AddChildToVerticalBox(ManualAddressInput);
-    UButton* JoinAddress = AddButton(SetupPanel, TEXT("JOIN BY ADDRESS"));
-    JoinAddress->OnClicked.AddDynamic(this, &UCatanHUDWidget::JoinManualLobby);
-    UButton* Bots = AddButton(SetupPanel, TEXT("PLAY AGAINST BOTS"));
+    BotPanel->AddChildToVerticalBox(PlayerCount);
+    UButton* Bots = AddButton(BotPanel, TEXT("START BOT GAME"));
     Bots->OnClicked.AddDynamic(this, &UCatanHUDWidget::StartBotMatch);
-    NetworkStatusText = AddText(SetupPanel, TEXT("LAN ready"), 14);
+    UButton* BotBack = AddButton(BotPanel, TEXT("BACK"));
+    BotBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMainSetup);
 
     UVerticalBox* ConfirmationPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(ConfirmationPanel);
@@ -519,9 +543,14 @@ UButton* UCatanHUDWidget::AddButton(UVerticalBox* Parent, const FString& Label)
     UCommonTextBlock* Text = WidgetTree->ConstructWidget<UCommonTextBlock>();
     Text->SetText(FText::FromString(Label));
     Text->SetJustification(ETextJustify::Center);
-    Text->SetMargin(FMargin(12, 9));
+    Text->SetMargin(FMargin(16, 12));
     Button->AddChild(Text);
-    Parent->AddChildToVerticalBox(Button);
+    USizeBox* TouchTarget = WidgetTree->ConstructWidget<USizeBox>();
+    TouchTarget->SetMinDesiredWidth(112.0f);
+    TouchTarget->SetMinDesiredHeight(56.0f);
+    TouchTarget->AddChild(Button);
+    UVerticalBoxSlot* Slot = Parent->AddChildToVerticalBox(TouchTarget);
+    Slot->SetPadding(FMargin(2, 4));
     return Button;
 }
 
@@ -901,6 +930,21 @@ void UCatanHUDWidget::StartBotMatch()
         bSetupPanelOpen = false;
         Mode->StartSinglePlayerGame(PlayerName, TotalPlayers - 1);
     }
+}
+
+void UCatanHUDWidget::ShowOnlineSetup()
+{
+    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(1);
+}
+
+void UCatanHUDWidget::ShowBotSetup()
+{
+    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(2);
+}
+
+void UCatanHUDWidget::ShowMainSetup()
+{
+    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(0);
 }
 
 void UCatanHUDWidget::FindLanLobbies()

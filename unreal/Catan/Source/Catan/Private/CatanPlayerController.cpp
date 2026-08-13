@@ -14,6 +14,8 @@ ACatanPlayerController::ACatanPlayerController()
     bShowMouseCursor = true;
     bEnableClickEvents = true;
     bEnableMouseOverEvents = true;
+    bEnableTouchEvents = true;
+    bEnableTouchOverEvents = true;
     DefaultMouseCursor = EMouseCursor::Hand;
 }
 
@@ -230,6 +232,8 @@ void ACatanPlayerController::RunMultiplayerE2EStep()
 void ACatanPlayerController::BeginPlay()
 {
     Super::BeginPlay();
+    ActivateTouchInterface(nullptr);
+    SetVirtualJoystickVisibility(false);
     FInputModeGameAndUI InputMode;
     InputMode.SetHideCursorDuringCapture(false);
     SetInputMode(InputMode);

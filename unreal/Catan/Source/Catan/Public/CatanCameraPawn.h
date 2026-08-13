@@ -34,6 +34,10 @@ private:
     float ZoomInput{};
     float RotateInput{};
     float DesiredArmLength = 2600.0f;
+    FVector2D PreviousTouchPosition = FVector2D::ZeroVector;
+    float PreviousPinchDistance = 0.0f;
+    bool bTrackingTouch = false;
+    bool bTrackingPinch = false;
 
     void MoveForward(float Value) { ForwardInput = Value; }
     void MoveRight(float Value) { RightInput = Value; }
