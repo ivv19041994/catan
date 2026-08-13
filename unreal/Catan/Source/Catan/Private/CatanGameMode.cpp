@@ -131,18 +131,33 @@ void ACatanGameMode::StartLobbyGame(APlayerController* Requester)
         Names.Add(State->GetPlayerName());
     }
     bLobbyGameStarted = true;
+    ShowGameBoard();
+    GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->StartLocalGame(Names);
+    if (ACatanGameState* State = GetGameState<ACatanGameState>()) State->NetworkMode = ECatanNetworkMode::Playing;
+    PublishLobby();
+    GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->PublishAuthoritativeState();
+    UE_LOG(LogCatanNetworkMode, Display, TEXT("CATAN_SMOKE match started players=%d"), Names.Num());
+}
+
+void ACatanGameMode::StartSinglePlayerGame(const FString& HumanName, int32 BotCount)
+{
+    if (GetNetMode() != NM_Standalone) return;
+    ShowGameBoard();
+    GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->StartBotGame(HumanName, BotCount);
+    if (ACatanGameState* State = GetGameState<ACatanGameState>())
+        State->NetworkMode = ECatanNetworkMode::Playing;
+}
+
+void ACatanGameMode::ShowGameBoard()
+{
     if (MenuBackdrop)
     {
         MenuBackdrop->Destroy();
         MenuBackdrop = nullptr;
     }
-    GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->StartLocalGame(Names);
-    if (ACatanGameState* State = GetGameState<ACatanGameState>()) State->NetworkMode = ECatanNetworkMode::Playing;
-    PublishLobby();
-    GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->PublishAuthoritativeState();
-    GetWorld()->SpawnActor<ACatanBoardActor>(
-        ACatanBoardActor::StaticClass(), FVector(0.0f, 0.0f, 20.0f), FRotator::ZeroRotator);
-    UE_LOG(LogCatanNetworkMode, Display, TEXT("CATAN_SMOKE match started players=%d"), Names.Num());
+    if (!UGameplayStatics::GetActorOfClass(GetWorld(), ACatanBoardActor::StaticClass()))
+        GetWorld()->SpawnActor<ACatanBoardActor>(ACatanBoardActor::StaticClass(),
+            FVector(0.0f, 0.0f, 20.0f), FRotator::ZeroRotator);
 }
 
 void ACatanGameMode::PublishLobby()
@@ -189,6 +204,18 @@ void ACatanGameMode::BeginPlay()
     if (GetNetMode() == NM_Standalone)
     {
         UCatanGameSubsystem* Proxy = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
-        Proxy->StartLocalGame(TArray<FString>{TEXT("Player 1"), TEXT("Player 2")});
+        int32 AutoBots = 0;
+        if (FParse::Value(FCommandLine::Get(), TEXT("CatanAutoBots="), AutoBots) && AutoBots > 0)
+        {
+            FString PlayerName = TEXT("Player");
+            FParse::Value(FCommandLine::Get(), TEXT("CatanPlayerName="), PlayerName);
+            StartSinglePlayerGame(PlayerName, AutoBots);
+            UE_LOG(LogCatanNetworkMode, Display, TEXT("CATAN_BOT_E2E started human=%s bots=%d"),
+                *PlayerName, FMath::Clamp(AutoBots, 1, 3));
+        }
+        else
+        {
+            Proxy->StartLocalGame(TArray<FString>{TEXT("Player 1"), TEXT("Player 2")});
+        }
     }
 }

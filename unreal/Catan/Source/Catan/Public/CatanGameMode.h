@@ -24,6 +24,7 @@ public:
     void SetPlayerReady(APlayerController* Player, bool bReady);
     void SetPlayerDisplayName(APlayerController* Player, const FString& RequestedName);
     void StartLobbyGame(APlayerController* Requester);
+    void StartSinglePlayerGame(const FString& HumanName, int32 BotCount);
     void PublishLobby();
 
 private:
@@ -31,4 +32,6 @@ private:
 
     UPROPERTY(Transient)
     TObjectPtr<ACatanMenuBackdropActor> MenuBackdrop;
+
+    void ShowGameBoard();
 };

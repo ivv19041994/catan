@@ -5,6 +5,9 @@
 #include "CatanPlayerState.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
+#include "Containers/Ticker.h"
 #include "game_controller.hpp"
 
 #include <sstream>
@@ -116,17 +119,32 @@ UCatanGameSubsystem::~UCatanGameSubsystem() = default;
 void UCatanGameSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
+    BotTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateUObject(this, &UCatanGameSubsystem::TickBotTicker));
 }
 
 void UCatanGameSubsystem::Deinitialize()
 {
+    if (BotTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(BotTickerHandle);
+        BotTickerHandle.Reset();
+    }
     Game.reset();
     Super::Deinitialize();
 }
 
+bool UCatanGameSubsystem::TickBotTicker(float DeltaSeconds)
+{
+    TickBots(DeltaSeconds);
+    return true;
+}
+
 void UCatanGameSubsystem::StartLocalGame(const TArray<FString>& Names)
 {
+    BotPlayers.Reset();
     PlayerNames = Names.Num() >= 2 ? Names : TArray<FString>{TEXT("Player 1"), TEXT("Player 2")};
+    LocalPlayerName = PlayerNames.IsEmpty() ? FString() : PlayerNames[0];
     std::vector<std::string> CoreNames;
     CoreNames.reserve(PlayerNames.Num());
     for (const FString& Name : PlayerNames)
@@ -157,11 +175,46 @@ void UCatanGameSubsystem::StartLocalGame(const TArray<FString>& Names)
     OnGameStateChanged.Broadcast();
 }
 
+void UCatanGameSubsystem::StartBotGame(const FString& HumanName, int32 BotCount)
+{
+    const int32 SafeBotCount = FMath::Clamp(BotCount, 1, 3);
+    TArray<FString> Names{HumanName.IsEmpty() ? TEXT("Player") : HumanName.Left(24)};
+    for (int32 Index = 0; Index < SafeBotCount; ++Index)
+        Names.Add(FString::Printf(TEXT("Bot %d"), Index + 1));
+    StartLocalGame(Names);
+    LocalPlayerName = Names[0];
+    for (int32 Index = 1; Index < Names.Num(); ++Index) BotPlayers.Add(Names[Index]);
+    if (FParse::Param(FCommandLine::Get(), TEXT("CatanBotAutoplay"))) BotPlayers.Add(Names[0]);
+    BotRandom.Initialize(FMath::Rand());
+    BotActionDelay = 0.75f;
+    StatusMessage = FString::Printf(TEXT("Single-player game started with %d bot%s"),
+        SafeBotCount, SafeBotCount == 1 ? TEXT("") : TEXT("s"));
+    AppendEvent(StatusMessage);
+    OnGameStateChanged.Broadcast();
+}
+
+bool UCatanGameSubsystem::IsBotPlayer(const FString& Name) const
+{
+    return BotPlayers.Contains(Name);
+}
+
+void UCatanGameSubsystem::TickBots(float DeltaSeconds)
+{
+    if (!HasAuthoritativeGame() || BotPlayers.IsEmpty()) return;
+    const FCatanGameView View = BuildAuthoritativeSnapshot();
+    if (View.Phase == ECatanGamePhase::Finished || !IsBotPlayer(View.CurrentPlayer)) return;
+    BotActionDelay -= DeltaSeconds;
+    if (BotActionDelay > 0.0f) return;
+    BotActionDelay = 0.48f;
+    PerformBotAction();
+}
+
 FCatanGameView UCatanGameSubsystem::GetSnapshot() const
 {
     const UWorld* World = GetWorld();
     const ACatanGameState* State = World ? World->GetGameState<ACatanGameState>() : nullptr;
-    if (State && State->NetworkMode == ECatanNetworkMode::Playing)
+    if (State && State->NetworkMode == ECatanNetworkMode::Playing
+        && World && World->GetNetMode() != NM_Standalone)
     {
         FCatanGameView View = State->PublicView;
         if (const APlayerController* Controller = UGameplayStatics::GetPlayerController(World, 0))
@@ -169,6 +222,8 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
                 if (FCatanPlayerView* Player = View.Players.FindByPredicate([PlayerState](const FCatanPlayerView& Item)
                     { return Item.Name == PlayerState->GetPlayerName(); }))
                 {
+                    Player->bIsLocalPlayer = true;
+                    Player->bResourcesVisible = true;
                     Player->Resources = PlayerState->PrivateView.Resources;
                     Player->Knights = PlayerState->PrivateView.Knights;
                     Player->RoadBuildingCards = PlayerState->PrivateView.RoadBuildingCards;
@@ -177,7 +232,19 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
                 }
         return View;
     }
-    return BuildAuthoritativeSnapshot();
+    FCatanGameView View = BuildAuthoritativeSnapshot();
+    for (FCatanPlayerView& Player : View.Players)
+    {
+        Player.bIsLocalPlayer = Player.Name == LocalPlayerName;
+        Player.bResourcesVisible = Player.bIsLocalPlayer;
+        if (Player.bResourcesVisible) continue;
+        Player.Resources = {};
+        Player.Knights = 0;
+        Player.RoadBuildingCards = 0;
+        Player.YearOfPlentyCards = 0;
+        Player.MonopolyCards = 0;
+    }
+    return View;
 }
 
 bool UCatanGameSubsystem::HasAuthoritativeGame() const
@@ -190,11 +257,125 @@ bool UCatanGameSubsystem::CanLocalPlayerAct(const FCatanGameView& View) const
 {
     const UWorld* World = GetWorld();
     if (!World) return false;
-    if (World->GetNetMode() == NM_Standalone) return true;
+    if (World->GetNetMode() == NM_Standalone) return !IsBotPlayer(View.CurrentPlayer);
     const APlayerController* Controller = UGameplayStatics::GetPlayerController(World, 0);
     const APlayerState* PlayerState = Controller ? Controller->PlayerState : nullptr;
     return PlayerState && !View.CurrentPlayer.IsEmpty()
         && View.CurrentPlayer == PlayerState->GetPlayerName();
+}
+
+void UCatanGameSubsystem::PerformBotAction()
+{
+    const FCatanGameView View = BuildAuthoritativeSnapshot();
+    UE_LOG(LogTemp, Display, TEXT("CATAN_BOT turn=%s phase=%d nodes=%d roads=%d hexes=%d"),
+        *View.CurrentPlayer, static_cast<int32>(View.Phase), View.ValidNodeTargets.Num(),
+        View.ValidRoadTargets.Num(), View.ValidHexTargets.Num());
+    FString Error;
+    auto RandomTarget = [this](const TArray<int32>& Targets)
+    {
+        return Targets.IsEmpty() ? INDEX_NONE : Targets[BotRandom.RandRange(0, Targets.Num() - 1)];
+    };
+
+    if (View.PendingRobberHex != INDEX_NONE && !View.RobberVictims.IsEmpty())
+    {
+        TryChooseRobberVictim(View.RobberVictims[BotRandom.RandRange(0, View.RobberVictims.Num() - 1)], Error);
+        return;
+    }
+    switch (View.Phase)
+    {
+    case ECatanGamePhase::SetupSettlement:
+        if (const int32 Target = RandomTarget(View.ValidNodeTargets); Target != INDEX_NONE)
+            TryBuildSettlement(Target, Error);
+        return;
+    case ECatanGamePhase::SetupRoad:
+    case ECatanGamePhase::RoadBuilding:
+        if (const int32 Target = RandomTarget(View.ValidRoadTargets); Target != INDEX_NONE)
+            TryBuildRoad(Target, Error);
+        else if (View.Phase == ECatanGamePhase::RoadBuilding)
+            TryPass(Error);
+        return;
+    case ECatanGamePhase::RollDice:
+        TryRollDice(Error);
+        return;
+    case ECatanGamePhase::DropCards:
+        {
+            const FCatanPlayerView* Player = View.Players.FindByPredicate(
+                [&View](const FCatanPlayerView& Item) { return Item.Name == View.CurrentPlayer; });
+            if (!Player) return;
+            FCatanResourceView Drop;
+            int32 Holdings[] = {Player->Resources.Wood, Player->Resources.Clay, Player->Resources.Hay,
+                Player->Resources.Sheep, Player->Resources.Stone};
+            int32* Counts[] = {&Drop.Wood, &Drop.Clay, &Drop.Hay, &Drop.Sheep, &Drop.Stone};
+            for (int32 Remaining = View.RequiredDiscardCount; Remaining > 0;)
+            {
+                const int32 Resource = BotRandom.RandRange(0, 4);
+                if (*Counts[Resource] < Holdings[Resource]) { ++*Counts[Resource]; --Remaining; }
+            }
+            TryDropResources(Drop, Error);
+        }
+        return;
+    case ECatanGamePhase::MoveRobber:
+        if (const int32 Target = RandomTarget(View.ValidHexTargets); Target != INDEX_NONE)
+            TryMoveRobber(Target, Error);
+        return;
+    case ECatanGamePhase::CommonPlay:
+        break;
+    case ECatanGamePhase::Finished:
+        return;
+    }
+
+    if (View.BoardAction == ECatanBoardAction::BuildCity)
+    {
+        if (const int32 Target = RandomTarget(View.ValidNodeTargets); Target != INDEX_NONE)
+            TryBuildCity(Target, Error);
+        else BoardAction = ECatanBoardAction::Automatic;
+        return;
+    }
+    if (View.BoardAction == ECatanBoardAction::BuildSettlement)
+    {
+        if (const int32 Target = RandomTarget(View.ValidNodeTargets); Target != INDEX_NONE)
+            TryBuildSettlement(Target, Error);
+        else BoardAction = ECatanBoardAction::Automatic;
+        return;
+    }
+    if (View.BoardAction == ECatanBoardAction::BuildRoad)
+    {
+        if (const int32 Target = RandomTarget(View.ValidRoadTargets); Target != INDEX_NONE)
+            TryBuildRoad(Target, Error);
+        else BoardAction = ECatanBoardAction::Automatic;
+        return;
+    }
+
+    const FCatanPlayerView* Player = View.Players.FindByPredicate(
+        [&View](const FCatanPlayerView& Item) { return Item.Name == View.CurrentPlayer; });
+    if (!Player) return;
+    const FCatanResourceView& Have = Player->Resources;
+    if (Player->FreeCities > 0 && Have.Hay >= 2 && Have.Stone >= 3 && BotRandom.FRand() < 0.82f)
+    {
+        SelectBoardAction(ECatanBoardAction::BuildCity);
+        return;
+    }
+    if (Player->FreeSettlements > 0 && Have.Wood > 0 && Have.Clay > 0
+        && Have.Hay > 0 && Have.Sheep > 0 && BotRandom.FRand() < 0.82f)
+    {
+        SelectBoardAction(ECatanBoardAction::BuildSettlement);
+        return;
+    }
+    if (Player->FreeRoads > 0 && Have.Wood > 0 && Have.Clay > 0 && BotRandom.FRand() < 0.62f)
+    {
+        SelectBoardAction(ECatanBoardAction::BuildRoad);
+        return;
+    }
+    if (Have.Hay > 0 && Have.Sheep > 0 && Have.Stone > 0 && BotRandom.FRand() < 0.58f)
+    {
+        if (TryBuyDevelopmentCard(Error)) return;
+    }
+    if (Player->Knights > 0 && BotRandom.FRand() < 0.3f)
+    {
+        if (TryUseDevelopmentCard(ECatanDevelopmentCard::Knight,
+            ECatanResource::Wood, ECatanResource::Clay, Error)) return;
+    }
+    TryPass(Error);
 }
 
 FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
@@ -235,7 +416,9 @@ FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
         PlayerView.Id = static_cast<int32>(Player.getId());
         PlayerView.Name = PlayerName;
         PlayerView.bIsCurrent = PlayerName == View.CurrentPlayer;
+        PlayerView.bIsBot = IsBotPlayer(PlayerName);
         PlayerView.VictoryPoints = static_cast<int32>(Player.GetWinPoints());
+        PlayerView.ResourceCards = static_cast<int32>(Player.getCountResurses());
         PlayerView.DevelopmentCards = CountDevelopmentCards(Player);
         PlayerView.Knights = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::Knights));
         PlayerView.RoadBuildingCards = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::RoadBuilding));

@@ -5,6 +5,7 @@
 #include "CatanNetworkTypes.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "game_controller.hpp"
+#include "Containers/Ticker.h"
 
 #include <memory>
 
@@ -24,6 +25,10 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="Catan")
     void StartLocalGame(const TArray<FString>& Names);
+
+    void StartBotGame(const FString& HumanName, int32 BotCount);
+    void TickBots(float DeltaSeconds);
+    bool IsBotPlayer(const FString& Name) const;
 
     void NotifyNetworkStateChanged();
     void PublishAuthoritativeState();
@@ -85,6 +90,7 @@ public:
 private:
     std::unique_ptr<ivv::catan::GameController> Game;
     TArray<FString> PlayerNames;
+    FString LocalPlayerName;
     ECatanBoardAction BoardAction = ECatanBoardAction::Automatic;
     FString StatusMessage;
     int32 PendingRobberHex = INDEX_NONE;
@@ -93,6 +99,10 @@ private:
     TMap<FString, FCatanResourceView> LastResources;
     FString LastLargestArmy;
     FString LastLongestRoad;
+    TSet<FString> BotPlayers;
+    float BotActionDelay = 0.0f;
+    FRandomStream BotRandom;
+    FTSTicker::FDelegateHandle BotTickerHandle;
 
     bool CompleteCommand(bool bSucceeded, const FString& Message, FString& Error);
     void AppendEvent(const FString& Message);
@@ -102,4 +112,6 @@ private:
         const FString& Text, const FCatanResourceView& FirstResources,
         const FCatanResourceView& SecondResources, FString& Error);
     FCatanGameView BuildAuthoritativeSnapshot() const;
+    void PerformBotAction();
+    bool TickBotTicker(float DeltaSeconds);
 };
