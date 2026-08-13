@@ -95,6 +95,7 @@ private:
     FString PreviousStatus;
     int32 PreviousFirstDie = 0;
     int32 PreviousSecondDie = 0;
+    bool bBoardBuilt = false;
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UTextRenderComponent>> Labels;
@@ -121,6 +122,7 @@ private:
     TObjectPtr<UMaterialInterface> BasicMaterial;
 
     void BuildBoard();
+    bool TryBuildBoard();
     void BuildEnvironment();
     void BuildHexes();
     void CreateHexSection(int32 Index, const FVector& Center, const FLinearColor& Color);

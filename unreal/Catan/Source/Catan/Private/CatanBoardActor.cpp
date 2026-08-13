@@ -208,6 +208,7 @@ FQuat DieResultRotation(int32 Value, int32 DieIndex)
 ACatanBoardActor::ACatanBoardActor()
 {
     PrimaryActorTick.bCanEverTick = true;
+    bReplicates = true;
     SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
     RootComponent = SceneRoot;
     HexMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("HexMesh"));
@@ -222,13 +223,11 @@ void ACatanBoardActor::BeginPlay()
 {
     Super::BeginPlay();
     BasicMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial_Inst.BasicShapeMaterial_Inst"));
-    BuildBoard();
     if (UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>())
     {
         Subsystem->OnGameStateChanged.AddDynamic(this, &ACatanBoardActor::RefreshPieces);
     }
     RefreshPieces();
-    UE_LOG(LogTemp, Display, TEXT("Catan board ready. WASD/QE and mouse wheel control the camera."));
 }
 
 void ACatanBoardActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -252,9 +251,30 @@ void ACatanBoardActor::BuildBoard()
     BuildDice();
 }
 
+bool ACatanBoardActor::TryBuildBoard()
+{
+    if (bBoardBuilt) return true;
+    const UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
+    if (!Subsystem) return false;
+    const FCatanGameView View = Subsystem->GetSnapshot();
+    constexpr int32 ExpectedHexes = 19;
+    constexpr int32 ExpectedNodes = 54;
+    constexpr int32 ExpectedRoads = 72;
+    if (View.Hexes.Num() != ExpectedHexes || View.Nodes.Num() != ExpectedNodes
+        || View.Roads.Num() != ExpectedRoads)
+    {
+        return false;
+    }
+    BuildBoard();
+    bBoardBuilt = true;
+    UE_LOG(LogTemp, Display, TEXT("CATAN_SMOKE client board ready. WASD/QE and mouse wheel control the camera."));
+    return true;
+}
+
 void ACatanBoardActor::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (!bBoardBuilt) TryBuildBoard();
     AnimateFeedback(DeltaSeconds);
 }
 
@@ -1086,7 +1106,9 @@ void ACatanBoardActor::RefreshPieces()
 {
     UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     if (!Subsystem) return;
+    if (!TryBuildBoard()) return;
     const FCatanGameView View = Subsystem->GetSnapshot();
+    const bool bCanLocalPlayerAct = Subsystem->CanLocalPlayerAct(View);
     if ((View.FirstDie != PreviousFirstDie || View.SecondDie != PreviousSecondDie) && View.FirstDie > 0)
     {
         PreviousFirstDie = View.FirstDie;
@@ -1132,7 +1154,7 @@ void ACatanBoardActor::RefreshPieces()
             HexTokenScaleTargets[Index] = View.FirstDie > 0 && Hex.Dice == RolledTotal
                 ? FVector(1.24f, 1.24f, 0.16f)
                 : FVector(0.62f, 0.62f, 0.08f);
-        const bool bValidTarget = View.ValidHexTargets.Contains(Index);
+        const bool bValidTarget = bCanLocalPlayerAct && View.ValidHexTargets.Contains(Index);
         Labels[Index]->SetText(Hex.Dice > 0
             ? FText::AsNumber(Hex.Dice)
             : FText::FromString(TEXT("—")));
@@ -1157,7 +1179,7 @@ void ACatanBoardActor::RefreshPieces()
         const bool bNewBuilding = PreviousNodeOwners[Index] != Node.OwnerId && Node.OwnerId != INDEX_NONE;
         if (bNewBuilding) PieceAnimationRemaining = 0.45f;
         PreviousNodeOwners[Index] = Node.OwnerId;
-        const bool bValidTarget = View.ValidNodeTargets.Contains(Index);
+        const bool bValidTarget = bCanLocalPlayerAct && View.ValidNodeTargets.Contains(Index);
         FLinearColor Color = Node.OwnerId != INDEX_NONE ? PlayerColor(Node.OwnerId) : FLinearColor(0.08f,0.1f,0.12f);
         if (bValidTarget) Color = FMath::Lerp(Color, FLinearColor(0.05f, 0.95f, 0.85f), 0.72f);
         Cast<UMaterialInstanceDynamic>(NodeSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
@@ -1205,7 +1227,7 @@ void ACatanBoardActor::RefreshPieces()
         const bool bNewRoad = PreviousRoadOwners[Index] != Road.OwnerId && Road.OwnerId != INDEX_NONE;
         if (bNewRoad) PieceAnimationRemaining = 0.45f;
         PreviousRoadOwners[Index] = Road.OwnerId;
-        const bool bValidTarget = View.ValidRoadTargets.Contains(Index);
+        const bool bValidTarget = bCanLocalPlayerAct && View.ValidRoadTargets.Contains(Index);
         FLinearColor Color = Road.OwnerId != INDEX_NONE ? PlayerColor(Road.OwnerId) : FLinearColor(0.14f,0.15f,0.16f);
         if (bValidTarget) Color = FLinearColor(0.05f, 0.95f, 0.85f);
         Cast<UMaterialInstanceDynamic>(RoadSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
@@ -1242,6 +1264,11 @@ void ACatanBoardActor::HandleSlotClicked(UPrimitiveComponent* TouchedComponent, 
     if (!Tag.Split(TEXT(":"), &Kind, &IdText)) return;
     FString Error;
     const FCatanGameView View = Subsystem->GetSnapshot();
+    if (!Subsystem->CanLocalPlayerAct(View))
+    {
+        ShowStatus(FString::Printf(TEXT("Waiting for %s"), *View.CurrentPlayer), FColor::Yellow);
+        return;
+    }
     bool bSucceeded = false;
     if (Kind == TEXT("Node"))
     {
