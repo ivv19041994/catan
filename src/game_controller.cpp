@@ -409,6 +409,7 @@ void GameController::BuildSettlement(Player& player, size_t settlement_id) {
 			throw logic_error("Settlement id "s + std::to_string(settlement_id) + " is busy!"s);
 		}
 		map.placeStartBuilding(settlement_id, &player);
+		setup_settlement_id_ = settlement_id;
 
 		if (step_ == GameStep::ForwardBuildingSettlement) {
 			step_ = GameStep::ForwardBuildingRoad;
@@ -489,10 +490,14 @@ void GameController::BuildRoad(Player& player, size_t road_id) {
 	if (step_ == GameStep::ForwardBuildingRoad ||
 		step_ == GameStep::BackwardBuildingRoad) {
 
-		if (!map.canPlaceRoad(road_id, &player)) {
-			throw logic_error("Road id "s + std::to_string(road_id) + " is busy / far by other building!"s);
+		if (!setup_settlement_id_ || !map.isNodeAndFacetNeighbor(*setup_settlement_id_, road_id)
+			|| !map.canPlaceRoad(road_id, &player)) {
+			throw logic_error("Initial road id "s + std::to_string(road_id)
+				+ " must touch settlement id "s
+				+ (setup_settlement_id_ ? std::to_string(*setup_settlement_id_) : "none") + "!"s);
 		}
 		map.placeRoad(road_id, &player);
+		setup_settlement_id_.reset();
 
 		if (step_ == GameStep::ForwardBuildingRoad) {
 			++current_player_;
@@ -712,6 +717,10 @@ bool GameController::CanBuildRoad(size_t road_id) const {
 	const Player& player = players_[current_player_];
 	if (step_ == GameStep::ForwardBuildingRoad || step_ == GameStep::BackwardBuildingRoad
 		|| step_ == GameStep::RoadBuilding) {
+		if ((step_ == GameStep::ForwardBuildingRoad || step_ == GameStep::BackwardBuildingRoad)
+			&& (!setup_settlement_id_ || !map.isNodeAndFacetNeighbor(*setup_settlement_id_, road_id))) {
+			return false;
+		}
 		return map.canPlaceRoad(road_id, &player);
 	}
 	return step_ == GameStep::CommonPlay && player.HaveRoadResurses()

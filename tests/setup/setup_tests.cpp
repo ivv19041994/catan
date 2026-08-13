@@ -40,6 +40,25 @@ int main() { return test::Run({
         controlled.game->BuildSettlement(current, 0);
         test::Throws([&] { controlled.game->BuildRoad(current, 71); }, "remote initial road must be rejected");
     }},
+    {"reverse-round road cannot attach to the player's older settlement", [] {
+        test::ControlledGame controlled({"a","b"}); auto& game=*controlled.game;
+        const auto first=game.GetCurrentPlayer();
+        game.BuildSettlement(first,0); game.BuildRoad(first,0);
+        const auto second=game.GetCurrentPlayer();
+        game.BuildSettlement(second,3); game.BuildRoad(second,2);
+
+        test::Equal(game.GetCurrentPlayer(),second,"last player starts reverse round");
+        game.BuildSettlement(second,16);
+        test::Check(!game.CanBuildRoad(1),"road beside the first settlement is not a valid return-round target");
+        test::Throws([&]{game.BuildRoad(second,1);},"return-round road beside old settlement must be rejected");
+        test::Check(game.CanBuildRoad(23),"road beside the settlement built this turn remains valid");
+        game.BuildRoad(second,23);
+
+        test::Equal(game.GetCurrentPlayer(),first,"reverse round continues to first player");
+        game.BuildSettlement(first,6);
+        test::Check(!game.CanBuildRoad(1),"first player's older network cannot anchor second setup road");
+        test::Check(game.CanBuildRoad(5),"first player's newly placed settlement anchors its road");
+    }},
     {"only current player may place and ids are range checked", [] {
         test::ControlledGame controlled({"a","b"});
         const auto current = controlled.game->GetCurrentPlayer();

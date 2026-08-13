@@ -83,6 +83,16 @@ int32 CountDevelopmentCards(const ivv::catan::Player& Player)
     return static_cast<int32>(Count);
 }
 
+int32 CountPendingDevelopmentCards(const ivv::catan::Player& Player)
+{
+    using ivv::catan::DevelopmentCard;
+    constexpr DevelopmentCard Cards[] = {DevelopmentCard::Knights, DevelopmentCard::RoadBuilding,
+        DevelopmentCard::YearOfPlenty, DevelopmentCard::Monopoly};
+    size_t Count = 0;
+    for (DevelopmentCard Card : Cards) Count += Player.GetPurchasedCardCount(Card);
+    return static_cast<int32>(Count);
+}
+
 FCatanResourceView ToResourceView(const std::map<ivv::catan::Resurse, size_t>& Resources)
 {
     FCatanResourceView View;
@@ -284,6 +294,7 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
                     Player->RoadBuildingCards = PlayerState->PrivateView.RoadBuildingCards;
                     Player->YearOfPlentyCards = PlayerState->PrivateView.YearOfPlentyCards;
                     Player->MonopolyCards = PlayerState->PrivateView.MonopolyCards;
+                    Player->PendingDevelopmentCards = PlayerState->PrivateView.PendingDevelopmentCards;
                 }
         return View;
     }
@@ -298,6 +309,7 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
         Player.RoadBuildingCards = 0;
         Player.YearOfPlentyCards = 0;
         Player.MonopolyCards = 0;
+        Player.PendingDevelopmentCards = 0;
     }
     return View;
 }
@@ -479,6 +491,7 @@ FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
         PlayerView.RoadBuildingCards = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::RoadBuilding));
         PlayerView.YearOfPlentyCards = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::YearOfPlenty));
         PlayerView.MonopolyCards = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::Monopoly));
+        PlayerView.PendingDevelopmentCards = CountPendingDevelopmentCards(Player);
         PlayerView.bHasLargestArmy = Player.HasLargestArmy();
         PlayerView.bHasLongestRoad = Player.HasLongestRoad();
         PlayerView.FreeSettlements = static_cast<int32>(Player.getFreeSettlementCount());
@@ -944,8 +957,10 @@ void UCatanGameSubsystem::PublishAuthoritativeState()
         Private.RoadBuildingCards = Player.RoadBuildingCards;
         Private.YearOfPlentyCards = Player.YearOfPlentyCards;
         Private.MonopolyCards = Player.MonopolyCards;
+        Private.PendingDevelopmentCards = Player.PendingDevelopmentCards;
         Player.Resources = {};
         Player.Knights = Player.RoadBuildingCards = Player.YearOfPlentyCards = Player.MonopolyCards = 0;
+        Player.PendingDevelopmentCards = 0;
         for (APlayerState* BaseState : State->PlayerArray)
             if (ACatanPlayerState* PlayerState = Cast<ACatanPlayerState>(BaseState))
                 if (PlayerState->GetPlayerName() == Player.Name)
