@@ -121,6 +121,7 @@ private:
 	std::optional<std::string> winner_;
 
 	std::optional<Deal> activ_deal_;
+	std::optional<size_t> setup_settlement_id_;
 
 	//void startPlace();
 

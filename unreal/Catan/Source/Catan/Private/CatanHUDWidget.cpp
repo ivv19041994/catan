@@ -317,6 +317,7 @@ void UCatanHUDWidget::BuildLayout()
     UVerticalBox* DevelopmentPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(DevelopmentPanel);
     AddText(DevelopmentPanel, TEXT("DEVELOPMENT CARDS"), 25);
+    DevelopmentAvailabilityText = AddText(DevelopmentPanel, FString(), 15);
     if (UTexture2D* CardAtlas = LoadObject<UTexture2D>(nullptr, TEXT("/Game/UI/development-card-icons-atlas.development-card-icons-atlas")))
     {
         UImage* CardIcons = WidgetTree->ConstructWidget<UImage>();
@@ -622,10 +623,13 @@ void UCatanHUDWidget::Refresh()
         HandTitleText->SetText(FText::FromString(FString::Printf(TEXT("YOUR HAND — %d RESOURCE CARDS"),
             VisibleLocalPlayer->ResourceCards)));
         DevelopmentHandText->SetText(FText::FromString(FString::Printf(
-            TEXT("DEV %d  |  Knight %d  Roads %d  Plenty %d  Monopoly %d"),
+            TEXT("DEV %d  |  Knight %d  Roads %d  Plenty %d  Monopoly %d%s"),
             VisibleLocalPlayer->DevelopmentCards, VisibleLocalPlayer->Knights,
             VisibleLocalPlayer->RoadBuildingCards, VisibleLocalPlayer->YearOfPlentyCards,
-            VisibleLocalPlayer->MonopolyCards)));
+            VisibleLocalPlayer->MonopolyCards,
+            VisibleLocalPlayer->PendingDevelopmentCards > 0
+                ? *FString::Printf(TEXT("  |  %d ready next turn"), VisibleLocalPlayer->PendingDevelopmentCards)
+                : TEXT(""))));
         if (bHavePreviousLocalResources)
         {
             const int32 Before[] = {PreviousLocalResources.Wood, PreviousLocalResources.Clay,
@@ -830,10 +834,19 @@ void UCatanHUDWidget::Refresh()
     {
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(2);
-        KnightButton->SetIsEnabled(LocalPlayer->Knights > 0);
-        RoadBuildingButton->SetIsEnabled(bPlay && LocalPlayer->RoadBuildingCards > 0);
-        YearOfPlentyButton->SetIsEnabled(bPlay && LocalPlayer->YearOfPlentyCards > 0);
-        MonopolyButton->SetIsEnabled(bPlay && LocalPlayer->MonopolyCards > 0);
+        auto ShowCard = [](UButton* Button, bool bVisible)
+        {
+            Button->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+            Button->SetIsEnabled(bVisible);
+        };
+        ShowCard(KnightButton, LocalPlayer->Knights > 0);
+        ShowCard(RoadBuildingButton, bPlay && LocalPlayer->RoadBuildingCards > 0);
+        ShowCard(YearOfPlentyButton, bPlay && LocalPlayer->YearOfPlentyCards > 0);
+        ShowCard(MonopolyButton, bPlay && LocalPlayer->MonopolyCards > 0);
+        DevelopmentAvailabilityText->SetText(FText::FromString(LocalPlayer->PendingDevelopmentCards > 0
+            ? FString::Printf(TEXT("%d card(s) bought this turn — available next turn."),
+                LocalPlayer->PendingDevelopmentCards)
+            : TEXT("Choose a ready card to play.")));
     }
     else if (bTradePanelOpen && LocalPlayer && bLocalTurn && bPlay)
     {
