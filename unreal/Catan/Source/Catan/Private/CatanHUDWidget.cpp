@@ -695,11 +695,12 @@ void UCatanHUDWidget::Refresh()
     };
     SetActionVisible(RollButton, bLocalTurn && bRoll);
     SetActionVisible(SettlementButton, bLocalTurn && bPlay && bCanSettlement
-        && LocalPlayer && LocalPlayer->FreeSettlements > 0);
+        && LocalPlayer && LocalPlayer->FreeSettlements > 0 && View.bHasSettlementTarget);
     SetActionVisible(RoadButton, bLocalTurn && ((bPlay && bCanRoad
-        && LocalPlayer && LocalPlayer->FreeRoads > 0) || View.Phase == ECatanGamePhase::RoadBuilding));
+        && LocalPlayer && LocalPlayer->FreeRoads > 0 && View.bHasRoadTarget)
+        || (View.Phase == ECatanGamePhase::RoadBuilding && View.bHasRoadTarget)));
     SetActionVisible(CityButton, bLocalTurn && bPlay && bCanCity
-        && LocalPlayer && LocalPlayer->FreeCities > 0);
+        && LocalPlayer && LocalPlayer->FreeCities > 0 && View.bHasCityTarget);
     SetActionVisible(BuyCardButton, bLocalTurn && bPlay && bCanCard);
     SetActionVisible(TradeButton, bLocalTurn && bPlay);
     SetActionVisible(PassButton, bLocalTurn && bPlay);

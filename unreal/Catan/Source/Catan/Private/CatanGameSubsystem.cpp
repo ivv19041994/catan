@@ -549,6 +549,19 @@ FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
                 View.ValidNodeTargets.Add(Index);
         }
     }
+    if (View.Phase == ECatanGamePhase::CommonPlay)
+    {
+        for (int32 Index = 0; Index < static_cast<int32>(View.Nodes.Num()); ++Index)
+        {
+            View.bHasSettlementTarget = View.bHasSettlementTarget || Game->CanBuildSettlement(Index);
+            View.bHasCityTarget = View.bHasCityTarget || Game->CanBuildCastle(Index);
+            if (View.bHasSettlementTarget && View.bHasCityTarget) break;
+        }
+    }
+    else if (View.Phase == ECatanGamePhase::SetupSettlement)
+    {
+        View.bHasSettlementTarget = !View.ValidNodeTargets.IsEmpty();
+    }
     const bool bRoadTargets = View.Phase == ECatanGamePhase::SetupRoad
         || View.Phase == ECatanGamePhase::RoadBuilding
         || (View.Phase == ECatanGamePhase::CommonPlay && BoardAction == ECatanBoardAction::BuildRoad);
@@ -556,6 +569,19 @@ FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
     {
         for (int32 Index = 0; Index < static_cast<int32>(View.Roads.Num()); ++Index)
             if (Game->CanBuildRoad(Index)) View.ValidRoadTargets.Add(Index);
+    }
+    if (View.Phase == ECatanGamePhase::CommonPlay)
+    {
+        for (int32 Index = 0; Index < static_cast<int32>(View.Roads.Num()); ++Index)
+            if (Game->CanBuildRoad(Index))
+            {
+                View.bHasRoadTarget = true;
+                break;
+            }
+    }
+    else if (View.Phase == ECatanGamePhase::SetupRoad || View.Phase == ECatanGamePhase::RoadBuilding)
+    {
+        View.bHasRoadTarget = !View.ValidRoadTargets.IsEmpty();
     }
     if (View.Phase == ECatanGamePhase::MoveRobber && PendingRobberHex == INDEX_NONE)
     {
