@@ -228,17 +228,25 @@ void UCatanHUDWidget::BuildLayout()
 
     UBorder* ActionBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 1), FVector2D(0.5f, 1),
         FMargin(0, -24, 1100, 155));
+    if (UCanvasPanelSlot* ActionSlot = Cast<UCanvasPanelSlot>(ActionBorder->Slot))
+    {
+        ActionSlot->SetAutoSize(true);
+        ActionSlot->SetPosition(FVector2D(0, -24));
+    }
     UVerticalBox* ActionPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ActionBorder->SetContent(ActionPanel);
-    AddText(ActionPanel, TEXT("ACTIONS"), 18);
+    UCommonTextBlock* ActionTitle = AddText(ActionPanel, TEXT("ACTIONS"), 18);
+    ActionTitle->SetJustification(ETextJustify::Center);
     UHorizontalBox* Buttons = WidgetTree->ConstructWidget<UHorizontalBox>();
-    ActionPanel->AddChildToVerticalBox(Buttons);
+    UVerticalBoxSlot* ButtonsRow = ActionPanel->AddChildToVerticalBox(Buttons);
+    ButtonsRow->SetHorizontalAlignment(HAlign_Center);
 
     auto AddAction = [this, Buttons](const FString& Label)
     {
         UVerticalBox* Box = WidgetTree->ConstructWidget<UVerticalBox>();
         UHorizontalBoxSlot* BoxSlot = Buttons->AddChildToHorizontalBox(Box);
         BoxSlot->SetPadding(FMargin(5));
+        BoxSlot->SetHorizontalAlignment(HAlign_Center);
         return AddButton(Box, Label);
     };
     RollButton = AddAction(TEXT("ROLL DICE"));
@@ -644,14 +652,25 @@ void UCatanHUDWidget::Refresh()
     const bool bCanSettlement = CanAfford(Have, 1, 1, 1, 1, 0);
     const bool bCanCity = CanAfford(Have, 0, 0, 2, 0, 3);
     const bool bCanCard = CanAfford(Have, 0, 0, 1, 1, 1);
-    RollButton->SetIsEnabled(bLocalTurn && bRoll);
-    SettlementButton->SetIsEnabled(bLocalTurn && bPlay && bCanSettlement && CurrentPlayer && CurrentPlayer->FreeSettlements > 0);
-    RoadButton->SetIsEnabled(bLocalTurn && ((bPlay && bCanRoad && CurrentPlayer && CurrentPlayer->FreeRoads > 0)
-        || View.Phase == ECatanGamePhase::RoadBuilding));
-    CityButton->SetIsEnabled(bLocalTurn && bPlay && bCanCity && CurrentPlayer && CurrentPlayer->FreeCities > 0);
-    BuyCardButton->SetIsEnabled(bLocalTurn && bPlay && bCanCard);
-    TradeButton->SetIsEnabled(bLocalTurn && bPlay);
-    PassButton->SetIsEnabled(bLocalTurn && bPlay);
+    auto SetActionVisible = [](UButton* Button, bool bVisible)
+    {
+        if (!Button) return;
+        Button->SetIsEnabled(bVisible);
+        if (UWidget* SlotWidget = Button->GetParent())
+            SlotWidget->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        else
+            Button->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    };
+    SetActionVisible(RollButton, bLocalTurn && bRoll);
+    SetActionVisible(SettlementButton, bLocalTurn && bPlay && bCanSettlement
+        && LocalPlayer && LocalPlayer->FreeSettlements > 0);
+    SetActionVisible(RoadButton, bLocalTurn && ((bPlay && bCanRoad
+        && LocalPlayer && LocalPlayer->FreeRoads > 0) || View.Phase == ECatanGamePhase::RoadBuilding));
+    SetActionVisible(CityButton, bLocalTurn && bPlay && bCanCity
+        && LocalPlayer && LocalPlayer->FreeCities > 0);
+    SetActionVisible(BuyCardButton, bLocalTurn && bPlay && bCanCard);
+    SetActionVisible(TradeButton, bLocalTurn && bPlay);
+    SetActionVisible(PassButton, bLocalTurn && bPlay);
     BuildCostText->SetText(FText::FromString(
         CostLine(TEXT("ROAD"), Have, 1, 1, 0, 0, 0) + TEXT("\n")
         + CostLine(TEXT("SETTLEMENT"), Have, 1, 1, 1, 1, 0) + TEXT("\n")
@@ -676,7 +695,7 @@ void UCatanHUDWidget::Refresh()
         ? LocalPlayer->Knights + LocalPlayer->RoadBuildingCards
             + LocalPlayer->YearOfPlentyCards + LocalPlayer->MonopolyCards
         : 0;
-    UseCardButton->SetIsEnabled(bLocalTurn && (bPlay || bRoll) && ReadyCards > 0);
+    SetActionVisible(UseCardButton, bLocalTurn && (bPlay || bRoll) && ReadyCards > 0);
     auto MarkSelected = [&View](UButton* Button, ECatanBoardAction Action)
     {
         Button->SetBackgroundColor(View.BoardAction == Action
