@@ -16,6 +16,7 @@ class UBorder;
 class USpinBox;
 class UVerticalBox;
 class UWidgetSwitcher;
+class UWrapBox;
 enum class ECatanDevelopmentCard : uint8;
 
 UCLASS()
@@ -98,6 +99,9 @@ private:
     UPROPERTY(Transient) TObjectPtr<UVerticalBox> PlayerDetails;
     UPROPERTY(Transient) TObjectPtr<UButton> LeftDetailsButton;
     UPROPERTY(Transient) TObjectPtr<UButton> RightDetailsButton;
+    UPROPERTY(Transient) TObjectPtr<UBorder> ActionBorder;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> ActionTitle;
+    UPROPERTY(Transient) TObjectPtr<UWrapBox> ActionButtons;
 
     FString LastDropPlayer;
     bool bDevelopmentPanelOpen = false;
@@ -166,4 +170,5 @@ private:
     void PlayDevelopmentCard(ECatanDevelopmentCard Card);
     bool GetValidatedPlayerName(FString& OutName);
     void ApplyAdaptiveLayout(bool bCompact);
+    void UpdateActionLabels();
 };
