@@ -134,4 +134,5 @@ private:
 
     void ChooseVictim(int32 Index);
     void PlayDevelopmentCard(ECatanDevelopmentCard Card);
+    bool GetValidatedPlayerName(FString& OutName);
 };

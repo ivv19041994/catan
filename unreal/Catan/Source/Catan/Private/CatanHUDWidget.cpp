@@ -422,10 +422,14 @@ void UCatanHUDWidget::BuildLayout()
     for (int32 Index = 0; Index < 4; ++Index)
     {
         PlayerSlotLabels.Add(AddText(SetupPanel,
-            FString::Printf(TEXT("PLAYER %d — %s"), Index + 1, SlotColors[Index]), 16));
+            Index == 0 ? TEXT("YOUR PLAYER NAME — REQUIRED")
+                : FString::Printf(TEXT("PLAYER %d — %s"), Index + 1, SlotColors[Index]),
+            Index == 0 ? 20 : 16));
         UEditableTextBox* Name = WidgetTree->ConstructWidget<UEditableTextBox>();
-        Name->SetText(FText::FromString(FString::Printf(TEXT("Player %d"), Index + 1)));
-        Name->SetHintText(FText::FromString(TEXT("Player name")));
+        Name->SetText(Index == 0 ? FText::GetEmpty()
+            : FText::FromString(FString::Printf(TEXT("Player %d"), Index + 1)));
+        Name->SetHintText(FText::FromString(Index == 0
+            ? TEXT("Enter your name before hosting or joining") : TEXT("Player name")));
         SetupPanel->AddChildToVerticalBox(Name);
         PlayerNameInputs.Add(Name);
         if (Index > 0)
@@ -434,7 +438,6 @@ void UCatanHUDWidget::BuildLayout()
             PlayerSlotLabels[Index]->SetVisibility(ESlateVisibility::Collapsed);
         }
     }
-    PlayerSlotLabels[0]->SetText(FText::FromString(TEXT("YOUR NAME")));
     LobbyNameInput = WidgetTree->ConstructWidget<UEditableTextBox>();
     LobbyNameInput->SetText(FText::FromString(TEXT("Catan LAN Lobby")));
     LobbyNameInput->SetHintText(FText::FromString(TEXT("Lobby name")));
@@ -796,7 +799,9 @@ void UCatanHUDWidget::Refresh()
 
 void UCatanHUDWidget::HostLanLobby()
 {
-    NetworkSubsystem->HostLobby(PlayerNameInputs[0]->GetText().ToString(), LobbyNameInput->GetText().ToString());
+    FString PlayerName;
+    if (!GetValidatedPlayerName(PlayerName)) return;
+    NetworkSubsystem->HostLobby(PlayerName, LobbyNameInput->GetText().ToString());
 }
 
 void UCatanHUDWidget::FindLanLobbies()
@@ -806,12 +811,30 @@ void UCatanHUDWidget::FindLanLobbies()
 
 void UCatanHUDWidget::JoinSelectedLobby()
 {
-    NetworkSubsystem->JoinLobby(LobbyResults->GetSelectedIndex(), PlayerNameInputs[0]->GetText().ToString());
+    FString PlayerName;
+    if (!GetValidatedPlayerName(PlayerName)) return;
+    NetworkSubsystem->JoinLobby(LobbyResults->GetSelectedIndex(), PlayerName);
 }
 
 void UCatanHUDWidget::JoinManualLobby()
 {
-    NetworkSubsystem->JoinManual(ManualAddressInput->GetText().ToString(), PlayerNameInputs[0]->GetText().ToString());
+    FString PlayerName;
+    if (!GetValidatedPlayerName(PlayerName)) return;
+    NetworkSubsystem->JoinManual(ManualAddressInput->GetText().ToString(), PlayerName);
+}
+
+bool UCatanHUDWidget::GetValidatedPlayerName(FString& OutName)
+{
+    OutName = PlayerNameInputs.IsValidIndex(0)
+        ? PlayerNameInputs[0]->GetText().ToString().TrimStartAndEnd().Left(24)
+        : FString();
+    if (!OutName.IsEmpty()) return true;
+    ToastText->SetText(FText::FromString(TEXT("Enter your player name first")));
+    ToastBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
+    ToastBorder->SetRenderOpacity(1.0f);
+    ToastRemaining = 3.0f;
+    if (PlayerNameInputs.IsValidIndex(0)) PlayerNameInputs[0]->SetKeyboardFocus();
+    return false;
 }
 
 void UCatanHUDWidget::ToggleLobbyReady()
