@@ -37,6 +37,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> PlayersText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> HandTitleText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DevelopmentHandText;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DevelopmentAvailabilityText;
     UPROPERTY(Transient) TArray<TObjectPtr<UCommonTextBlock>> ResourceCountTexts;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> HintText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> StatusText;

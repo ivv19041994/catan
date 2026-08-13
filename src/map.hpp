@@ -57,7 +57,7 @@ namespace catan {
 
 		std::set<Gex*> getGexsByNodeId(size_t nodeId);
 		std::set<Facet*> getFacetsByNodeId(size_t nodeId);
-		bool isNodeAndFacetNeighbor(size_t nodeId, size_t facetId);
+		bool isNodeAndFacetNeighbor(size_t nodeId, size_t facetId) const;
 
 		std::array<Gex, gexs_count>& GetGexes();
 		const std::array<Gex, gexs_count>& GetGexes() const;

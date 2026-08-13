@@ -3,6 +3,7 @@
 #include <deque>
 #include <cassert>
 #include <numeric>
+#include <algorithm>
 
 #include "player.hpp"
 #include "exception.hpp"
@@ -590,11 +591,11 @@ std::set<Facet*> Map::getFacetsByNodeId(size_t nodeId)
 	return n.getNeighborFacets();
 }
 
-bool Map::isNodeAndFacetNeighbor(size_t nodeId, size_t facetId)
+bool Map::isNodeAndFacetNeighbor(size_t nodeId, size_t facetId) const
 {
-	if (nodes[nodeId].getNeighborFacets().count(&facets[facetId]))
-		return true;
-	return false;
+	const Facet* candidate = &facets[facetId];
+	return std::ranges::any_of(nodes[nodeId].getNeighborFacets(),
+		[candidate](const Facet* facet) { return facet == candidate; });
 }
 
 void Map::initNode(int node, std::vector<int> ns, std::vector<int> fs, std::vector<int> gs)
