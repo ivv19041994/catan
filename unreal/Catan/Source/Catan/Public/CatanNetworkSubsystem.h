@@ -31,6 +31,7 @@ public:
     UFUNCTION(BlueprintPure) FString GetLocalAddress() const;
     UFUNCTION(BlueprintPure) const TArray<FCatanDiscoveredLobby>& GetDiscoveredLobbies() const { return DiscoveredLobbies; }
     UFUNCTION(BlueprintPure) const FString& GetStatus() const { return Status; }
+    const FString& GetPendingPlayerName() const { return PendingPlayerName; }
 
     UPROPERTY(BlueprintAssignable) FOnCatanNetworkChanged OnNetworkChanged;
 

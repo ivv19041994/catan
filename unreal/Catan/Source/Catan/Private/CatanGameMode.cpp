@@ -90,6 +90,32 @@ void ACatanGameMode::SetPlayerReady(APlayerController* Player, bool bReady)
     PublishLobby();
 }
 
+void ACatanGameMode::SetPlayerDisplayName(APlayerController* Player, const FString& RequestedName)
+{
+    if (!Player || bLobbyGameStarted) return;
+    FString Base = RequestedName.TrimStartAndEnd().Left(24);
+    Base.ReplaceInline(TEXT("\t"), TEXT(" "));
+    Base.ReplaceInline(TEXT("\n"), TEXT(" "));
+    if (Base.IsEmpty()) Base = TEXT("Player");
+    FString Unique = Base;
+    int32 Suffix = 2;
+    auto Exists = [this, Player](const FString& Candidate)
+    {
+        for (APlayerState* State : GameState->PlayerArray)
+            if (State != Player->PlayerState && State->GetPlayerName().Equals(Candidate, ESearchCase::IgnoreCase))
+                return true;
+        return false;
+    };
+    while (Exists(Unique)) Unique = FString::Printf(TEXT("%s %d"), *Base, Suffix++);
+    if (ACatanPlayerState* State = Player->GetPlayerState<ACatanPlayerState>())
+    {
+        State->DisplayName = Unique;
+        State->ForceNetUpdate();
+    }
+    UE_LOG(LogCatanNetworkMode, Display, TEXT("CATAN_E2E identity player=%s"), *Unique);
+    PublishLobby();
+}
+
 void ACatanGameMode::StartLobbyGame(APlayerController* Requester)
 {
     if (bLobbyGameStarted || !Requester) return;

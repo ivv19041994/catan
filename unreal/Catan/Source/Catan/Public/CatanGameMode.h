@@ -20,6 +20,7 @@ public:
         const FString& Portal = TEXT("")) override;
 
     void SetPlayerReady(APlayerController* Player, bool bReady);
+    void SetPlayerDisplayName(APlayerController* Player, const FString& RequestedName);
     void StartLobbyGame(APlayerController* Requester);
     void PublishLobby();
 

@@ -40,7 +40,10 @@ for attempt in {1..45}; do
   fi
   if grep -q "CATAN_E2E post login.*total=3" "$log_dir/host.log" 2>/dev/null \
       && grep -q "LAN discovery success=1 results=1" "$log_dir/discovery.log" 2>/dev/null \
-      && grep -q "Local LAN address mapped to loopback" "$log_dir/manual.log" 2>/dev/null; then
+      && grep -q "Local LAN address mapped to loopback" "$log_dir/manual.log" 2>/dev/null \
+      && grep -q "CATAN_E2E identity player=E2EHost" "$log_dir/host.log" 2>/dev/null \
+      && grep -q "CATAN_E2E identity player=DiscoveryClient" "$log_dir/host.log" 2>/dev/null \
+      && grep -q "CATAN_E2E identity player=ManualClient" "$log_dir/host.log" 2>/dev/null; then
     print "PASS: UI-equivalent host, discovery join and manual-address join reached one lobby"
     print "Logs: $log_dir"
     exit 0

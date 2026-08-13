@@ -405,6 +405,7 @@ void UCatanNetworkSubsystem::JoinManual(const FString& Address, const FString& P
 {
     FString Target = Address.TrimStartAndEnd();
     if (Target.IsEmpty()) { Status = TEXT("Enter host IP address"); OnNetworkChanged.Broadcast(); return; }
+    PendingPlayerName = PlayerName.TrimStartAndEnd().Left(24);
     if (!LanAddress.IsEmpty() && (Target == LanAddress || Target.StartsWith(LanAddress + TEXT(":"))))
     {
         Target = TEXT("127.0.0.1") + Target.Mid(LanAddress.Len());

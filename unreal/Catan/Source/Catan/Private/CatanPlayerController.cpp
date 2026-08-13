@@ -1,6 +1,7 @@
 #include "CatanPlayerController.h"
 #include "CatanGameMode.h"
 #include "CatanGameSubsystem.h"
+#include "CatanNetworkSubsystem.h"
 #include "GameFramework/PlayerState.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -19,6 +20,12 @@ ACatanPlayerController::ACatanPlayerController()
 void ACatanPlayerController::ServerSetLobbyReady_Implementation(bool bReady)
 {
     if (ACatanGameMode* Mode = GetWorld()->GetAuthGameMode<ACatanGameMode>()) Mode->SetPlayerReady(this, bReady);
+}
+
+void ACatanPlayerController::ServerSetDisplayName_Implementation(const FString& PlayerName)
+{
+    if (ACatanGameMode* Mode = GetWorld()->GetAuthGameMode<ACatanGameMode>())
+        Mode->SetPlayerDisplayName(this, PlayerName);
 }
 
 void ACatanPlayerController::ServerStartLobbyGame_Implementation()
@@ -76,6 +83,16 @@ void ACatanPlayerController::BeginPlay()
     FInputModeGameAndUI InputMode;
     InputMode.SetHideCursorDuringCapture(false);
     SetInputMode(InputMode);
+    if (IsLocalController())
+    {
+        FTimerHandle IdentityHandle;
+        GetWorldTimerManager().SetTimer(IdentityHandle, [this]
+        {
+            if (const UCatanNetworkSubsystem* Network = GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>())
+                if (!Network->GetPendingPlayerName().IsEmpty())
+                    ServerSetDisplayName(Network->GetPendingPlayerName());
+        }, 1.0f, false);
+    }
     if (FParse::Param(FCommandLine::Get(), TEXT("CatanAutoReady")))
     {
         FTimerHandle Handle;

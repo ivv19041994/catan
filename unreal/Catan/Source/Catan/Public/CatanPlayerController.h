@@ -21,6 +21,9 @@ public:
     void ServerSetLobbyReady(bool bReady);
 
     UFUNCTION(Server, Reliable)
+    void ServerSetDisplayName(const FString& PlayerName);
+
+    UFUNCTION(Server, Reliable)
     void ServerStartLobbyGame();
 
     UFUNCTION(Server, Reliable)
