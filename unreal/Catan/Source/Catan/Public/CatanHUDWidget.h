@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "CommonActivatableWidget.h"
+#include "CatanViewTypes.h"
 
 #include "CatanHUDWidget.generated.h"
 
@@ -34,6 +35,9 @@ private:
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> PhaseText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DiceText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> PlayersText;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> HandTitleText;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DevelopmentHandText;
+    UPROPERTY(Transient) TArray<TObjectPtr<UCommonTextBlock>> ResourceCountTexts;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> HintText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> StatusText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> EventText;
@@ -89,6 +93,8 @@ private:
     float ToastRemaining = 0.0f;
     float ResourcePulseRemaining = 0.0f;
     FString PreviousResourceDigest;
+    FCatanResourceView PreviousLocalResources;
+    bool bHavePreviousLocalResources = false;
     int32 PendingExpensiveAction = 0;
 
     void BuildLayout();
