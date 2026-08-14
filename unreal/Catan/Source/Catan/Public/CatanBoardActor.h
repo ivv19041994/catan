@@ -7,11 +7,14 @@
 #include "CatanBoardActor.generated.h"
 
 class UMaterialInterface;
+class UHierarchicalInstancedStaticMeshComponent;
 class UPrimitiveComponent;
 class UProceduralMeshComponent;
+class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class UTextRenderComponent;
 class USoundWaveProcedural;
+enum class ECatanResource : uint8;
 
 UCLASS()
 class CATAN_API ACatanBoardActor final : public AActor
@@ -56,6 +59,9 @@ private:
     TArray<TObjectPtr<UStaticMeshComponent>> RoadPavingParts;
 
     UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> FlagCloths;
+
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UStaticMeshComponent>> TokenSlots;
 
     UPROPERTY(Transient)
@@ -66,6 +72,9 @@ private:
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UProceduralMeshComponent>> ResourceProceduralParts;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> ResourceInstancedParts;
 
     TArray<uint8> RenderedHexResources;
     TArray<uint8> ResourceAnimationKinds;
@@ -82,10 +91,16 @@ private:
     TArray<FVector> BuildingRoofTargets;
     TArray<int32> BuildingPartNodeIds;
     TArray<uint8> BuildingPartModes;
+    TArray<bool> BuildingPartUsesPlayerColor;
     TArray<float> BuildingPartShades;
     TArray<FVector> BuildingPartScaleTargets;
     TArray<int32> RoadPavingRoadIds;
+    TArray<bool> RoadPavingPartUsesPlayerColor;
     TArray<FVector> RoadPavingScaleTargets;
+    TArray<FVector> FlagAnchors;
+    TArray<float> FlagBaseYaws;
+    TArray<float> FlagHalfLengths;
+    TArray<float> FlagAnimationPhases;
     TArray<FVector> RoadScaleTargets;
     TArray<float> HexLabelSizeTargets;
     TArray<FVector> HexTokenScaleTargets;
@@ -105,13 +120,12 @@ private:
     TArray<TObjectPtr<UTextRenderComponent>> PortLabels;
 
     UPROPERTY(Transient)
-    TArray<TObjectPtr<UStaticMeshComponent>> RobberBodies;
+    TArray<TObjectPtr<USkeletalMeshComponent>> RobberFigures;
 
     UPROPERTY(Transient)
-    TArray<TObjectPtr<UStaticMeshComponent>> RobberHeads;
+    TArray<TObjectPtr<USceneComponent>> RobberPlaceholders;
 
-    TArray<FVector> RobberBodyOffsets;
-    TArray<FVector> RobberHeadOffsets;
+    TArray<FVector> RobberFigureOffsets;
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UStaticMeshComponent>> DicePieces;
@@ -125,8 +139,10 @@ private:
     void BuildBoard();
     bool TryBuildBoard();
     void BuildEnvironment();
+    void BuildShore();
     void BuildHexes();
-    void CreateHexSection(int32 Index, const FVector& Center, const FLinearColor& Color);
+    void CreateHexSection(int32 Index, const FVector& Center, ECatanResource Resource,
+        const FLinearColor& Color);
     void BuildResourceDecorations();
     void BuildPorts();
     void BuildHexHitTargets();
@@ -137,6 +153,9 @@ private:
     void PlayFeedbackTone(float Frequency, float Duration, float Volume = 0.18f);
     UStaticMeshComponent* AddDecoration(const FString& Name, UStaticMesh* Mesh,
         const FVector& Location, const FVector& Scale, const FLinearColor& Color,
+        const FRotator& Rotation = FRotator::ZeroRotator);
+    UStaticMeshComponent* AddAuthoredDecoration(const FString& Name, UStaticMesh* Mesh,
+        const FVector& Location, const FVector& Scale,
         const FRotator& Rotation = FRotator::ZeroRotator);
 
     UFUNCTION()

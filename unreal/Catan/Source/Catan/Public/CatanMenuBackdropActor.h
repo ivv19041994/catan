@@ -6,6 +6,7 @@
 #include "CatanMenuBackdropActor.generated.h"
 
 class UMaterialInterface;
+class UHierarchicalInstancedStaticMeshComponent;
 class UProceduralMeshComponent;
 class UStaticMeshComponent;
 
@@ -40,6 +41,9 @@ private:
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UProceduralMeshComponent>> ResourcePyramids;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> ResourceInstancedParts;
 
     bool bBuilt = false;
 

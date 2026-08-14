@@ -3,4 +3,14 @@
 /unreal/Catan/DerivedDataCache/
 /unreal/Catan/Intermediate/
 /unreal/Catan/Saved/
+/unreal/Catan/Saved.backup-*/
+/unreal/Catan/Build/
+/unreal/Catan/Builds/
+.DS_Store
 *.xcworkspace
+
+# Locally installed Fab/Marketplace content (not redistributable in source control).
+/unreal/Catan/Content/DZ_Assets/
+/unreal/Catan/Content/Fab/
+/unreal/Catan/Content/Pirate/
+/unreal/Catan/Content/Viking_Village_Pack/
