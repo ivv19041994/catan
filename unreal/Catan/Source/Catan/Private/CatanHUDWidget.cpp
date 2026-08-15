@@ -492,7 +492,13 @@ void UCatanHUDWidget::BuildLayout()
     TradeModeSwitcher->AddChild(PlayerTradePanel);
     AddText(PlayerTradePanel, TEXT("OFFER TO"), 18);
     TradingPlayer = WidgetTree->ConstructWidget<UComboBoxString>();
-    TradingPlayer->OnGenerateWidgetEvent.BindDynamic(this, &UCatanHUDWidget::GenerateLargeComboOption);
+    {
+        FSlateFontInfo Font = TradingPlayer->GetFont();
+        Font.Size = 22;
+PRAGMA_DISABLE_DEPRECATION_WARNINGS
+        TradingPlayer->Font = Font;
+PRAGMA_ENABLE_DEPRECATION_WARNINGS
+    }
     TradingPlayer->SetContentPadding(FMargin(14, 10));
     TradingPlayer->SetMaxListHeight(320.0f);
     USizeBox* RecipientSize = WidgetTree->ConstructWidget<USizeBox>();
@@ -526,7 +532,11 @@ void UCatanHUDWidget::BuildLayout()
             for (int32 Count = 0; Count <= 5; ++Count)
                 Input->AddOption(FString::FromInt(Count));
             Input->SetSelectedOption(TEXT("0"));
-            Input->OnGenerateWidgetEvent.BindDynamic(this, &UCatanHUDWidget::GenerateLargeComboOption);
+            FSlateFontInfo InputFont = Input->GetFont();
+            InputFont.Size = 24;
+PRAGMA_DISABLE_DEPRECATION_WARNINGS
+            Input->Font = InputFont;
+PRAGMA_ENABLE_DEPRECATION_WARNINGS
             Input->SetContentPadding(FMargin(18, 8));
             Input->SetMaxListHeight(360.0f);
             USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
@@ -1228,6 +1238,11 @@ void UCatanHUDWidget::ApplyUIPreview()
         if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(CancelDealButton->GetChildAt(0)))
             Label->SetText(FText::FromString(TEXT("DECLINE OFFER")));
     }
+    if (!bUIPreviewReported)
+    {
+        bUIPreviewReported = true;
+        UE_LOG(LogTemp, Display, TEXT("CATAN_UI_PREVIEW ready mode=%s"), *Preview);
+    }
 }
 
 void UCatanHUDWidget::SetModalSize(float Width, float Height)
@@ -1517,16 +1532,6 @@ void UCatanHUDWidget::CloseTrading()
     Refresh();
 }
 
-UWidget* UCatanHUDWidget::GenerateLargeComboOption(FString Item)
-{
-    UCommonTextBlock* Text = WidgetTree->ConstructWidget<UCommonTextBlock>();
-    Text->SetText(FText::FromString(Item));
-    FSlateFontInfo Font = Text->GetFont();
-    Font.Size = 24;
-    Text->SetFont(Font);
-    Text->SetJustification(ETextJustify::Center);
-    return Text;
-}
 
 void UCatanHUDWidget::StartNewGame()
 {

@@ -122,6 +122,7 @@ private:
     bool bLeftDetailsOpen = false;
     bool bRightDetailsOpen = false;
     bool bTradeInputsNeedReset = true;
+    bool bUIPreviewReported = false;
     ECatanResource BankFromSelection = ECatanResource::Wood;
     ECatanResource BankToSelection = ECatanResource::Clay;
 
@@ -164,7 +165,6 @@ private:
     UFUNCTION() void AcceptTrade();
     UFUNCTION() void CancelTrade();
     UFUNCTION() void CloseTrading();
-    UFUNCTION() UWidget* GenerateLargeComboOption(FString Item);
     UFUNCTION() void StartNewGame();
     UFUNCTION() void ConfirmNewGame();
     UFUNCTION() void UpdatePlayerCount(FString SelectedItem, ESelectInfo::Type SelectionType);

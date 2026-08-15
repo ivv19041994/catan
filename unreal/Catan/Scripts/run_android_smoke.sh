@@ -12,6 +12,7 @@ emulator="$sdk_root/emulator/emulator"
 log_dir="$(mktemp -d /tmp/catan-android-smoke.XXXXXX)"
 log_file="$log_dir/logcat.txt"
 screenshot="$log_dir/main-menu.png"
+trade_screenshot="$log_dir/player-trade.png"
 started_emulator=0
 
 fail() {
@@ -46,11 +47,24 @@ done
 renderer="$(adb shell dumpsys SurfaceFlinger 2>/dev/null | rg -m1 'GLES:' || true)"
 print "Renderer: ${renderer:-unknown}"
 adb install -r "$apk" >/dev/null || fail "APK installation failed"
+fatal_pattern='No Vulkan driver found|Unable to run on this device|Assertion failed|Fatal error|FATAL EXCEPTION|Fatal signal|Lock at Offset|RequestExit\(1'
+
+assert_running_without_fatal() {
+  local context="$1"
+  adb logcat -d >"$log_file"
+  if rg -q "$fatal_pattern" "$log_file"; then
+    rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
+    fail "$context"
+  fi
+  local top_activity="$(adb shell dumpsys activity activities | rg -m1 'topResumedActivity' || true)"
+  [[ "$top_activity" == *"$package_name/com.epicgames.unreal.GameActivity"* ]] \
+    || fail "Catan GameActivity is no longer in the foreground: $top_activity"
+}
+
 adb logcat -c
 adb shell am force-stop "$package_name"
 adb shell am start -n "$activity" >/dev/null || fail "activity launch failed"
 
-fatal_pattern='No Vulkan driver found|Unable to run on this device|Assertion failed|Fatal error|FATAL EXCEPTION|Fatal signal|Lock at Offset|RequestExit\(1'
 initialized=0
 menu_ready=0
 for attempt in {1..60}; do
@@ -69,19 +83,35 @@ done
 
 # Some renderer failures happen several frames after the menu is created.
 sleep 10
-adb logcat -d >"$log_file"
-if rg -q "$fatal_pattern" "$log_file"; then
-  rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
-  fail "late Android/RHI failure detected"
-fi
-top_activity="$(adb shell dumpsys activity activities | rg -m1 'topResumedActivity' || true)"
-[[ "$top_activity" == *"$package_name/com.epicgames.unreal.GameActivity"* ]] \
-  || fail "Catan GameActivity is no longer in the foreground: $top_activity"
+assert_running_without_fatal "late Android/RHI failure detected"
 
 adb exec-out screencap -p >"$screenshot"
 [[ -s "$screenshot" ]] || fail "Android screenshot is empty"
 
-print "PASS: Android engine initialization, main menu and post-start stability"
+print "Testing Other Player dropdowns across a forced garbage collection..."
+adb logcat -c
+adb shell am force-stop "$package_name"
+adb shell am start -n "$activity" --es cmdline '-CatanUIPreview=PlayerTrade' >/dev/null \
+  || fail "player-trade preview launch failed"
+preview_ready=0
+for attempt in {1..60}; do
+  adb logcat -d >"$log_file"
+  if rg -q "$fatal_pattern" "$log_file"; then
+    rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
+    fail "player-trade preview crashed during startup"
+  fi
+  rg -q 'CATAN_UI_PREVIEW ready mode=PlayerTrade' "$log_file" && preview_ready=1
+  (( preview_ready )) && break
+  sleep 1
+done
+(( preview_ready )) || fail "player-trade preview marker was not observed"
+adb shell am broadcast -a android.intent.action.RUN -e cmd 'obj gc' >/dev/null
+sleep 10
+assert_running_without_fatal "Other Player controls failed after garbage collection"
+adb exec-out screencap -p >"$trade_screenshot"
+[[ -s "$trade_screenshot" ]] || fail "player-trade screenshot is empty"
+
+print "PASS: Android engine initialization, main menu, Other Player controls and post-GC stability"
 print "APK: $apk"
 print "Artifacts: $log_dir"
 if (( started_emulator )); then
