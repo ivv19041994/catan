@@ -33,7 +33,13 @@ Run server-only and Unreal end-to-end checks:
 ```sh
 scripts/run_dedicated_server_smoke.sh
 unreal/Catan/Scripts/run_dedicated_e2e.sh
+unreal/Catan/Scripts/run_android_dedicated_e2e.sh \
+  unreal/Catan/Builds/AndroidLatest/Catan-arm64.apk
 ```
+
+The Android E2E starts two virtual phones, connects both through the host
+machine's `10.0.2.2` gateway, completes initial placement and verifies normal
+turns. Logs and screenshots from both clients are retained under `/tmp`.
 
 The wire protocol is a version-one request/response TCP protocol with one
 newline-terminated request per connection. `catan-dedicated-probe` is provided

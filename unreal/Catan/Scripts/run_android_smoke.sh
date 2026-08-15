@@ -163,7 +163,7 @@ adb exec-out screencap -p >"$screenshot"
 
 test_combo_preview PlayerTrade 1180 490
 test_combo_preview Development 1200 565
-test_combo_preview Online 1200 415
+test_combo_preview Online 1200 435
 test_combo_preview Bots 1200 390
 test_bank_preview
 
