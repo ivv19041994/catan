@@ -73,7 +73,8 @@ public:
     bool TryBankTrade(ECatanResource From, ECatanResource To, FString& Error);
 
     UFUNCTION(BlueprintCallable, Category="Catan")
-    bool TryOfferTrade(const FCatanResourceView& Offered, const FCatanResourceView& Requested, FString& Error);
+    bool TryOfferTrade(const FCatanResourceView& Offered, const FCatanResourceView& Requested,
+        const FString& TargetPlayer, FString& Error);
 
     UFUNCTION(BlueprintCallable, Category="Catan")
     bool TryAcceptTrade(const FString& Player, FString& Error);
@@ -91,6 +92,7 @@ private:
     std::unique_ptr<ivv::catan::GameController> Game;
     TArray<FString> PlayerNames;
     FString LocalPlayerName;
+    FString ActiveTradeTarget;
     ECatanBoardAction BoardAction = ECatanBoardAction::Automatic;
     FString StatusMessage;
     int32 PendingRobberHex = INDEX_NONE;
@@ -101,6 +103,7 @@ private:
     FString LastLongestRoad;
     TSet<FString> BotPlayers;
     float BotActionDelay = 0.0f;
+    float BotTradeResponseDelay = 0.0f;
     FRandomStream BotRandom;
     FTSTicker::FDelegateHandle BotTickerHandle;
     bool bBotAutoplay = false;

@@ -1,4 +1,5 @@
 #include "CatanGameSubsystem.h"
+#include "CatanTradePolicy.h"
 
 #include "CatanGameState.h"
 #include "CatanPlayerController.h"
@@ -156,6 +157,7 @@ void UCatanGameSubsystem::StartLocalGame(const TArray<FString>& Names)
     BotPlayers.Reset();
     PlayerNames = Names.Num() >= 2 ? Names : TArray<FString>{TEXT("Player 1"), TEXT("Player 2")};
     LocalPlayerName = PlayerNames.IsEmpty() ? FString() : PlayerNames[0];
+    ActiveTradeTarget.Reset();
     std::vector<std::string> CoreNames;
     CoreNames.reserve(PlayerNames.Num());
     for (const FString& Name : PlayerNames)
@@ -224,6 +226,28 @@ void UCatanGameSubsystem::TickBots(float DeltaSeconds)
         if (bBotAutoplay && !bBotE2EExitRequested)
             FinishBotE2E(!View.Winner.IsEmpty(), FString::Printf(TEXT("winner=%s actions=%d"),
                 View.Winner.IsEmpty() ? TEXT("none") : *View.Winner, BotE2EActions));
+        return;
+    }
+    if (View.ActiveDeal.bIsActive && IsBotPlayer(View.ActiveDeal.TargetPlayer))
+    {
+        BotTradeResponseDelay -= DeltaSeconds;
+        if (BotTradeResponseDelay > 0.0f) return;
+        FString Error;
+        const auto& Deal = Game->GetActivDeal();
+        try
+        {
+            Game->SetDeal(TCHAR_TO_UTF8(*ActiveTradeTarget), Deal->buy, Deal->sell);
+            const FString BotName = ActiveTradeTarget;
+            ActiveTradeTarget.Reset();
+            CompleteCommand(true, FString::Printf(TEXT("%s accepted the trade"), *BotName), Error);
+        }
+        catch (const std::exception&)
+        {
+            const FString BotName = ActiveTradeTarget;
+            Game->CancelDeal(TCHAR_TO_UTF8(*BotName));
+            ActiveTradeTarget.Reset();
+            CompleteCommand(true, FString::Printf(TEXT("%s declined the trade"), *BotName), Error);
+        }
         return;
     }
     if (!IsBotPlayer(View.CurrentPlayer)) return;
@@ -468,6 +492,7 @@ FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
     {
         View.ActiveDeal.bIsActive = true;
         View.ActiveDeal.OfferingPlayer = UTF8_TO_TCHAR(Game->GetCurrentPlayer().c_str());
+        View.ActiveDeal.TargetPlayer = ActiveTradeTarget;
         View.ActiveDeal.Offered = ToResourceView(Deal->sell);
         View.ActiveDeal.Requested = ToResourceView(Deal->buy);
     }
@@ -844,13 +869,21 @@ bool UCatanGameSubsystem::TryBankTrade(ECatanResource From, ECatanResource To, F
 }
 
 bool UCatanGameSubsystem::TryOfferTrade(const FCatanResourceView& Offered,
-    const FCatanResourceView& Requested, FString& Error)
+    const FCatanResourceView& Requested, const FString& TargetPlayer, FString& Error)
 {
-    if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::OfferTrade, 0, 0, FString(), Offered, Requested, Error);
+    if (!HasAuthoritativeGame()) return RouteRemoteCommand(
+        ECatanServerCommand::OfferTrade, 0, 0, TargetPlayer, Offered, Requested, Error);
+    const FString OfferingPlayer = UTF8_TO_TCHAR(Game->GetCurrentPlayer().c_str());
+    if (TargetPlayer.IsEmpty() || TargetPlayer == OfferingPlayer || !PlayerNames.Contains(TargetPlayer))
+        return CompleteCommand(false, TEXT("Choose another player to receive the offer"), Error);
     try
     {
         Game->SetDeal(Game->GetCurrentPlayer(), ToResourceMap(Offered), ToResourceMap(Requested));
-        return CompleteCommand(true, TEXT("Trade offered — another player may accept or decline"), Error);
+        ActiveTradeTarget = TargetPlayer;
+        if (IsBotPlayer(TargetPlayer))
+            BotTradeResponseDelay = bBotAutoplay ? 0.05f : 0.75f;
+        return CompleteCommand(true,
+            FString::Printf(TEXT("Trade offered to %s"), *TargetPlayer), Error);
     }
     catch (const std::exception& Exception)
     {
@@ -863,9 +896,12 @@ bool UCatanGameSubsystem::TryAcceptTrade(const FString& Player, FString& Error)
     if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::AcceptTrade, 0, 0, FString(), {}, {}, Error);
     const auto& Deal = Game->GetActivDeal();
     if (!Deal) return CompleteCommand(false, TEXT("There is no active trade"), Error);
+    if (!CatanTradePolicy::CanAccept(Player, ActiveTradeTarget))
+        return CompleteCommand(false, TEXT("Only the selected recipient can accept this trade"), Error);
     try
     {
         Game->SetDeal(TCHAR_TO_UTF8(*Player), Deal->buy, Deal->sell);
+        ActiveTradeTarget.Reset();
         return CompleteCommand(true, FString::Printf(TEXT("%s accepted the trade"), *Player), Error);
     }
     catch (const std::exception& Exception)
@@ -879,7 +915,11 @@ bool UCatanGameSubsystem::TryCancelTrade(const FString& Player, FString& Error)
     if (!HasAuthoritativeGame()) return RouteRemoteCommand(ECatanServerCommand::CancelTrade, 0, 0, FString(), {}, {}, Error);
     try
     {
+        const FString OfferingPlayer = UTF8_TO_TCHAR(Game->GetCurrentPlayer().c_str());
+        if (!CatanTradePolicy::CanCancel(Player, OfferingPlayer, ActiveTradeTarget))
+            return CompleteCommand(false, TEXT("Only the offerer or recipient can cancel this trade"), Error);
         Game->CancelDeal(TCHAR_TO_UTF8(*Player));
+        ActiveTradeTarget.Reset();
         return CompleteCommand(true, TEXT("Trade cancelled"), Error);
     }
     catch (const std::exception& Exception)

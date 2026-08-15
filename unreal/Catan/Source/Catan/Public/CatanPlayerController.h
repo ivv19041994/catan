@@ -37,6 +37,9 @@ public:
 private:
     FString LastAutomatedSetupKey;
     bool bReconnectSnapshotReported = false;
+    bool bTradeE2EReported = false;
+    int32 TradeE2ENextResource = 0;
+    FString LastTradeE2EStateKey;
     void RunAutomatedSetupStep();
     void RunMultiplayerE2EStep();
 };

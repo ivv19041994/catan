@@ -54,7 +54,7 @@ launch_client() {
   "$editor_binary" "$project_file" "/Engine/Maps/Templates/Template_Default" \
     -game -nullrhi -unattended -nosound -abslog="$log_file" \
     -CatanAutoManualJoin="$host_address" -CatanAutoName="$name" \
-    -CatanAutoReady -CatanMultiplayerE2E "$@" &
+    -CatanAutoReady -CatanMultiplayerE2E -CatanTradeE2E "$@" &
   REPLY="$!"
 }
 
@@ -62,7 +62,7 @@ print "Starting host and two LAN clients..."
 "$editor_binary" "$project_file" "/Engine/Maps/Templates/Template_Default" \
   -game -nullrhi -unattended -nosound -abslog="$log_dir/host.log" \
   -CatanAutoHostLobby -CatanAutoName=E2EHost -CatanAutoReady \
-  -CatanAutoStart=3 -CatanMultiplayerE2E &
+  -CatanAutoStart=3 -CatanMultiplayerE2E -CatanTradeE2E &
 host_pid="$!"
 
 wait_for "CATAN_E2E discovery host listening" 45
@@ -89,6 +89,8 @@ if (( ${pass_count:-0} < 6 )); then
   print -u2 "FAIL: fewer than six normal turns completed; logs: $log_dir"
   exit 1
 fi
+
+wait_for "CATAN_TRADE_E2E PASS" 120
 
 print "Normal turns completed; disconnecting and reconnecting E2EClient2..."
 kill "$client_two_pid" 2>/dev/null || true
