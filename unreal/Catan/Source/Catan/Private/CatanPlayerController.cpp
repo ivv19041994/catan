@@ -127,11 +127,15 @@ void ACatanPlayerController::RunAutomatedSetupStep()
 
 void ACatanPlayerController::RunMultiplayerE2EStep()
 {
-    if (!IsLocalController() || !GetWorld() || GetWorld()->GetNetMode() == NM_Standalone) return;
+    if (!IsLocalController() || !GetWorld()) return;
+    const UCatanNetworkSubsystem* Network = GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>();
+    if (GetWorld()->GetNetMode() == NM_Standalone && (!Network || !Network->IsDedicatedActive())) return;
     UCatanGameSubsystem* Proxy = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     if (!Proxy) return;
     const FCatanGameView View = Proxy->GetSnapshot();
-    const FString LocalName = PlayerState ? PlayerState->GetPlayerName() : FString();
+    const FString LocalName = Network && Network->IsDedicatedActive()
+        ? Network->GetDedicatedPlayerName()
+        : PlayerState ? PlayerState->GetPlayerName() : FString();
     const bool bTradeE2E = FParse::Param(FCommandLine::Get(), TEXT("CatanTradeE2E"));
     if (bTradeE2E && !bTradeE2EReported && View.EventLog.ContainsByPredicate(
         [](const FString& Event) { return Event.Contains(TEXT("accepted the trade")); }))

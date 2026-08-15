@@ -4,6 +4,7 @@ project(catan_engine VERSION 0.1.0 LANGUAGES CXX)
 
 option(CATAN_BUILD_CONSOLE "Build the experimental console application" ON)
 option(CATAN_BUILD_TESTS "Build unit tests" ON)
+option(CATAN_BUILD_DEDICATED_SERVER "Build the portable dedicated server" ON)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -22,6 +23,22 @@ add_library(catan_engine
 
 target_include_directories(catan_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(catan_engine PUBLIC cxx_std_20)
+
+if(CATAN_BUILD_DEDICATED_SERVER)
+    add_library(catan_dedicated
+        src/dedicated_protocol.cpp
+        src/dedicated_server.cpp
+    )
+    target_link_libraries(catan_dedicated PUBLIC catan_engine)
+    target_include_directories(catan_dedicated PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(catan_dedicated PUBLIC cxx_std_20)
+
+    add_executable(catan-dedicated-server src/dedicated_server_main.cpp)
+    target_link_libraries(catan-dedicated-server PRIVATE catan_dedicated)
+
+    add_executable(catan-dedicated-probe src/dedicated_probe_main.cpp)
+    target_compile_features(catan-dedicated-probe PRIVATE cxx_std_20)
+endif()
 
 add_library(catan_render
     src/map_rander.cpp
@@ -64,5 +81,16 @@ if(CATAN_BUILD_TESTS)
         add_catan_domain_test(awards_victory)
         add_catan_domain_test(map)
         add_catan_domain_test(player_deck)
+
+        if(CATAN_BUILD_DEDICATED_SERVER)
+            add_executable(catan_dedicated_server_tests
+                tests/dedicated_server/dedicated_server_tests.cpp
+            )
+            target_link_libraries(catan_dedicated_server_tests PRIVATE catan_dedicated)
+            target_include_directories(catan_dedicated_server_tests PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/support)
+            target_compile_features(catan_dedicated_server_tests PRIVATE cxx_std_20)
+            add_test(NAME catan_dedicated_server_tests COMMAND catan_dedicated_server_tests)
+        endif()
     endif()
 endif()

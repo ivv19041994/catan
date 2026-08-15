@@ -4,6 +4,7 @@
 #include "CatanGameState.h"
 #include "CatanPlayerController.h"
 #include "CatanPlayerState.h"
+#include "CatanNetworkSubsystem.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/CommandLine.h"
@@ -300,6 +301,10 @@ void UCatanGameSubsystem::FinishBotE2E(bool bSucceeded, const FString& Message)
 
 FCatanGameView UCatanGameSubsystem::GetSnapshot() const
 {
+    if (const UCatanNetworkSubsystem* Network = GetGameInstance()
+        ? GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>() : nullptr;
+        Network && Network->IsDedicatedActive() && Network->IsDedicatedPlaying())
+        return Network->GetDedicatedView();
     const UWorld* World = GetWorld();
     const ACatanGameState* State = World ? World->GetGameState<ACatanGameState>() : nullptr;
     if (State && State->NetworkMode == ECatanNetworkMode::Playing
@@ -340,12 +345,19 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
 
 bool UCatanGameSubsystem::HasAuthoritativeGame() const
 {
+    if (const UCatanNetworkSubsystem* Network = GetGameInstance()
+        ? GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>() : nullptr;
+        Network && Network->IsDedicatedActive()) return false;
     const UWorld* World = GetWorld();
     return Game != nullptr && (!World || World->GetNetMode() != NM_Client);
 }
 
 bool UCatanGameSubsystem::CanLocalPlayerAct(const FCatanGameView& View) const
 {
+    if (const UCatanNetworkSubsystem* Network = GetGameInstance()
+        ? GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>() : nullptr;
+        Network && Network->IsDedicatedActive())
+        return !View.CurrentPlayer.IsEmpty() && View.CurrentPlayer == Network->GetDedicatedPlayerName();
     const UWorld* World = GetWorld();
     if (!World) return false;
     if (World->GetNetMode() == NM_Standalone) return !IsBotPlayer(View.CurrentPlayer);
@@ -967,6 +979,11 @@ bool UCatanGameSubsystem::RouteRemoteCommand(ECatanServerCommand Command, int32 
     const FString& Text, const FCatanResourceView& FirstResources,
     const FCatanResourceView& SecondResources, FString& Error)
 {
+    if (UCatanNetworkSubsystem* Network = GetGameInstance()
+        ? GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>() : nullptr;
+        Network && Network->IsDedicatedActive())
+        return Network->SendDedicatedCommand(Command, First, Second, Text,
+            FirstResources, SecondResources, Error);
     if (UWorld* World = GetWorld())
         if (ACatanPlayerController* Controller = Cast<ACatanPlayerController>(UGameplayStatics::GetPlayerController(World, 0)))
         {

@@ -86,12 +86,15 @@ private:
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> ConfirmationText;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> LobbyNameInput;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> ManualAddressInput;
+    UPROPERTY(Transient) TObjectPtr<UEditableTextBox> DedicatedAddressInput;
+    UPROPERTY(Transient) TObjectPtr<UEditableTextBox> DedicatedLobbyTokenInput;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> LobbyResults;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> NetworkStatusText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> LobbyPlayersText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> LobbyAddressText;
     UPROPERTY(Transient) TObjectPtr<UButton> ReadyButton;
     UPROPERTY(Transient) TObjectPtr<UButton> StartLobbyButton;
+    UPROPERTY(Transient) TObjectPtr<UButton> CopyLobbyTokenButton;
     UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> SetupSwitcher;
     UPROPERTY(Transient) TObjectPtr<UBorder> InfoBorder;
     UPROPERTY(Transient) TObjectPtr<UBorder> EventBorder;
@@ -181,6 +184,9 @@ private:
     UFUNCTION() void FindLanLobbies();
     UFUNCTION() void JoinSelectedLobby();
     UFUNCTION() void JoinManualLobby();
+    UFUNCTION() void CreateDedicatedLobby();
+    UFUNCTION() void JoinDedicatedLobby();
+    UFUNCTION() void CopyDedicatedLobbyToken();
     UFUNCTION() void ToggleLobbyReady();
     UFUNCTION() void StartLobbyMatch();
     UFUNCTION() void LeaveLobby();

@@ -33,6 +33,7 @@
 #include "Engine/Texture2D.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "HAL/PlatformApplicationMisc.h"
 
 namespace
 {
@@ -589,10 +590,13 @@ void UCatanHUDWidget::BuildLayout()
     OnlineMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowOnlineSetup);
     BotMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowBotSetup);
 
+    UScrollBox* OnlineScroll = WidgetTree->ConstructWidget<UScrollBox>();
+    SetupSwitcher->AddChild(OnlineScroll);
     UVerticalBox* OnlinePanel = WidgetTree->ConstructWidget<UVerticalBox>();
-    SetupSwitcher->AddChild(OnlinePanel);
-    AddText(OnlinePanel, TEXT("ONLINE — LOCAL NETWORK"), 27);
-    AddText(OnlinePanel, TEXT("Host a LAN lobby, find one automatically, or enter its address."), 16);
+    OnlineScroll->AddChild(OnlinePanel);
+    AddText(OnlinePanel, TEXT("ONLINE"), 27);
+    AddText(OnlinePanel, TEXT("LOCAL HOST"), 19);
+    AddText(OnlinePanel, TEXT("Host a LAN lobby, find one automatically, or enter its address."), 15);
     LobbyNameInput = WidgetTree->ConstructWidget<UEditableTextBox>();
     LobbyNameInput->SetText(FText::FromString(TEXT("Catan LAN Lobby")));
     LobbyNameInput->SetHintText(FText::FromString(TEXT("Lobby name")));
@@ -615,6 +619,20 @@ void UCatanHUDWidget::BuildLayout()
     OnlinePanel->AddChildToVerticalBox(ManualAddressInput);
     UButton* JoinAddress = AddButton(OnlinePanel, TEXT("JOIN BY ADDRESS"));
     JoinAddress->OnClicked.AddDynamic(this, &UCatanHUDWidget::JoinManualLobby);
+    AddText(OnlinePanel, TEXT("DEDICATED SERVER"), 19);
+    DedicatedAddressInput = WidgetTree->ConstructWidget<UEditableTextBox>();
+    DedicatedAddressInput->SetText(FText::FromString(TEXT("127.0.0.1:17777")));
+    DedicatedAddressInput->SetHintText(FText::FromString(TEXT("Server IP, e.g. 192.168.1.20:17777")));
+    DedicatedAddressInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
+    OnlinePanel->AddChildToVerticalBox(DedicatedAddressInput);
+    UButton* CreateDedicated = AddButton(OnlinePanel, TEXT("CREATE GAME ON SERVER"));
+    CreateDedicated->OnClicked.AddDynamic(this, &UCatanHUDWidget::CreateDedicatedLobby);
+    DedicatedLobbyTokenInput = WidgetTree->ConstructWidget<UEditableTextBox>();
+    DedicatedLobbyTokenInput->SetHintText(FText::FromString(TEXT("Lobby token, e.g. ABCD-EFGH")));
+    DedicatedLobbyTokenInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
+    OnlinePanel->AddChildToVerticalBox(DedicatedLobbyTokenInput);
+    UButton* JoinDedicated = AddButton(OnlinePanel, TEXT("JOIN GAME BY LOBBY TOKEN"));
+    JoinDedicated->OnClicked.AddDynamic(this, &UCatanHUDWidget::JoinDedicatedLobby);
     UButton* OnlineBack = AddButton(OnlinePanel, TEXT("BACK"));
     OnlineBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMainSetup);
     NetworkStatusText = AddText(OnlinePanel, TEXT("LAN ready"), 14);
@@ -647,14 +665,16 @@ void UCatanHUDWidget::BuildLayout()
 
     UVerticalBox* LobbyPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(LobbyPanel);
-    AddText(LobbyPanel, TEXT("LAN LOBBY"), 32);
+    AddText(LobbyPanel, TEXT("GAME LOBBY"), 32);
     LobbyAddressText = AddText(LobbyPanel, TEXT("Host address"), 16);
     LobbyPlayersText = AddText(LobbyPanel, TEXT("Waiting for players..."), 20);
     ReadyButton = AddButton(LobbyPanel, TEXT("READY"));
     StartLobbyButton = AddButton(LobbyPanel, TEXT("START GAME"));
+    CopyLobbyTokenButton = AddButton(LobbyPanel, TEXT("COPY LOBBY TOKEN"));
     UButton* LeaveLobbyButton = AddButton(LobbyPanel, TEXT("LEAVE LOBBY"));
     ReadyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ToggleLobbyReady);
     StartLobbyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::StartLobbyMatch);
+    CopyLobbyTokenButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::CopyDedicatedLobbyToken);
     LeaveLobbyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::LeaveLobby);
     ModalBorder->SetVisibility(ESlateVisibility::Collapsed);
 
@@ -834,6 +854,40 @@ void UCatanHUDWidget::Refresh()
             LobbyResults->SetSelectedIndex(FMath::Clamp(Previous, 0, LobbyResults->GetOptionCount() - 1));
         }
     }
+    if (NetworkSubsystem && NetworkSubsystem->IsDedicatedActive()
+        && !NetworkSubsystem->IsDedicatedPlaying())
+    {
+        bSetupPanelOpen = false;
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(8);
+        const TArray<FCatanLobbyPlayerView>& Players = NetworkSubsystem->GetDedicatedLobbyPlayers();
+        FString Rows;
+        bool bAllReady = Players.Num() >= 2;
+        bool bLocalReady = false;
+        bool bLocalHost = false;
+        for (const FCatanLobbyPlayerView& Player : Players)
+        {
+            Rows += FString::Printf(TEXT("%s %s%s\n"), Player.bReady ? TEXT("✓") : TEXT("○"),
+                *Player.Name, Player.bHost ? TEXT("  [HOST]") : TEXT(""));
+            bAllReady = bAllReady && Player.bReady;
+            if (Player.Name == NetworkSubsystem->GetDedicatedPlayerName())
+            {
+                bLocalReady = Player.bReady;
+                bLocalHost = Player.bHost;
+            }
+        }
+        LobbyPlayersText->SetText(FText::FromString(Rows + TEXT("\n2–4 players; everyone must be ready.")));
+        LobbyAddressText->SetText(FText::FromString(FString::Printf(
+            TEXT("Server: %s\nLobby token: %s\nYour private player token: %s"),
+            *NetworkSubsystem->GetDedicatedAddress(), *NetworkSubsystem->GetDedicatedLobbyToken(),
+            *NetworkSubsystem->GetDedicatedPlayerToken())));
+        if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(ReadyButton->GetChildAt(0)))
+            Label->SetText(FText::FromString(bLocalReady ? TEXT("NOT READY") : TEXT("READY")));
+        StartLobbyButton->SetVisibility(bLocalHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        StartLobbyButton->SetIsEnabled(bLocalHost && bAllReady && Players.Num() <= 4);
+        CopyLobbyTokenButton->SetVisibility(ESlateVisibility::Visible);
+        return;
+    }
     if (const ACatanGameState* NetworkState = GetWorld() ? GetWorld()->GetGameState<ACatanGameState>() : nullptr;
         NetworkState && NetworkState->NetworkMode == ECatanNetworkMode::Lobby)
     {
@@ -864,6 +918,7 @@ void UCatanHUDWidget::Refresh()
             Label->SetText(FText::FromString(bLocalReady ? TEXT("NOT READY") : TEXT("READY")));
         StartLobbyButton->SetVisibility(bLocalHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
         StartLobbyButton->SetIsEnabled(bLocalHost && bAllReady && NetworkState->LobbyPlayers.Num() <= 4);
+        CopyLobbyTokenButton->SetVisibility(ESlateVisibility::Collapsed);
         return;
     }
     const FCatanGameView View = GameSubsystem->GetSnapshot();
@@ -1350,6 +1405,29 @@ void UCatanHUDWidget::JoinManualLobby()
     NetworkSubsystem->JoinManual(ManualAddressInput->GetText().ToString(), PlayerName);
 }
 
+void UCatanHUDWidget::CreateDedicatedLobby()
+{
+    FString PlayerName;
+    if (!GetValidatedPlayerName(PlayerName) || !NetworkSubsystem || !DedicatedAddressInput) return;
+    NetworkSubsystem->CreateDedicatedLobby(DedicatedAddressInput->GetText().ToString(), PlayerName,
+        LobbyNameInput ? LobbyNameInput->GetText().ToString() : TEXT("Catan lobby"));
+}
+
+void UCatanHUDWidget::JoinDedicatedLobby()
+{
+    FString PlayerName;
+    if (!GetValidatedPlayerName(PlayerName) || !NetworkSubsystem
+        || !DedicatedAddressInput || !DedicatedLobbyTokenInput) return;
+    NetworkSubsystem->JoinDedicatedLobby(DedicatedAddressInput->GetText().ToString(),
+        DedicatedLobbyTokenInput->GetText().ToString(), PlayerName);
+}
+
+void UCatanHUDWidget::CopyDedicatedLobbyToken()
+{
+    if (!NetworkSubsystem || !NetworkSubsystem->IsDedicatedActive()) return;
+    FPlatformApplicationMisc::ClipboardCopy(*NetworkSubsystem->GetDedicatedLobbyToken());
+}
+
 bool UCatanHUDWidget::GetValidatedPlayerName(FString& OutName)
 {
     OutName = PlayerNameInputs.IsValidIndex(0)
@@ -1366,6 +1444,14 @@ bool UCatanHUDWidget::GetValidatedPlayerName(FString& OutName)
 
 void UCatanHUDWidget::ToggleLobbyReady()
 {
+    if (NetworkSubsystem && NetworkSubsystem->IsDedicatedActive())
+    {
+        const FCatanLobbyPlayerView* Local = NetworkSubsystem->GetDedicatedLobbyPlayers().FindByPredicate(
+            [this](const FCatanLobbyPlayerView& Player)
+            { return Player.Name == NetworkSubsystem->GetDedicatedPlayerName(); });
+        NetworkSubsystem->SetDedicatedReady(!(Local && Local->bReady));
+        return;
+    }
     if (ACatanPlayerController* Controller = Cast<ACatanPlayerController>(GetOwningPlayer()))
     {
         const ACatanPlayerState* State = Controller->GetPlayerState<ACatanPlayerState>();
@@ -1375,6 +1461,11 @@ void UCatanHUDWidget::ToggleLobbyReady()
 
 void UCatanHUDWidget::StartLobbyMatch()
 {
+    if (NetworkSubsystem && NetworkSubsystem->IsDedicatedActive())
+    {
+        NetworkSubsystem->StartDedicatedGame();
+        return;
+    }
     if (ACatanPlayerController* Controller = Cast<ACatanPlayerController>(GetOwningPlayer())) Controller->ServerStartLobbyGame();
 }
 
