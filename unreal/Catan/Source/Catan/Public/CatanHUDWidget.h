@@ -74,7 +74,6 @@ private:
     UPROPERTY(Transient) TArray<TObjectPtr<UComboBoxString>> OfferedInputs;
     UPROPERTY(Transient) TArray<TObjectPtr<UComboBoxString>> RequestedInputs;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DealText;
-    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> BankRateText;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> TradingPlayer;
     UPROPERTY(Transient) TObjectPtr<UButton> AcceptDealButton;
     UPROPERTY(Transient) TObjectPtr<UButton> CancelDealButton;
@@ -125,6 +124,7 @@ private:
     bool bUIPreviewReported = false;
     ECatanResource BankFromSelection = ECatanResource::Wood;
     ECatanResource BankToSelection = ECatanResource::Clay;
+    FCatanResourceView CurrentBankTradeRates;
 
     void BuildLayout();
     void ConfigureComboBox(UComboBoxString* ComboBox, int32 FontSize);
@@ -193,6 +193,7 @@ private:
     void ApplyAdaptiveLayout(bool bCompact);
     void UpdateActionLabels();
     void UpdateBankSelectionStyles();
+    void UpdatePlayerTradeLimits(const FCatanResourceView& Resources);
     void ResetTradeInputs();
     void ApplyUIPreview();
     void SetModalSize(float Width, float Height);

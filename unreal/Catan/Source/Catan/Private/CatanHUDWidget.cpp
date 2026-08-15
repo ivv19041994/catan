@@ -452,8 +452,6 @@ void UCatanHUDWidget::BuildLayout()
     TradeModeSwitcher->AddChild(BankPanel);
     AddText(BankPanel, TEXT("Choose one resource to give and one to receive"), 18)
         ->SetJustification(ETextJustify::Center);
-    BankRateText = AddText(BankPanel, FString(), 15);
-    BankRateText->SetJustification(ETextJustify::Center);
     UHorizontalBox* BankColumns = WidgetTree->ConstructWidget<UHorizontalBox>();
     BankPanel->AddChildToVerticalBox(BankColumns);
     UVerticalBox* BankGive = WidgetTree->ConstructWidget<UVerticalBox>();
@@ -1170,11 +1168,8 @@ void UCatanHUDWidget::Refresh()
         SetModalSize(1040.0f, 760.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(3);
-        BankRateText->SetText(FText::FromString(FString::Printf(
-            TEXT("Your bank rates: Wood %d:1 | Clay %d:1 | Hay %d:1 | Sheep %d:1 | Ore %d:1"),
-            LocalPlayer->TradeRates.Wood, LocalPlayer->TradeRates.Clay,
-            LocalPlayer->TradeRates.Hay, LocalPlayer->TradeRates.Sheep,
-            LocalPlayer->TradeRates.Stone)));
+        CurrentBankTradeRates = LocalPlayer->TradeRates;
+        UpdatePlayerTradeLimits(LocalPlayer->Resources);
         const FString PreviousRecipient = TradingPlayer->GetSelectedOption();
         TradingPlayer->ClearOptions();
         for (const FCatanPlayerView& Player : View.Players)
@@ -1209,9 +1204,14 @@ void UCatanHUDWidget::ApplyUIPreview()
         SetModalSize(1040.0f, 760.0f);
         ModalSwitcher->SetActiveWidgetIndex(3);
         TradeModeSwitcher->SetActiveWidgetIndex(0);
-        BankRateText->SetText(FText::FromString(
-            TEXT("Your bank rates: Wood 4:1 | Clay 3:1 | Hay 4:1 | Sheep 2:1 | Ore 4:1")));
+        CurrentBankTradeRates.Wood = 4;
+        CurrentBankTradeRates.Clay = 3;
+        CurrentBankTradeRates.Hay = 4;
+        CurrentBankTradeRates.Sheep = 2;
+        CurrentBankTradeRates.Stone = 4;
         UpdateBankSelectionStyles();
+        if (!bUIPreviewReported)
+            UE_LOG(LogTemp, Display, TEXT("CATAN_BANK_LABELS rates=4,3,4,2,4"));
     }
     else if (Preview.Equals(TEXT("PlayerTrade"), ESearchCase::IgnoreCase))
     {
@@ -1224,6 +1224,18 @@ void UCatanHUDWidget::ApplyUIPreview()
             TradingPlayer->AddOption(TEXT("Player 2"));
             TradingPlayer->SetSelectedIndex(0);
         }
+        FCatanResourceView PreviewResources;
+        PreviewResources.Wood = 1;
+        PreviewResources.Clay = 2;
+        PreviewResources.Hay = 3;
+        PreviewResources.Sheep = 4;
+        PreviewResources.Stone = 7;
+        UpdatePlayerTradeLimits(PreviewResources);
+        if (!bUIPreviewReported && OfferedInputs.Num() == 5 && RequestedInputs.Num() == 5)
+            UE_LOG(LogTemp, Display, TEXT("CATAN_PLAYER_TRADE_LIMITS max=%d,%d,%d,%d,%d receive=%d"),
+                OfferedInputs[0]->GetOptionCount() - 1, OfferedInputs[1]->GetOptionCount() - 1,
+                OfferedInputs[2]->GetOptionCount() - 1, OfferedInputs[3]->GetOptionCount() - 1,
+                OfferedInputs[4]->GetOptionCount() - 1, RequestedInputs[0]->GetOptionCount() - 1);
     }
     else if (Preview.Equals(TEXT("Discard"), ESearchCase::IgnoreCase))
     {
@@ -1496,17 +1508,45 @@ void UCatanHUDWidget::SelectBankToStone() { BankToSelection = ECatanResource::St
 
 void UCatanHUDWidget::UpdateBankSelectionStyles()
 {
+    static const TCHAR* ResourceNames[] = { TEXT("Wood"), TEXT("Clay"), TEXT("Hay"), TEXT("Sheep"), TEXT("Stone") };
+    const int32 Rates[] = {
+        CurrentBankTradeRates.Wood, CurrentBankTradeRates.Clay, CurrentBankTradeRates.Hay,
+        CurrentBankTradeRates.Sheep, CurrentBankTradeRates.Stone
+    };
     for (int32 Index = 0; Index < BankFromButtons.Num(); ++Index)
     {
         const bool bSelected = Index == static_cast<int32>(BankFromSelection);
         BankFromButtons[Index]->SetRenderScale(bSelected ? FVector2D(1.06f) : FVector2D(1.0f));
         BankFromButtons[Index]->SetRenderOpacity(bSelected ? 1.0f : 0.52f);
+        if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(BankFromButtons[Index]->GetChildAt(0)))
+            Label->SetText(FText::FromString(FString::Printf(TEXT("%dx %s"), Rates[Index], ResourceNames[Index])));
     }
     for (int32 Index = 0; Index < BankToButtons.Num(); ++Index)
     {
         const bool bSelected = Index == static_cast<int32>(BankToSelection);
         BankToButtons[Index]->SetRenderScale(bSelected ? FVector2D(1.06f) : FVector2D(1.0f));
         BankToButtons[Index]->SetRenderOpacity(bSelected ? 1.0f : 0.52f);
+    }
+}
+
+void UCatanHUDWidget::UpdatePlayerTradeLimits(const FCatanResourceView& Resources)
+{
+    const int32 Limits[] = {
+        Resources.Wood, Resources.Clay, Resources.Hay, Resources.Sheep, Resources.Stone
+    };
+    for (int32 Index = 0; Index < OfferedInputs.Num() && Index < UE_ARRAY_COUNT(Limits); ++Index)
+    {
+        UComboBoxString* Input = OfferedInputs[Index];
+        const int32 MaxValue = FMath::Max(0, Limits[Index]);
+        const int32 PreviousValue = FMath::Clamp(
+            FCString::Atoi(*Input->GetSelectedOption()), 0, MaxValue);
+        if (Input->GetOptionCount() == MaxValue + 1
+            && Input->GetOptionAtIndex(MaxValue) == FString::FromInt(MaxValue))
+            continue;
+        Input->ClearOptions();
+        for (int32 Count = 0; Count <= MaxValue; ++Count)
+            Input->AddOption(FString::FromInt(Count));
+        Input->SetSelectedOption(FString::FromInt(PreviousValue));
     }
 }
 

@@ -85,6 +85,10 @@ test_combo_preview() {
   done
   (( preview_ready )) || fail "$mode preview marker was not observed"
   (( style_ready )) || fail "readable combo style was not applied to all 15 dropdowns"
+  if [[ "$mode" == "PlayerTrade" ]]; then
+    rg -q 'CATAN_PLAYER_TRADE_LIMITS max=1,2,3,4,7 receive=5' "$log_file" \
+      || fail "Other Player give limits do not match the local hand"
+  fi
   local combo_open=0
   # The preview marker can arrive one frame before Android starts routing touch to Slate.
   sleep 2
@@ -101,6 +105,33 @@ test_combo_preview() {
   assert_running_without_fatal "$mode dropdown failed while open after garbage collection"
   adb exec-out screencap -p >"$output"
   [[ -s "$output" ]] || fail "$mode dropdown screenshot is empty"
+}
+
+test_bank_preview() {
+  local output="$log_dir/bank-rates.png"
+  print "Testing per-resource bank rate labels..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline '-CatanUIPreview=Bank' >/dev/null \
+    || fail "bank preview launch failed"
+  local preview_ready=0
+  local labels_ready=0
+  for attempt in {1..60}; do
+    adb logcat -d >"$log_file"
+    if rg -q "$fatal_pattern" "$log_file"; then
+      rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
+      fail "bank preview crashed during startup"
+    fi
+    rg -q 'CATAN_UI_PREVIEW ready mode=Bank' "$log_file" && preview_ready=1
+    rg -q 'CATAN_BANK_LABELS rates=4,3,4,2,4' "$log_file" && labels_ready=1
+    (( preview_ready && labels_ready )) && break
+    sleep 1
+  done
+  (( preview_ready )) || fail "bank preview marker was not observed"
+  (( labels_ready )) || fail "per-resource bank rate labels were not applied"
+  assert_running_without_fatal "bank rate labels failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "bank rate screenshot is empty"
 }
 
 adb logcat -c
@@ -134,8 +165,9 @@ test_combo_preview PlayerTrade 1180 490
 test_combo_preview Development 1200 565
 test_combo_preview Online 1200 415
 test_combo_preview Bots 1200 390
+test_bank_preview
 
-print "PASS: Android startup and all dropdown families passed contrast/open/post-GC checks"
+print "PASS: Android startup, dynamic trade limits, bank labels and all dropdown families"
 print "APK: $apk"
 print "Artifacts: $log_dir"
 if (( started_emulator )); then
