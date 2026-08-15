@@ -63,7 +63,7 @@ void ACatanPlayerController::ServerExecuteCatanCommand_Implementation(ECatanServ
         static_cast<ECatanResource>(FCString::Atoi(*Text)), Error); break;
     case ECatanServerCommand::BankTrade: bSuccess = Proxy->TryBankTrade(
         static_cast<ECatanResource>(First), static_cast<ECatanResource>(Second), Error); break;
-    case ECatanServerCommand::OfferTrade: bSuccess = Proxy->TryOfferTrade(FirstResources, SecondResources, Error); break;
+    case ECatanServerCommand::OfferTrade: bSuccess = Proxy->TryOfferTrade(FirstResources, SecondResources, Text, Error); break;
     case ECatanServerCommand::AcceptTrade: bSuccess = Proxy->TryAcceptTrade(AuthenticatedName, Error); break;
     case ECatanServerCommand::CancelTrade: bSuccess = Proxy->TryCancelTrade(AuthenticatedName, Error); break;
     case ECatanServerCommand::SelectBoardAction:
@@ -131,6 +131,44 @@ void ACatanPlayerController::RunMultiplayerE2EStep()
     UCatanGameSubsystem* Proxy = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     if (!Proxy) return;
     const FCatanGameView View = Proxy->GetSnapshot();
+    const FString LocalName = PlayerState ? PlayerState->GetPlayerName() : FString();
+    const bool bTradeE2E = FParse::Param(FCommandLine::Get(), TEXT("CatanTradeE2E"));
+    if (bTradeE2E && !bTradeE2EReported && View.EventLog.ContainsByPredicate(
+        [](const FString& Event) { return Event.Contains(TEXT("accepted the trade")); }))
+    {
+        bTradeE2EReported = true;
+        UE_LOG(LogCatanNetworkController, Display,
+            TEXT("CATAN_TRADE_E2E PASS observed-by=%s"), *LocalName);
+    }
+    if (bTradeE2E && View.ActiveDeal.bIsActive)
+    {
+        const FString TradeStateKey = FString::Printf(TEXT("%s:%s:%s"),
+            *View.ActiveDeal.OfferingPlayer, *View.ActiveDeal.TargetPlayer, *LocalName);
+        if (TradeStateKey != LastTradeE2EStateKey)
+        {
+            LastTradeE2EStateKey = TradeStateKey;
+            UE_LOG(LogCatanNetworkController, Display,
+                TEXT("CATAN_TRADE_E2E active observer=%s offerer=%s target=%s"),
+                *LocalName, *View.ActiveDeal.OfferingPlayer, *View.ActiveDeal.TargetPlayer);
+        }
+        if (View.ActiveDeal.TargetPlayer == LocalName)
+        {
+            FString TradeError;
+            const bool bAccepted = Proxy->TryAcceptTrade(LocalName, TradeError);
+            if (GetWorld()->GetNetMode() == NM_Client)
+            {
+                // Both reliable RPCs are intentionally queued. If acceptance succeeds,
+                // cancellation becomes a harmless no-op; otherwise it declines the offer.
+                Proxy->TryCancelTrade(LocalName, TradeError);
+            }
+            else if (!bAccepted)
+                Proxy->TryCancelTrade(LocalName, TradeError);
+            UE_LOG(LogCatanNetworkController, Display,
+                TEXT("CATAN_TRADE_E2E response player=%s accepted=%d result=%s"),
+                *LocalName, bAccepted, TradeError.IsEmpty() ? TEXT("ok") : *TradeError);
+        }
+        return;
+    }
     if (!bReconnectSnapshotReported
         && FParse::Param(FCommandLine::Get(), TEXT("CatanExpectReconnect")))
     {
@@ -147,10 +185,9 @@ void ACatanPlayerController::RunMultiplayerE2EStep()
     }
     if (!Proxy->CanLocalPlayerAct(View)) return;
 
-    const FString LocalName = PlayerState ? PlayerState->GetPlayerName() : FString();
-    const FString Key = FString::Printf(TEXT("%s:%d:%d:%d:%d:%d"), *View.CurrentPlayer,
+    const FString Key = FString::Printf(TEXT("%s:%d:%d:%d:%d:%d:%s"), *View.CurrentPlayer,
         static_cast<int32>(View.Phase), View.FirstDie, View.SecondDie,
-        View.PendingRobberHex, View.EventLog.Num());
+        View.PendingRobberHex, View.EventLog.Num(), *View.StatusMessage);
     if (Key == LastAutomatedSetupKey) return;
 
     FString Error;
@@ -216,8 +253,43 @@ void ACatanPlayerController::RunMultiplayerE2EStep()
         }
         break;
     case ECatanGamePhase::CommonPlay:
-        Action = TEXT("pass");
-        bSent = Proxy->TryPass(Error);
+        if (bTradeE2E && !bTradeE2EReported && !View.StatusMessage.Contains(TEXT("Trade cancelled")))
+        {
+            const FCatanPlayerView* LocalPlayer = View.Players.FindByPredicate(
+                [&LocalName](const FCatanPlayerView& Item) { return Item.Name == LocalName; });
+            const FCatanPlayerView* Target = nullptr;
+            for (int32 Index = View.Players.Num() - 1; Index >= 0; --Index)
+                if (View.Players[Index].Name != LocalName)
+                {
+                    Target = &View.Players[Index];
+                    break;
+                }
+            if (LocalPlayer && Target)
+            {
+                const int32 Counts[] = {LocalPlayer->Resources.Wood, LocalPlayer->Resources.Clay,
+                    LocalPlayer->Resources.Hay, LocalPlayer->Resources.Sheep, LocalPlayer->Resources.Stone};
+                for (int32 Attempt = 0; Attempt < 5 && !bSent; ++Attempt)
+                {
+                    const int32 Resource = (TradeE2ENextResource + Attempt) % 5;
+                    if (Counts[Resource] <= 0) continue;
+                    FCatanResourceView Offered;
+                    FCatanResourceView Requested;
+                    int32* OfferCounts[] = {&Offered.Wood, &Offered.Clay, &Offered.Hay, &Offered.Sheep, &Offered.Stone};
+                    int32* RequestCounts[] = {&Requested.Wood, &Requested.Clay, &Requested.Hay,
+                        &Requested.Sheep, &Requested.Stone};
+                    *OfferCounts[Resource] = 1;
+                    *RequestCounts[Resource] = 1;
+                    TradeE2ENextResource = (Resource + 1) % 5;
+                    Action = TEXT("trade-offer");
+                    bSent = Proxy->TryOfferTrade(Offered, Requested, Target->Name, Error);
+                }
+            }
+        }
+        if (!bSent)
+        {
+            Action = TEXT("pass");
+            bSent = Proxy->TryPass(Error);
+        }
         break;
     case ECatanGamePhase::Finished:
         break;

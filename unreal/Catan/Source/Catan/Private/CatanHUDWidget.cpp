@@ -6,6 +6,7 @@
 #include "CatanGameMode.h"
 #include "CatanPlayerController.h"
 #include "CatanPlayerState.h"
+#include "CatanTradePolicy.h"
 #include "CommonTextBlock.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -27,8 +28,11 @@
 #include "Components/WrapBox.h"
 #include "Components/WrapBoxSlot.h"
 #include "Blueprint/WidgetTree.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Engine/Texture2D.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 namespace
 {
@@ -105,6 +109,29 @@ FString CostLine(const TCHAR* Name, const FCatanResourceView& Have,
     return FString::Printf(TEXT("%s %s  W%d C%d H%d S%d O%d"),
         CanAfford(Have, Wood, Clay, Hay, Sheep, Stone) ? TEXT("✓") : TEXT("✕"),
         Name, Wood, Clay, Hay, Sheep, Stone);
+}
+
+FLinearColor ResourceColor(int32 Index)
+{
+    static const FLinearColor Colors[] = {
+        FLinearColor(0.08f, 0.52f, 0.16f), FLinearColor(0.76f, 0.18f, 0.05f),
+        FLinearColor(0.95f, 0.70f, 0.06f), FLinearColor(0.48f, 0.82f, 0.28f),
+        FLinearColor(0.42f, 0.48f, 0.58f)
+    };
+    return Colors[FMath::Clamp(Index, 0, 4)];
+}
+
+void ConfigureIntegerInput(USpinBox* Input, int32 MaxValue = 99)
+{
+    Input->SetValue(0.0f);
+    Input->SetMinValue(0.0f);
+    Input->SetMaxValue(static_cast<float>(MaxValue));
+    Input->SetMinSliderValue(0.0f);
+    Input->SetMaxSliderValue(static_cast<float>(MaxValue));
+    Input->SetDelta(1.0f);
+    Input->SetMinFractionalDigits(0);
+    Input->SetMaxFractionalDigits(0);
+    Input->SetAlwaysUsesDeltaSnap(true);
 }
 }
 
@@ -301,7 +328,7 @@ void UCatanHUDWidget::BuildLayout()
     PassButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PassTurn);
 
     ModalBorder = AddPanel(WidgetTree, Canvas, FAnchors(0.5f, 0.5f), FVector2D(0.5f, 0.5f),
-        FMargin(0, 0, 680, 650));
+        FMargin(0, 0, 1040, 760));
     ModalBorder->SetClipping(EWidgetClipping::ClipToBounds);
     UScrollBox* ModalScroll = WidgetTree->ConstructWidget<UScrollBox>();
     ModalScroll->SetConsumeMouseWheel(EConsumeMouseWheel::WhenScrollingPossible);
@@ -313,25 +340,28 @@ void UCatanHUDWidget::BuildLayout()
     ModalSwitcher->AddChild(DropPanel);
     DropTitle = AddText(DropPanel, TEXT("DISCARD RESOURCES"), 25);
     constexpr const TCHAR* ResourceNames[] = {TEXT("Wood"), TEXT("Clay"), TEXT("Hay"), TEXT("Sheep"), TEXT("Stone")};
-    for (const TCHAR* ResourceName : ResourceNames)
+    for (int32 ResourceIndex = 0; ResourceIndex < 5; ++ResourceIndex)
     {
+        const TCHAR* ResourceName = ResourceNames[ResourceIndex];
+        UBorder* Card = WidgetTree->ConstructWidget<UBorder>();
+        Card->SetBrushColor(ResourceColor(ResourceIndex));
+        Card->SetPadding(FMargin(10));
         UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
-        UVerticalBoxSlot* RowSlot = DropPanel->AddChildToVerticalBox(Row);
-        RowSlot->SetPadding(FMargin(2, 5));
+        Card->SetContent(Row);
+        UVerticalBoxSlot* RowSlot = DropPanel->AddChildToVerticalBox(Card);
+        RowSlot->SetPadding(FMargin(3, 5));
         UCommonTextBlock* Label = WidgetTree->ConstructWidget<UCommonTextBlock>();
         Label->SetText(FText::FromString(ResourceName));
         FSlateFontInfo Font = Label->GetFont(); Font.Size = 18; Label->SetFont(Font);
         UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(Label);
         LabelSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         USpinBox* Input = WidgetTree->ConstructWidget<USpinBox>();
-        Input->SetMinValue(0.0f);
-        Input->SetMaxValue(0.0f);
-        Input->SetMinSliderValue(0.0f);
-        Input->SetMaxSliderValue(0.0f);
-        Input->SetDelta(1.0f);
-        Input->SetMinFractionalDigits(0);
-        Input->SetMaxFractionalDigits(0);
-        Row->AddChildToHorizontalBox(Input);
+        ConfigureIntegerInput(Input, 0);
+        USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
+        InputSize->SetMinDesiredWidth(180.0f);
+        InputSize->SetMinDesiredHeight(68.0f);
+        InputSize->AddChild(Input);
+        Row->AddChildToHorizontalBox(InputSize);
         DropInputs.Add(Input);
     }
     UButton* ConfirmDrop = AddButton(DropPanel, TEXT("CONFIRM DISCARD"));
@@ -379,47 +409,138 @@ void UCatanHUDWidget::BuildLayout()
 
     UVerticalBox* TradePanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(TradePanel);
-    AddText(TradePanel, TEXT("TRADE"), 25);
-    AddText(TradePanel, TEXT("Bank trade — port discounts are applied automatically"), 16);
-    BankRateText = AddText(TradePanel, FString(), 14);
-    BankFromResource = WidgetTree->ConstructWidget<UComboBoxString>();
-    BankToResource = WidgetTree->ConstructWidget<UComboBoxString>();
-    for (const TCHAR* ResourceName : ResourceNames)
+    AddText(TradePanel, TEXT("TRADE"), 28)->SetJustification(ETextJustify::Center);
+    UHorizontalBox* TradeTabs = WidgetTree->ConstructWidget<UHorizontalBox>();
+    TradePanel->AddChildToVerticalBox(TradeTabs);
+    auto AddTradeTab = [this, TradeTabs](const FString& Label)
     {
-        BankFromResource->AddOption(ResourceName);
-        BankToResource->AddOption(ResourceName);
-    }
-    BankFromResource->SetSelectedOption(TEXT("Wood"));
-    BankToResource->SetSelectedOption(TEXT("Clay"));
-    TradePanel->AddChildToVerticalBox(BankFromResource);
-    TradePanel->AddChildToVerticalBox(BankToResource);
-    UButton* BankTrade = AddButton(TradePanel, TEXT("TRADE WITH BANK"));
-    BankTrade->OnClicked.AddDynamic(this, &UCatanHUDWidget::TradeWithBank);
+        UVerticalBox* Box = WidgetTree->ConstructWidget<UVerticalBox>();
+        UHorizontalBoxSlot* Slot = TradeTabs->AddChildToHorizontalBox(Box);
+        Slot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        Slot->SetPadding(FMargin(4));
+        return AddButton(Box, Label);
+    };
+    UButton* BankTab = AddTradeTab(TEXT("BANK"));
+    UButton* PlayerTab = AddTradeTab(TEXT("OTHER PLAYER"));
+    BankTab->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowBankTrade);
+    PlayerTab->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowPlayerTrade);
+    TradeModeSwitcher = WidgetTree->ConstructWidget<UWidgetSwitcher>();
+    TradePanel->AddChildToVerticalBox(TradeModeSwitcher);
 
-    AddText(TradePanel, TEXT("Player offer — W / C / H / S / O"), 16);
-    auto AddResourceInputs = [this, TradePanel](const FString& Label, TArray<TObjectPtr<USpinBox>>& Inputs)
+    auto AddResourceButton = [this](UVerticalBox* Parent, const TCHAR* Name, int32 Index,
+        TArray<TObjectPtr<UButton>>& Buttons)
     {
-        AddText(TradePanel, Label, 16);
-        UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
-        TradePanel->AddChildToVerticalBox(Row);
+        UButton* Button = WidgetTree->ConstructWidget<UButton>();
+        Button->SetBackgroundColor(ResourceColor(Index));
+        UCommonTextBlock* Text = WidgetTree->ConstructWidget<UCommonTextBlock>();
+        Text->SetText(FText::FromString(Name));
+        Text->SetJustification(ETextJustify::Center);
+        FSlateFontInfo Font = Text->GetFont(); Font.Size = 18; Text->SetFont(Font);
+        Button->AddChild(Text);
+        USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>();
+        Size->SetMinDesiredWidth(170.0f);
+        Size->SetMinDesiredHeight(56.0f);
+        Size->AddChild(Button);
+        UVerticalBoxSlot* Slot = Parent->AddChildToVerticalBox(Size);
+        Slot->SetPadding(FMargin(2));
+        Buttons.Add(Button);
+    };
+
+    UVerticalBox* BankPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    TradeModeSwitcher->AddChild(BankPanel);
+    AddText(BankPanel, TEXT("Choose one resource to give and one to receive"), 18)
+        ->SetJustification(ETextJustify::Center);
+    BankRateText = AddText(BankPanel, FString(), 15);
+    BankRateText->SetJustification(ETextJustify::Center);
+    UHorizontalBox* BankColumns = WidgetTree->ConstructWidget<UHorizontalBox>();
+    BankPanel->AddChildToVerticalBox(BankColumns);
+    UVerticalBox* BankGive = WidgetTree->ConstructWidget<UVerticalBox>();
+    UVerticalBox* BankReceive = WidgetTree->ConstructWidget<UVerticalBox>();
+    UHorizontalBoxSlot* GiveSlot = BankColumns->AddChildToHorizontalBox(BankGive);
+    GiveSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill)); GiveSlot->SetPadding(FMargin(8));
+    UHorizontalBoxSlot* ReceiveSlot = BankColumns->AddChildToHorizontalBox(BankReceive);
+    ReceiveSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill)); ReceiveSlot->SetPadding(FMargin(8));
+    AddText(BankGive, TEXT("YOU GIVE"), 20)->SetJustification(ETextJustify::Center);
+    AddText(BankReceive, TEXT("YOU RECEIVE"), 20)->SetJustification(ETextJustify::Center);
+    for (int32 Index = 0; Index < 5; ++Index)
+    {
+        AddResourceButton(BankGive, ResourceNames[Index], Index, BankFromButtons);
+        AddResourceButton(BankReceive, ResourceNames[Index], Index, BankToButtons);
+    }
+    BankFromButtons[0]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectBankFromWood);
+    BankFromButtons[1]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectBankFromClay);
+    BankFromButtons[2]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectBankFromHay);
+    BankFromButtons[3]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectBankFromSheep);
+    BankFromButtons[4]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectBankFromStone);
+    BankToButtons[0]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectBankToWood);
+    BankToButtons[1]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectBankToClay);
+    BankToButtons[2]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectBankToHay);
+    BankToButtons[3]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectBankToSheep);
+    BankToButtons[4]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectBankToStone);
+    UHorizontalBox* BankActions = WidgetTree->ConstructWidget<UHorizontalBox>();
+    BankPanel->AddChildToVerticalBox(BankActions);
+    UVerticalBox* BankConfirmBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    UVerticalBox* BankCloseBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    BankActions->AddChildToHorizontalBox(BankConfirmBox)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    BankActions->AddChildToHorizontalBox(BankCloseBox)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    UButton* BankTrade = AddButton(BankConfirmBox, TEXT("CONFIRM BANK TRADE"));
+    UButton* BankClose = AddButton(BankCloseBox, TEXT("CLOSE"));
+    BankTrade->OnClicked.AddDynamic(this, &UCatanHUDWidget::TradeWithBank);
+    BankClose->OnClicked.AddDynamic(this, &UCatanHUDWidget::CloseTrading);
+
+    UVerticalBox* PlayerTradePanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    TradeModeSwitcher->AddChild(PlayerTradePanel);
+    AddText(PlayerTradePanel, TEXT("OFFER TO"), 18);
+    TradingPlayer = WidgetTree->ConstructWidget<UComboBoxString>();
+    USizeBox* RecipientSize = WidgetTree->ConstructWidget<USizeBox>();
+    RecipientSize->SetMinDesiredHeight(56.0f);
+    RecipientSize->AddChild(TradingPlayer);
+    PlayerTradePanel->AddChildToVerticalBox(RecipientSize);
+    UHorizontalBox* PlayerColumns = WidgetTree->ConstructWidget<UHorizontalBox>();
+    PlayerTradePanel->AddChildToVerticalBox(PlayerColumns);
+    auto AddResourceInputs = [this, PlayerColumns, &ResourceNames](const FString& Label,
+        TArray<TObjectPtr<USpinBox>>& Inputs)
+    {
+        UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>();
+        UHorizontalBoxSlot* ColumnSlot = PlayerColumns->AddChildToHorizontalBox(Column);
+        ColumnSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        ColumnSlot->SetPadding(FMargin(8));
+        AddText(Column, Label, 20)->SetJustification(ETextJustify::Center);
         for (int32 Index = 0; Index < 5; ++Index)
         {
+            UBorder* Card = WidgetTree->ConstructWidget<UBorder>();
+            Card->SetBrushColor(ResourceColor(Index));
+            Card->SetPadding(FMargin(6));
+            UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
+            Card->SetContent(Row);
+            UCommonTextBlock* Name = WidgetTree->ConstructWidget<UCommonTextBlock>();
+            Name->SetText(FText::FromString(ResourceNames[Index]));
+            FSlateFontInfo Font = Name->GetFont(); Font.Size = 18; Name->SetFont(Font);
+            UHorizontalBoxSlot* NameSlot = Row->AddChildToHorizontalBox(Name);
+            NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+            NameSlot->SetVerticalAlignment(VAlign_Center);
             USpinBox* Input = WidgetTree->ConstructWidget<USpinBox>();
-            Input->SetMinValue(0.0f);
-            Input->SetMaxValue(99.0f);
-            Input->SetDelta(1.0f);
-            Input->SetMinFractionalDigits(0);
-            Input->SetMaxFractionalDigits(0);
-            UHorizontalBoxSlot* Slot = Row->AddChildToHorizontalBox(Input);
-            Slot->SetPadding(FMargin(3));
-            Slot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+            ConfigureIntegerInput(Input);
+            USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
+            InputSize->SetMinDesiredWidth(140.0f);
+            InputSize->SetMinDesiredHeight(50.0f);
+            InputSize->AddChild(Input);
+            Row->AddChildToHorizontalBox(InputSize);
+            UVerticalBoxSlot* CardSlot = Column->AddChildToVerticalBox(Card);
+            CardSlot->SetPadding(FMargin(2));
             Inputs.Add(Input);
         }
     };
-    AddResourceInputs(TEXT("YOU OFFER"), OfferedInputs);
-    AddResourceInputs(TEXT("YOU REQUEST"), RequestedInputs);
-    UButton* CreateOffer = AddButton(TradePanel, TEXT("CREATE OFFER"));
-    UButton* CloseTrade = AddButton(TradePanel, TEXT("CLOSE"));
+    AddResourceInputs(TEXT("YOU GIVE"), OfferedInputs);
+    AddResourceInputs(TEXT("YOU RECEIVE"), RequestedInputs);
+    UHorizontalBox* PlayerActions = WidgetTree->ConstructWidget<UHorizontalBox>();
+    PlayerTradePanel->AddChildToVerticalBox(PlayerActions);
+    UVerticalBox* OfferBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    UVerticalBox* PlayerCloseBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    PlayerActions->AddChildToHorizontalBox(OfferBox)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    PlayerActions->AddChildToHorizontalBox(PlayerCloseBox)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    UButton* CreateOffer = AddButton(OfferBox, TEXT("SEND OFFER"));
+    UButton* CloseTrade = AddButton(PlayerCloseBox, TEXT("CLOSE"));
     CreateOffer->OnClicked.AddDynamic(this, &UCatanHUDWidget::OfferTrade);
     CloseTrade->OnClicked.AddDynamic(this, &UCatanHUDWidget::CloseTrading);
 
@@ -427,12 +548,10 @@ void UCatanHUDWidget::BuildLayout()
     ModalSwitcher->AddChild(DealPanel);
     AddText(DealPanel, TEXT("ACTIVE PLAYER TRADE"), 25);
     DealText = AddText(DealPanel, FString(), 19);
-    TradingPlayer = WidgetTree->ConstructWidget<UComboBoxString>();
-    DealPanel->AddChildToVerticalBox(TradingPlayer);
-    UButton* AcceptDeal = AddButton(DealPanel, TEXT("ACCEPT AS SELECTED PLAYER"));
-    UButton* CancelDeal = AddButton(DealPanel, TEXT("DECLINE / CANCEL"));
-    AcceptDeal->OnClicked.AddDynamic(this, &UCatanHUDWidget::AcceptTrade);
-    CancelDeal->OnClicked.AddDynamic(this, &UCatanHUDWidget::CancelTrade);
+    AcceptDealButton = AddButton(DealPanel, TEXT("ACCEPT OFFER"));
+    CancelDealButton = AddButton(DealPanel, TEXT("DECLINE OFFER"));
+    AcceptDealButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::AcceptTrade);
+    CancelDealButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::CancelTrade);
 
     UVerticalBox* WinnerPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(WinnerPanel);
@@ -671,6 +790,7 @@ UButton* UCatanHUDWidget::AddButton(UVerticalBox* Parent, const FString& Label)
 void UCatanHUDWidget::Refresh()
 {
     if (!GameSubsystem || !PhaseText) return;
+    SetModalSize(680.0f, 650.0f);
     if (NetworkStatusText && NetworkSubsystem)
     {
         NetworkStatusText->SetText(FText::FromString(NetworkSubsystem->GetStatus()));
@@ -884,12 +1004,14 @@ void UCatanHUDWidget::Refresh()
 
     if (bSetupPanelOpen)
     {
+        SetModalSize(900.0f, 650.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(6);
         UpdatePlayerCount(PlayerCount->GetSelectedOption(), ESelectInfo::Direct);
     }
     else if (View.Phase == ECatanGamePhase::Finished)
     {
+        SetModalSize(760.0f, 650.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(5);
         FString Standings = FString::Printf(TEXT("%s WINS!\n\nFINAL SCORE\n"), *View.Winner);
@@ -907,6 +1029,7 @@ void UCatanHUDWidget::Refresh()
     }
     else if (PendingExpensiveAction != 0)
     {
+        SetModalSize(680.0f, 420.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(7);
         ConfirmationText->SetText(FText::FromString(PendingExpensiveAction == 1
@@ -915,6 +1038,7 @@ void UCatanHUDWidget::Refresh()
     }
     else if (View.Phase == ECatanGamePhase::DropCards && bLocalTurn && LocalPlayer)
     {
+        SetModalSize(900.0f, 620.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(0);
         DropTitle->SetText(FText::FromString(FString::Printf(
@@ -925,6 +1049,7 @@ void UCatanHUDWidget::Refresh()
         };
         if (LastDropPlayer != View.CurrentPlayer)
         {
+            FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
             for (USpinBox* Input : DropInputs) Input->SetValue(0.0f);
             LastDropPlayer = View.CurrentPlayer;
         }
@@ -936,6 +1061,7 @@ void UCatanHUDWidget::Refresh()
     }
     else if (bLocalTurn && View.PendingRobberHex != INDEX_NONE && !View.RobberVictims.IsEmpty())
     {
+        SetModalSize(680.0f, 500.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(1);
         for (int32 Index = 0; Index < VictimButtons.Num(); ++Index)
@@ -951,26 +1077,34 @@ void UCatanHUDWidget::Refresh()
     }
     else if (View.ActiveDeal.bIsActive)
     {
-        ModalBorder->SetVisibility(ESlateVisibility::Visible);
-        ModalSwitcher->SetActiveWidgetIndex(4);
+        SetModalSize(850.0f, 420.0f);
+        const FString LocalName = LocalPlayer ? LocalPlayer->Name : FString();
+        const bool bIsOfferer = LocalName == View.ActiveDeal.OfferingPlayer;
+        const bool bIsRecipient = LocalName == View.ActiveDeal.TargetPlayer;
+        const bool bCanAccept = bIsRecipient && LocalPlayer && LocalPlayer->bResourcesVisible
+            && CatanTradePolicy::CanAfford(LocalPlayer->Resources, View.ActiveDeal.Requested);
+        ModalBorder->SetVisibility(bIsOfferer || bIsRecipient
+            ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        if (bIsOfferer || bIsRecipient) ModalSwitcher->SetActiveWidgetIndex(4);
         DealText->SetText(FText::FromString(FString::Printf(
-            TEXT("%s offers:\n%s\n\nand requests:\n%s"),
-            *View.ActiveDeal.OfferingPlayer, *ResourceSummary(View.ActiveDeal.Offered),
-            *ResourceSummary(View.ActiveDeal.Requested))));
-        const FString PreviousSelection = TradingPlayer->GetSelectedOption();
-        TradingPlayer->ClearOptions();
-        for (const FCatanPlayerView& Player : View.Players)
-        {
-            if (Player.Name != View.ActiveDeal.OfferingPlayer) TradingPlayer->AddOption(Player.Name);
-        }
-        if (!PreviousSelection.IsEmpty() && TradingPlayer->FindOptionIndex(PreviousSelection) != INDEX_NONE)
-            TradingPlayer->SetSelectedOption(PreviousSelection);
-        else if (TradingPlayer->GetOptionCount() > 0)
-            TradingPlayer->SetSelectedIndex(0);
+            TEXT("%s offers to %s:\n%s\n\nand requests:\n%s"),
+            *View.ActiveDeal.OfferingPlayer, *View.ActiveDeal.TargetPlayer,
+            *ResourceSummary(View.ActiveDeal.Offered), *ResourceSummary(View.ActiveDeal.Requested))));
+        AcceptDealButton->SetVisibility(bIsRecipient
+            ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        AcceptDealButton->SetIsEnabled(bCanAccept);
+        if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(AcceptDealButton->GetChildAt(0)))
+            Label->SetText(FText::FromString(bCanAccept
+                ? TEXT("ACCEPT OFFER") : TEXT("NOT ENOUGH RESOURCES")));
+        CancelDealButton->SetVisibility(bIsOfferer || bIsRecipient
+            ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(CancelDealButton->GetChildAt(0)))
+            Label->SetText(FText::FromString(bIsOfferer ? TEXT("WITHDRAW OFFER") : TEXT("DECLINE OFFER")));
         bTradePanelOpen = false;
     }
     else if (bDevelopmentPanelOpen && LocalPlayer && bLocalTurn && (bPlay || bRoll))
     {
+        SetModalSize(760.0f, 650.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(2);
         auto ShowCard = [](UButton* Button, bool bVisible)
@@ -1003,6 +1137,7 @@ void UCatanHUDWidget::Refresh()
     }
     else if (bTradePanelOpen && LocalPlayer && bLocalTurn && bPlay)
     {
+        SetModalSize(1040.0f, 760.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(3);
         BankRateText->SetText(FText::FromString(FString::Printf(
@@ -1019,12 +1154,87 @@ void UCatanHUDWidget::Refresh()
             OfferedInputs[Index]->SetMaxValue(Holdings[Index]);
             OfferedInputs[Index]->SetMaxSliderValue(Holdings[Index]);
         }
+        const FString PreviousRecipient = TradingPlayer->GetSelectedOption();
+        TradingPlayer->ClearOptions();
+        for (const FCatanPlayerView& Player : View.Players)
+            if (Player.Name != LocalPlayer->Name) TradingPlayer->AddOption(Player.Name);
+        if (!PreviousRecipient.IsEmpty()
+            && TradingPlayer->FindOptionIndex(PreviousRecipient) != INDEX_NONE)
+            TradingPlayer->SetSelectedOption(PreviousRecipient);
+        else if (TradingPlayer->GetOptionCount() > 0)
+            TradingPlayer->SetSelectedIndex(0);
+        if (bTradeInputsNeedReset)
+        {
+            ResetTradeInputs();
+            bTradeInputsNeedReset = false;
+        }
+        UpdateBankSelectionStyles();
     }
     else
     {
         ModalBorder->SetVisibility(ESlateVisibility::Collapsed);
         if (View.Phase != ECatanGamePhase::DropCards) LastDropPlayer.Reset();
     }
+    ApplyUIPreview();
+}
+
+void UCatanHUDWidget::ApplyUIPreview()
+{
+    FString Preview;
+    if (!FParse::Value(FCommandLine::Get(), TEXT("CatanUIPreview="), Preview)) return;
+    ModalBorder->SetVisibility(ESlateVisibility::Visible);
+    if (Preview.Equals(TEXT("Bank"), ESearchCase::IgnoreCase))
+    {
+        SetModalSize(1040.0f, 760.0f);
+        ModalSwitcher->SetActiveWidgetIndex(3);
+        TradeModeSwitcher->SetActiveWidgetIndex(0);
+        BankRateText->SetText(FText::FromString(
+            TEXT("Your bank rates: Wood 4:1 | Clay 3:1 | Hay 4:1 | Sheep 2:1 | Ore 4:1")));
+        UpdateBankSelectionStyles();
+    }
+    else if (Preview.Equals(TEXT("PlayerTrade"), ESearchCase::IgnoreCase))
+    {
+        SetModalSize(1040.0f, 760.0f);
+        ModalSwitcher->SetActiveWidgetIndex(3);
+        TradeModeSwitcher->SetActiveWidgetIndex(1);
+        if (TradingPlayer->GetOptionCount() == 0)
+        {
+            TradingPlayer->AddOption(TEXT("Bot 1"));
+            TradingPlayer->AddOption(TEXT("Player 2"));
+            TradingPlayer->SetSelectedIndex(0);
+        }
+    }
+    else if (Preview.Equals(TEXT("Discard"), ESearchCase::IgnoreCase))
+    {
+        SetModalSize(900.0f, 620.0f);
+        ModalSwitcher->SetActiveWidgetIndex(0);
+        DropTitle->SetText(FText::FromString(TEXT("DISCARD 4 RESOURCES — PLAYER")));
+        for (USpinBox* Input : DropInputs)
+        {
+            Input->SetMaxValue(8.0f);
+            Input->SetMaxSliderValue(8.0f);
+        }
+    }
+    else if (Preview.Equals(TEXT("IncomingTrade"), ESearchCase::IgnoreCase))
+    {
+        SetModalSize(850.0f, 420.0f);
+        ModalSwitcher->SetActiveWidgetIndex(4);
+        DealText->SetText(FText::FromString(
+            TEXT("Player 2 offers to Player:\nW 2  C 0  H 0  S 0  O 0\n\nand requests:\nW 0  C 1  H 0  S 0  O 0")));
+        AcceptDealButton->SetVisibility(ESlateVisibility::Visible);
+        AcceptDealButton->SetIsEnabled(false);
+        CancelDealButton->SetVisibility(ESlateVisibility::Visible);
+        if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(AcceptDealButton->GetChildAt(0)))
+            Label->SetText(FText::FromString(TEXT("NOT ENOUGH RESOURCES")));
+        if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(CancelDealButton->GetChildAt(0)))
+            Label->SetText(FText::FromString(TEXT("DECLINE OFFER")));
+    }
+}
+
+void UCatanHUDWidget::SetModalSize(float Width, float Height)
+{
+    if (UCanvasPanelSlot* Slot = ModalBorder ? Cast<UCanvasPanelSlot>(ModalBorder->Slot) : nullptr)
+        Slot->SetSize(FVector2D(Width, Height));
 }
 
 void UCatanHUDWidget::HostLanLobby()
@@ -1152,6 +1362,8 @@ void UCatanHUDWidget::ShowTrading()
 {
     bTradePanelOpen = true;
     bDevelopmentPanelOpen = false;
+    bTradeInputsNeedReset = true;
+    if (TradeModeSwitcher) TradeModeSwitcher->SetActiveWidgetIndex(0);
     Refresh();
 }
 
@@ -1209,7 +1421,51 @@ void UCatanHUDWidget::CloseDevelopmentCards()
 void UCatanHUDWidget::TradeWithBank()
 {
     FString Error;
-    GameSubsystem->TryBankTrade(SelectedResource(BankFromResource), SelectedResource(BankToResource), Error);
+    GameSubsystem->TryBankTrade(BankFromSelection, BankToSelection, Error);
+}
+
+void UCatanHUDWidget::ShowBankTrade()
+{
+    if (TradeModeSwitcher) TradeModeSwitcher->SetActiveWidgetIndex(0);
+}
+
+void UCatanHUDWidget::ShowPlayerTrade()
+{
+    if (TradeModeSwitcher) TradeModeSwitcher->SetActiveWidgetIndex(1);
+}
+
+void UCatanHUDWidget::SelectBankFromWood() { BankFromSelection = ECatanResource::Wood; UpdateBankSelectionStyles(); }
+void UCatanHUDWidget::SelectBankFromClay() { BankFromSelection = ECatanResource::Clay; UpdateBankSelectionStyles(); }
+void UCatanHUDWidget::SelectBankFromHay() { BankFromSelection = ECatanResource::Hay; UpdateBankSelectionStyles(); }
+void UCatanHUDWidget::SelectBankFromSheep() { BankFromSelection = ECatanResource::Sheep; UpdateBankSelectionStyles(); }
+void UCatanHUDWidget::SelectBankFromStone() { BankFromSelection = ECatanResource::Stone; UpdateBankSelectionStyles(); }
+void UCatanHUDWidget::SelectBankToWood() { BankToSelection = ECatanResource::Wood; UpdateBankSelectionStyles(); }
+void UCatanHUDWidget::SelectBankToClay() { BankToSelection = ECatanResource::Clay; UpdateBankSelectionStyles(); }
+void UCatanHUDWidget::SelectBankToHay() { BankToSelection = ECatanResource::Hay; UpdateBankSelectionStyles(); }
+void UCatanHUDWidget::SelectBankToSheep() { BankToSelection = ECatanResource::Sheep; UpdateBankSelectionStyles(); }
+void UCatanHUDWidget::SelectBankToStone() { BankToSelection = ECatanResource::Stone; UpdateBankSelectionStyles(); }
+
+void UCatanHUDWidget::UpdateBankSelectionStyles()
+{
+    for (int32 Index = 0; Index < BankFromButtons.Num(); ++Index)
+    {
+        const bool bSelected = Index == static_cast<int32>(BankFromSelection);
+        BankFromButtons[Index]->SetRenderScale(bSelected ? FVector2D(1.06f) : FVector2D(1.0f));
+        BankFromButtons[Index]->SetRenderOpacity(bSelected ? 1.0f : 0.52f);
+    }
+    for (int32 Index = 0; Index < BankToButtons.Num(); ++Index)
+    {
+        const bool bSelected = Index == static_cast<int32>(BankToSelection);
+        BankToButtons[Index]->SetRenderScale(bSelected ? FVector2D(1.06f) : FVector2D(1.0f));
+        BankToButtons[Index]->SetRenderOpacity(bSelected ? 1.0f : 0.52f);
+    }
+}
+
+void UCatanHUDWidget::ResetTradeInputs()
+{
+    FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
+    for (USpinBox* Input : OfferedInputs) Input->SetValue(0.0f);
+    for (USpinBox* Input : RequestedInputs) Input->SetValue(0.0f);
 }
 
 void UCatanHUDWidget::OfferTrade()
@@ -1226,26 +1482,38 @@ void UCatanHUDWidget::OfferTrade()
         return Resources;
     };
     FString Error;
-    GameSubsystem->TryOfferTrade(ReadResources(OfferedInputs), ReadResources(RequestedInputs), Error);
+    if (GameSubsystem->TryOfferTrade(ReadResources(OfferedInputs), ReadResources(RequestedInputs),
+        TradingPlayer ? TradingPlayer->GetSelectedOption() : FString(), Error))
+    {
+        bTradePanelOpen = false;
+        bTradeInputsNeedReset = true;
+        Refresh();
+    }
 }
 
 void UCatanHUDWidget::AcceptTrade()
 {
+    const FCatanGameView View = GameSubsystem->GetSnapshot();
+    const FCatanPlayerView* LocalPlayer = View.Players.FindByPredicate(
+        [](const FCatanPlayerView& Player) { return Player.bIsLocalPlayer; });
+    if (!LocalPlayer) return;
     FString Error;
-    GameSubsystem->TryAcceptTrade(TradingPlayer->GetSelectedOption(), Error);
+    GameSubsystem->TryAcceptTrade(LocalPlayer->Name, Error);
 }
 
 void UCatanHUDWidget::CancelTrade()
 {
     const FCatanGameView View = GameSubsystem->GetSnapshot();
-    const FString Player = TradingPlayer->GetSelectedOption().IsEmpty()
-        ? View.ActiveDeal.OfferingPlayer : TradingPlayer->GetSelectedOption();
+    const FCatanPlayerView* LocalPlayer = View.Players.FindByPredicate(
+        [](const FCatanPlayerView& Item) { return Item.bIsLocalPlayer; });
+    if (!LocalPlayer) return;
     FString Error;
-    GameSubsystem->TryCancelTrade(Player, Error);
+    GameSubsystem->TryCancelTrade(LocalPlayer->Name, Error);
 }
 
 void UCatanHUDWidget::CloseTrading()
 {
+    FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
     bTradePanelOpen = false;
     Refresh();
 }

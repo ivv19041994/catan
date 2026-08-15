@@ -41,6 +41,16 @@ int main() { return test::Run({
         test::Equal(game.GetPlayer(seller).getCountResurses(Resurse::Wood), seller_wood - 2, "seller pays offer");
         test::Equal(game.GetPlayer(buyer).getCountResurses(Resurse::Clay), buyer_clay - 1, "buyer pays counter-resource");
     }},
+    {"creating an offer does not inspect the recipient's private hand", [] {
+        test::ControlledGame controlled({"a","b"}); test::EnterCommonPlay(controlled);
+        auto& game = *controlled.game; const auto seller = game.GetCurrentPlayer(); const auto buyer = seller == "a" ? "b" : "a";
+        test::SeedResources(game, seller, {{Resurse::Wood,1}});
+        test::SeedResources(game, buyer, {});
+        game.SetDeal(seller, {{Resurse::Wood,1}}, {{Resurse::Stone,4}});
+        test::Check(game.GetActivDeal().has_value(), "unaffordable request is still published without leaking the recipient hand");
+        test::Throws([&] { game.SetDeal(buyer, {{Resurse::Stone,4}}, {{Resurse::Wood,1}}); },
+            "recipient cannot accept without the requested cards");
+    }},
     {"empty, mismatched and unaffordable deals are rejected without transfer", [] {
         test::ControlledGame controlled({"a","b"}); test::EnterCommonPlay(controlled);
         auto& game = *controlled.game; const auto seller = game.GetCurrentPlayer(); const auto buyer = seller == "a" ? "b" : "a";

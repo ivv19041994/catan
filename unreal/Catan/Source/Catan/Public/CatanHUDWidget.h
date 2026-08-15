@@ -68,13 +68,16 @@ private:
     UPROPERTY(Transient) TObjectPtr<UButton> MonopolyButton;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> FirstResource;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> SecondResource;
-    UPROPERTY(Transient) TObjectPtr<UComboBoxString> BankFromResource;
-    UPROPERTY(Transient) TObjectPtr<UComboBoxString> BankToResource;
+    UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> TradeModeSwitcher;
+    UPROPERTY(Transient) TArray<TObjectPtr<UButton>> BankFromButtons;
+    UPROPERTY(Transient) TArray<TObjectPtr<UButton>> BankToButtons;
     UPROPERTY(Transient) TArray<TObjectPtr<USpinBox>> OfferedInputs;
     UPROPERTY(Transient) TArray<TObjectPtr<USpinBox>> RequestedInputs;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DealText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> BankRateText;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> TradingPlayer;
+    UPROPERTY(Transient) TObjectPtr<UButton> AcceptDealButton;
+    UPROPERTY(Transient) TObjectPtr<UButton> CancelDealButton;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> WinnerText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> AvailabilityText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> BuildCostText;
@@ -118,6 +121,9 @@ private:
     bool bAdaptiveLayoutInitialized = false;
     bool bLeftDetailsOpen = false;
     bool bRightDetailsOpen = false;
+    bool bTradeInputsNeedReset = true;
+    ECatanResource BankFromSelection = ECatanResource::Wood;
+    ECatanResource BankToSelection = ECatanResource::Clay;
 
     void BuildLayout();
     UCommonTextBlock* AddText(UVerticalBox* Parent, const FString& Text, int32 Size);
@@ -142,6 +148,18 @@ private:
     UFUNCTION() void PlayMonopoly();
     UFUNCTION() void CloseDevelopmentCards();
     UFUNCTION() void TradeWithBank();
+    UFUNCTION() void ShowBankTrade();
+    UFUNCTION() void ShowPlayerTrade();
+    UFUNCTION() void SelectBankFromWood();
+    UFUNCTION() void SelectBankFromClay();
+    UFUNCTION() void SelectBankFromHay();
+    UFUNCTION() void SelectBankFromSheep();
+    UFUNCTION() void SelectBankFromStone();
+    UFUNCTION() void SelectBankToWood();
+    UFUNCTION() void SelectBankToClay();
+    UFUNCTION() void SelectBankToHay();
+    UFUNCTION() void SelectBankToSheep();
+    UFUNCTION() void SelectBankToStone();
     UFUNCTION() void OfferTrade();
     UFUNCTION() void AcceptTrade();
     UFUNCTION() void CancelTrade();
@@ -171,4 +189,8 @@ private:
     bool GetValidatedPlayerName(FString& OutName);
     void ApplyAdaptiveLayout(bool bCompact);
     void UpdateActionLabels();
+    void UpdateBankSelectionStyles();
+    void ResetTradeInputs();
+    void ApplyUIPreview();
+    void SetModalSize(float Width, float Height);
 };

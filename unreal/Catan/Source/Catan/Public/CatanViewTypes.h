@@ -94,6 +94,7 @@ struct FCatanDealView
 
     UPROPERTY(BlueprintReadOnly) bool bIsActive = false;
     UPROPERTY(BlueprintReadOnly) FString OfferingPlayer;
+    UPROPERTY(BlueprintReadOnly) FString TargetPlayer;
     UPROPERTY(BlueprintReadOnly) FCatanResourceView Offered;
     UPROPERTY(BlueprintReadOnly) FCatanResourceView Requested;
 };
