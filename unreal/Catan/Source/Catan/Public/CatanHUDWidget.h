@@ -89,7 +89,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> DedicatedAddressInput;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> DedicatedLobbyTokenInput;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> LobbyResults;
-    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> NetworkStatusText;
+    UPROPERTY(Transient) TArray<TObjectPtr<UCommonTextBlock>> NetworkStatusTexts;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> LobbyPlayersText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> LobbyAddressText;
     UPROPERTY(Transient) TObjectPtr<UButton> ReadyButton;
@@ -179,6 +179,8 @@ private:
     UFUNCTION() void HostLanLobby();
     UFUNCTION() void StartBotMatch();
     UFUNCTION() void ShowOnlineSetup();
+    UFUNCTION() void ShowLocalNetworkSetup();
+    UFUNCTION() void ShowDedicatedServerSetup();
     UFUNCTION() void ShowBotSetup();
     UFUNCTION() void ShowMainSetup();
     UFUNCTION() void FindLanLobbies();

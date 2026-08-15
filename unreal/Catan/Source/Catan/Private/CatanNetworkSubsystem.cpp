@@ -52,7 +52,7 @@ void UCatanNetworkSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
     ConfigureLanAdapter();
-    Status = TEXT("Choose Online to host or join a LAN lobby");
+    Status = TEXT("Ready to host or join a game");
 
     FString AutoName = TEXT("Automation");
     FParse::Value(FCommandLine::Get(), TEXT("CatanAutoName="), AutoName);

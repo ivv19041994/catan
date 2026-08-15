@@ -18,10 +18,10 @@
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
 #include "Components/Spacer.h"
+#include "Components/ScrollBox.h"
 #include "Components/SpinBox.h"
 #include "Components/SizeBox.h"
 #include "Components/SafeZone.h"
-#include "Components/ScrollBox.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/WidgetSwitcher.h"
@@ -37,6 +37,12 @@
 
 namespace
 {
+constexpr int32 SetupMainIndex = 0;
+constexpr int32 SetupOnlineIndex = 1;
+constexpr int32 SetupLocalNetworkIndex = 2;
+constexpr int32 SetupDedicatedServerIndex = 3;
+constexpr int32 SetupBotsIndex = 4;
+
 UBorder* AddPanel(UWidgetTree* Tree, UCanvasPanel* Canvas, const FAnchors& Anchors,
     const FVector2D& Alignment, const FMargin& Offsets)
 {
@@ -590,52 +596,69 @@ void UCatanHUDWidget::BuildLayout()
     OnlineMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowOnlineSetup);
     BotMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowBotSetup);
 
-    UScrollBox* OnlineScroll = WidgetTree->ConstructWidget<UScrollBox>();
-    SetupSwitcher->AddChild(OnlineScroll);
     UVerticalBox* OnlinePanel = WidgetTree->ConstructWidget<UVerticalBox>();
-    OnlineScroll->AddChild(OnlinePanel);
+    SetupSwitcher->AddChild(OnlinePanel);
     AddText(OnlinePanel, TEXT("ONLINE"), 27);
-    AddText(OnlinePanel, TEXT("LOCAL HOST"), 19);
-    AddText(OnlinePanel, TEXT("Host a LAN lobby, find one automatically, or enter its address."), 15);
+    AddText(OnlinePanel, TEXT("Choose how to connect"), 19);
+    UButton* LocalNetworkMode = AddButton(OnlinePanel, TEXT("LOCAL NETWORK"));
+    UButton* DedicatedServerMode = AddButton(OnlinePanel, TEXT("DEDICATED SERVER"));
+    UButton* OnlineBack = AddButton(OnlinePanel, TEXT("BACK"));
+    LocalNetworkMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowLocalNetworkSetup);
+    DedicatedServerMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowDedicatedServerSetup);
+    OnlineBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMainSetup);
+
+    UVerticalBox* LocalNetworkPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    SetupSwitcher->AddChild(LocalNetworkPanel);
+    AddText(LocalNetworkPanel, TEXT("LOCAL NETWORK"), 27);
+    AddText(LocalNetworkPanel, TEXT("Host a LAN lobby, find one automatically, or enter its address."), 15);
     LobbyNameInput = WidgetTree->ConstructWidget<UEditableTextBox>();
     LobbyNameInput->SetText(FText::FromString(TEXT("Catan LAN Lobby")));
     LobbyNameInput->SetHintText(FText::FromString(TEXT("Lobby name")));
     LobbyNameInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
-    OnlinePanel->AddChildToVerticalBox(LobbyNameInput);
-    UButton* HostGame = AddButton(OnlinePanel, TEXT("HOST ONLINE (LAN)"));
+    LocalNetworkPanel->AddChildToVerticalBox(LobbyNameInput);
+    UButton* HostGame = AddButton(LocalNetworkPanel, TEXT("HOST ONLINE (LAN)"));
     HostGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::HostLanLobby);
     LobbyResults = WidgetTree->ConstructWidget<UComboBoxString>();
     ConfigureComboBox(LobbyResults, 20);
     LobbyResults->AddOption(TEXT("No search results yet"));
     LobbyResults->SetSelectedIndex(0);
-    OnlinePanel->AddChildToVerticalBox(LobbyResults);
-    UButton* SearchGame = AddButton(OnlinePanel, TEXT("REFRESH LAN LOBBIES"));
-    UButton* JoinGame = AddButton(OnlinePanel, TEXT("JOIN SELECTED"));
+    LocalNetworkPanel->AddChildToVerticalBox(LobbyResults);
+    UButton* SearchGame = AddButton(LocalNetworkPanel, TEXT("REFRESH LAN LOBBIES"));
+    UButton* JoinGame = AddButton(LocalNetworkPanel, TEXT("JOIN SELECTED"));
     SearchGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::FindLanLobbies);
     JoinGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::JoinSelectedLobby);
     ManualAddressInput = WidgetTree->ConstructWidget<UEditableTextBox>();
     ManualAddressInput->SetHintText(FText::FromString(TEXT("Host address, e.g. 192.168.1.20:7777")));
     ManualAddressInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
-    OnlinePanel->AddChildToVerticalBox(ManualAddressInput);
-    UButton* JoinAddress = AddButton(OnlinePanel, TEXT("JOIN BY ADDRESS"));
+    LocalNetworkPanel->AddChildToVerticalBox(ManualAddressInput);
+    UButton* JoinAddress = AddButton(LocalNetworkPanel, TEXT("JOIN BY ADDRESS"));
     JoinAddress->OnClicked.AddDynamic(this, &UCatanHUDWidget::JoinManualLobby);
-    AddText(OnlinePanel, TEXT("DEDICATED SERVER"), 19);
+    UButton* LocalNetworkBack = AddButton(LocalNetworkPanel, TEXT("BACK"));
+    LocalNetworkBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowOnlineSetup);
+    NetworkStatusTexts.Add(AddText(LocalNetworkPanel, TEXT("LAN ready"), 14));
+
+    UVerticalBox* DedicatedServerPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    SetupSwitcher->AddChild(DedicatedServerPanel);
+    AddText(DedicatedServerPanel, TEXT("DEDICATED SERVER"), 27);
+    AddText(DedicatedServerPanel, TEXT("Create a new game or join an existing lobby by token."), 15);
     DedicatedAddressInput = WidgetTree->ConstructWidget<UEditableTextBox>();
     DedicatedAddressInput->SetText(FText::FromString(TEXT("127.0.0.1:17777")));
     DedicatedAddressInput->SetHintText(FText::FromString(TEXT("Server IP, e.g. 192.168.1.20:17777")));
     DedicatedAddressInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
-    OnlinePanel->AddChildToVerticalBox(DedicatedAddressInput);
-    UButton* CreateDedicated = AddButton(OnlinePanel, TEXT("CREATE GAME ON SERVER"));
+    DedicatedServerPanel->AddChildToVerticalBox(DedicatedAddressInput);
+    UButton* CreateDedicated = AddButton(DedicatedServerPanel, TEXT("CREATE GAME ON SERVER"));
     CreateDedicated->OnClicked.AddDynamic(this, &UCatanHUDWidget::CreateDedicatedLobby);
     DedicatedLobbyTokenInput = WidgetTree->ConstructWidget<UEditableTextBox>();
     DedicatedLobbyTokenInput->SetHintText(FText::FromString(TEXT("Lobby token, e.g. ABCD-EFGH")));
     DedicatedLobbyTokenInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
-    OnlinePanel->AddChildToVerticalBox(DedicatedLobbyTokenInput);
-    UButton* JoinDedicated = AddButton(OnlinePanel, TEXT("JOIN GAME BY LOBBY TOKEN"));
+    DedicatedServerPanel->AddChildToVerticalBox(DedicatedLobbyTokenInput);
+    UButton* JoinDedicated = AddButton(DedicatedServerPanel, TEXT("JOIN GAME BY LOBBY TOKEN"));
     JoinDedicated->OnClicked.AddDynamic(this, &UCatanHUDWidget::JoinDedicatedLobby);
-    UButton* OnlineBack = AddButton(OnlinePanel, TEXT("BACK"));
-    OnlineBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMainSetup);
-    NetworkStatusText = AddText(OnlinePanel, TEXT("LAN ready"), 14);
+    UButton* DedicatedServerBack = AddButton(DedicatedServerPanel, TEXT("BACK"));
+    DedicatedServerBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowOnlineSetup);
+    NetworkStatusTexts.Add(AddText(DedicatedServerPanel, TEXT("Server ready"), 14));
+    UE_LOG(LogTemp, Display,
+        TEXT("CATAN_ONLINE_MENU_SPLIT ready pages=chooser,local,dedicated dedicatedScroll=0"));
 
     UVerticalBox* BotPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     SetupSwitcher->AddChild(BotPanel);
@@ -839,9 +862,11 @@ void UCatanHUDWidget::Refresh()
 {
     if (!GameSubsystem || !PhaseText) return;
     SetModalSize(680.0f, 650.0f);
-    if (NetworkStatusText && NetworkSubsystem)
+    if (NetworkSubsystem)
     {
-        NetworkStatusText->SetText(FText::FromString(NetworkSubsystem->GetStatus()));
+        for (UCommonTextBlock* NetworkStatusText : NetworkStatusTexts)
+            if (NetworkStatusText)
+                NetworkStatusText->SetText(FText::FromString(NetworkSubsystem->GetStatus()));
         if (LobbyResults)
         {
             const int32 Previous = LobbyResults->GetSelectedIndex();
@@ -1087,7 +1112,15 @@ void UCatanHUDWidget::Refresh()
 
     if (bSetupPanelOpen)
     {
-        SetModalSize(900.0f, 650.0f);
+        const int32 SetupPage = SetupSwitcher ? SetupSwitcher->GetActiveWidgetIndex() : SetupMainIndex;
+        if (SetupPage == SetupOnlineIndex)
+            SetModalSize(760.0f, 520.0f);
+        else if (SetupPage == SetupDedicatedServerIndex)
+            SetModalSize(760.0f, 590.0f);
+        else if (SetupPage == SetupBotsIndex)
+            SetModalSize(760.0f, 540.0f);
+        else
+            SetModalSize(900.0f, 650.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(6);
         UpdatePlayerCount(PlayerCount->GetSelectedOption(), ESelectInfo::Direct);
@@ -1324,15 +1357,27 @@ void UCatanHUDWidget::ApplyUIPreview()
     }
     else if (Preview.Equals(TEXT("Online"), ESearchCase::IgnoreCase))
     {
-        SetModalSize(760.0f, 720.0f);
         ModalSwitcher->SetActiveWidgetIndex(6);
-        SetupSwitcher->SetActiveWidgetIndex(1);
+        if (!bUIPreviewReported)
+            SetupSwitcher->SetActiveWidgetIndex(SetupOnlineIndex);
+    }
+    else if (Preview.Equals(TEXT("LocalNetwork"), ESearchCase::IgnoreCase))
+    {
+        ModalSwitcher->SetActiveWidgetIndex(6);
+        if (!bUIPreviewReported)
+            SetupSwitcher->SetActiveWidgetIndex(SetupLocalNetworkIndex);
+    }
+    else if (Preview.Equals(TEXT("DedicatedServer"), ESearchCase::IgnoreCase))
+    {
+        ModalSwitcher->SetActiveWidgetIndex(6);
+        if (!bUIPreviewReported)
+            SetupSwitcher->SetActiveWidgetIndex(SetupDedicatedServerIndex);
     }
     else if (Preview.Equals(TEXT("Bots"), ESearchCase::IgnoreCase))
     {
         SetModalSize(760.0f, 540.0f);
         ModalSwitcher->SetActiveWidgetIndex(6);
-        SetupSwitcher->SetActiveWidgetIndex(2);
+        SetupSwitcher->SetActiveWidgetIndex(SetupBotsIndex);
     }
     if (!bUIPreviewReported)
     {
@@ -1373,17 +1418,35 @@ void UCatanHUDWidget::StartBotMatch()
 
 void UCatanHUDWidget::ShowOnlineSetup()
 {
-    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(1);
+    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(SetupOnlineIndex);
+    SetModalSize(760.0f, 520.0f);
+    UE_LOG(LogTemp, Display, TEXT("CATAN_ONLINE_NAV page=chooser"));
+}
+
+void UCatanHUDWidget::ShowLocalNetworkSetup()
+{
+    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(SetupLocalNetworkIndex);
+    SetModalSize(900.0f, 650.0f);
+    UE_LOG(LogTemp, Display, TEXT("CATAN_ONLINE_NAV page=local"));
+}
+
+void UCatanHUDWidget::ShowDedicatedServerSetup()
+{
+    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(SetupDedicatedServerIndex);
+    SetModalSize(760.0f, 590.0f);
+    UE_LOG(LogTemp, Display, TEXT("CATAN_ONLINE_NAV page=dedicated"));
 }
 
 void UCatanHUDWidget::ShowBotSetup()
 {
-    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(2);
+    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(SetupBotsIndex);
+    SetModalSize(760.0f, 540.0f);
 }
 
 void UCatanHUDWidget::ShowMainSetup()
 {
-    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(0);
+    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(SetupMainIndex);
+    SetModalSize(900.0f, 650.0f);
 }
 
 void UCatanHUDWidget::FindLanLobbies()
