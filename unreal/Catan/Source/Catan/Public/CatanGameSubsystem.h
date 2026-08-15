@@ -111,6 +111,9 @@ private:
     int32 BotE2EActions = 0;
     int32 BotE2EUnchangedActions = 0;
     int32 BotE2EMaxActions = 12000;
+    FString BotTurnPlayer;
+    bool bBotDevelopmentAttempted = false;
+    bool bBotTradeAttempted = false;
 
     bool CompleteCommand(bool bSucceeded, const FString& Message, FString& Error);
     void AppendEvent(const FString& Message);
