@@ -389,6 +389,8 @@ void UCatanHUDWidget::BuildLayout()
     AddText(DevelopmentResourcePanel, TEXT("Resources for Year of Plenty / Monopoly"), 16);
     FirstResource = WidgetTree->ConstructWidget<UComboBoxString>();
     SecondResource = WidgetTree->ConstructWidget<UComboBoxString>();
+    ConfigureComboBox(FirstResource, 22);
+    ConfigureComboBox(SecondResource, 22);
     for (const TCHAR* ResourceName : ResourceNames)
     {
         FirstResource->AddOption(ResourceName);
@@ -492,13 +494,7 @@ void UCatanHUDWidget::BuildLayout()
     TradeModeSwitcher->AddChild(PlayerTradePanel);
     AddText(PlayerTradePanel, TEXT("OFFER TO"), 18);
     TradingPlayer = WidgetTree->ConstructWidget<UComboBoxString>();
-    {
-        FSlateFontInfo Font = TradingPlayer->GetFont();
-        Font.Size = 22;
-PRAGMA_DISABLE_DEPRECATION_WARNINGS
-        TradingPlayer->Font = Font;
-PRAGMA_ENABLE_DEPRECATION_WARNINGS
-    }
+    ConfigureComboBox(TradingPlayer, 22);
     TradingPlayer->SetContentPadding(FMargin(14, 10));
     TradingPlayer->SetMaxListHeight(320.0f);
     USizeBox* RecipientSize = WidgetTree->ConstructWidget<USizeBox>();
@@ -529,14 +525,10 @@ PRAGMA_ENABLE_DEPRECATION_WARNINGS
             NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
             NameSlot->SetVerticalAlignment(VAlign_Center);
             UComboBoxString* Input = WidgetTree->ConstructWidget<UComboBoxString>();
+            ConfigureComboBox(Input, 24);
             for (int32 Count = 0; Count <= 5; ++Count)
                 Input->AddOption(FString::FromInt(Count));
             Input->SetSelectedOption(TEXT("0"));
-            FSlateFontInfo InputFont = Input->GetFont();
-            InputFont.Size = 24;
-PRAGMA_DISABLE_DEPRECATION_WARNINGS
-            Input->Font = InputFont;
-PRAGMA_ENABLE_DEPRECATION_WARNINGS
             Input->SetContentPadding(FMargin(18, 8));
             Input->SetMaxListHeight(360.0f);
             USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
@@ -611,6 +603,7 @@ PRAGMA_ENABLE_DEPRECATION_WARNINGS
     UButton* HostGame = AddButton(OnlinePanel, TEXT("HOST ONLINE (LAN)"));
     HostGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::HostLanLobby);
     LobbyResults = WidgetTree->ConstructWidget<UComboBoxString>();
+    ConfigureComboBox(LobbyResults, 20);
     LobbyResults->AddOption(TEXT("No search results yet"));
     LobbyResults->SetSelectedIndex(0);
     OnlinePanel->AddChildToVerticalBox(LobbyResults);
@@ -633,6 +626,7 @@ PRAGMA_ENABLE_DEPRECATION_WARNINGS
     AddText(BotPanel, TEXT("PLAY AGAINST BOTS"), 27);
     AddText(BotPanel, TEXT("Choose the total number of players."), 17);
     PlayerCount = WidgetTree->ConstructWidget<UComboBoxString>();
+    ConfigureComboBox(PlayerCount, 22);
     PlayerCount->AddOption(TEXT("2 players"));
     PlayerCount->AddOption(TEXT("3 players"));
     PlayerCount->AddOption(TEXT("4 players"));
@@ -676,6 +670,24 @@ PRAGMA_ENABLE_DEPRECATION_WARNINGS
     RoadBuildingButton->SetToolTipText(FText::FromString(TEXT("Place two roads for free")));
     YearOfPlentyButton->SetToolTipText(FText::FromString(TEXT("Take the two selected resources")));
     MonopolyButton->SetToolTipText(FText::FromString(TEXT("Take the selected resource from every opponent")));
+    UE_LOG(LogTemp, Display, TEXT("CATAN_COMBO_STYLE ready widgets=%d popupText=white"),
+        5 + OfferedInputs.Num() + RequestedInputs.Num());
+}
+
+void UCatanHUDWidget::ConfigureComboBox(UComboBoxString* ComboBox, int32 FontSize)
+{
+    if (!ComboBox) return;
+    FTableRowStyle ItemStyle = ComboBox->GetItemStyle();
+    ItemStyle.SetTextColor(FSlateColor(FLinearColor::White));
+    ItemStyle.SetSelectedTextColor(FSlateColor(FLinearColor::White));
+    ComboBox->SetItemStyle(ItemStyle);
+    FSlateFontInfo Font = ComboBox->GetFont();
+    Font.Size = FontSize;
+PRAGMA_DISABLE_DEPRECATION_WARNINGS
+    ComboBox->Font = Font;
+    ComboBox->ForegroundColor = FSlateColor(FLinearColor(0.025f, 0.035f, 0.05f, 1.0f));
+PRAGMA_ENABLE_DEPRECATION_WARNINGS
+    ComboBox->OnOpening.AddDynamic(this, &UCatanHUDWidget::ReportComboOpening);
 }
 
 void UCatanHUDWidget::ApplyAdaptiveLayout(bool bCompact)
@@ -1238,6 +1250,24 @@ void UCatanHUDWidget::ApplyUIPreview()
         if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(CancelDealButton->GetChildAt(0)))
             Label->SetText(FText::FromString(TEXT("DECLINE OFFER")));
     }
+    else if (Preview.Equals(TEXT("Development"), ESearchCase::IgnoreCase))
+    {
+        SetModalSize(760.0f, 650.0f);
+        ModalSwitcher->SetActiveWidgetIndex(2);
+        DevelopmentResourcePanel->SetVisibility(ESlateVisibility::Visible);
+    }
+    else if (Preview.Equals(TEXT("Online"), ESearchCase::IgnoreCase))
+    {
+        SetModalSize(760.0f, 720.0f);
+        ModalSwitcher->SetActiveWidgetIndex(6);
+        SetupSwitcher->SetActiveWidgetIndex(1);
+    }
+    else if (Preview.Equals(TEXT("Bots"), ESearchCase::IgnoreCase))
+    {
+        SetModalSize(760.0f, 540.0f);
+        ModalSwitcher->SetActiveWidgetIndex(6);
+        SetupSwitcher->SetActiveWidgetIndex(2);
+    }
     if (!bUIPreviewReported)
     {
         bUIPreviewReported = true;
@@ -1249,6 +1279,11 @@ void UCatanHUDWidget::SetModalSize(float Width, float Height)
 {
     if (UCanvasPanelSlot* Slot = ModalBorder ? Cast<UCanvasPanelSlot>(ModalBorder->Slot) : nullptr)
         Slot->SetSize(FVector2D(Width, Height));
+}
+
+void UCatanHUDWidget::ReportComboOpening()
+{
+    UE_LOG(LogTemp, Display, TEXT("CATAN_COMBO_OPEN"));
 }
 
 void UCatanHUDWidget::HostLanLobby()

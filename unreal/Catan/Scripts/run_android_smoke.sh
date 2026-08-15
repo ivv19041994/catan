@@ -12,7 +12,6 @@ emulator="$sdk_root/emulator/emulator"
 log_dir="$(mktemp -d /tmp/catan-android-smoke.XXXXXX)"
 log_file="$log_dir/logcat.txt"
 screenshot="$log_dir/main-menu.png"
-trade_screenshot="$log_dir/player-trade.png"
 started_emulator=0
 
 fail() {
@@ -61,6 +60,49 @@ assert_running_without_fatal() {
     || fail "Catan GameActivity is no longer in the foreground: $top_activity"
 }
 
+test_combo_preview() {
+  local mode="$1"
+  local tap_x="$2"
+  local tap_y="$3"
+  local output="$log_dir/${mode:l}-dropdown.png"
+  print "Testing $mode dropdown contrast and post-GC stability..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline "-CatanUIPreview=$mode" >/dev/null \
+    || fail "$mode preview launch failed"
+  local preview_ready=0
+  local style_ready=0
+  for attempt in {1..60}; do
+    adb logcat -d >"$log_file"
+    if rg -q "$fatal_pattern" "$log_file"; then
+      rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
+      fail "$mode preview crashed during startup"
+    fi
+    rg -q "CATAN_UI_PREVIEW ready mode=$mode" "$log_file" && preview_ready=1
+    rg -q 'CATAN_COMBO_STYLE ready widgets=15 popupText=white' "$log_file" && style_ready=1
+    (( preview_ready && style_ready )) && break
+    sleep 1
+  done
+  (( preview_ready )) || fail "$mode preview marker was not observed"
+  (( style_ready )) || fail "readable combo style was not applied to all 15 dropdowns"
+  local combo_open=0
+  # The preview marker can arrive one frame before Android starts routing touch to Slate.
+  sleep 2
+  for attempt in {1..3}; do
+    adb shell input tap "$tap_x" "$tap_y"
+    sleep 1
+    adb logcat -d >"$log_file"
+    rg -q 'CATAN_COMBO_OPEN' "$log_file" && combo_open=1
+    (( combo_open )) && break
+  done
+  (( combo_open )) || fail "$mode dropdown did not open at $tap_x,$tap_y"
+  adb shell am broadcast -a android.intent.action.RUN -e cmd 'obj gc' >/dev/null
+  sleep 3
+  assert_running_without_fatal "$mode dropdown failed while open after garbage collection"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "$mode dropdown screenshot is empty"
+}
+
 adb logcat -c
 adb shell am force-stop "$package_name"
 adb shell am start -n "$activity" >/dev/null || fail "activity launch failed"
@@ -88,30 +130,12 @@ assert_running_without_fatal "late Android/RHI failure detected"
 adb exec-out screencap -p >"$screenshot"
 [[ -s "$screenshot" ]] || fail "Android screenshot is empty"
 
-print "Testing Other Player dropdowns across a forced garbage collection..."
-adb logcat -c
-adb shell am force-stop "$package_name"
-adb shell am start -n "$activity" --es cmdline '-CatanUIPreview=PlayerTrade' >/dev/null \
-  || fail "player-trade preview launch failed"
-preview_ready=0
-for attempt in {1..60}; do
-  adb logcat -d >"$log_file"
-  if rg -q "$fatal_pattern" "$log_file"; then
-    rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
-    fail "player-trade preview crashed during startup"
-  fi
-  rg -q 'CATAN_UI_PREVIEW ready mode=PlayerTrade' "$log_file" && preview_ready=1
-  (( preview_ready )) && break
-  sleep 1
-done
-(( preview_ready )) || fail "player-trade preview marker was not observed"
-adb shell am broadcast -a android.intent.action.RUN -e cmd 'obj gc' >/dev/null
-sleep 10
-assert_running_without_fatal "Other Player controls failed after garbage collection"
-adb exec-out screencap -p >"$trade_screenshot"
-[[ -s "$trade_screenshot" ]] || fail "player-trade screenshot is empty"
+test_combo_preview PlayerTrade 1180 490
+test_combo_preview Development 1200 565
+test_combo_preview Online 1200 415
+test_combo_preview Bots 1200 390
 
-print "PASS: Android engine initialization, main menu, Other Player controls and post-GC stability"
+print "PASS: Android startup and all dropdown families passed contrast/open/post-GC checks"
 print "APK: $apk"
 print "Artifacts: $log_dir"
 if (( started_emulator )); then

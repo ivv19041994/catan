@@ -127,6 +127,7 @@ private:
     ECatanResource BankToSelection = ECatanResource::Clay;
 
     void BuildLayout();
+    void ConfigureComboBox(UComboBoxString* ComboBox, int32 FontSize);
     UCommonTextBlock* AddText(UVerticalBox* Parent, const FString& Text, int32 Size);
     UButton* AddButton(UVerticalBox* Parent, const FString& Label);
 
@@ -165,6 +166,7 @@ private:
     UFUNCTION() void AcceptTrade();
     UFUNCTION() void CancelTrade();
     UFUNCTION() void CloseTrading();
+    UFUNCTION() void ReportComboOpening();
     UFUNCTION() void StartNewGame();
     UFUNCTION() void ConfirmNewGame();
     UFUNCTION() void UpdatePlayerCount(FString SelectedItem, ESelectInfo::Type SelectionType);
