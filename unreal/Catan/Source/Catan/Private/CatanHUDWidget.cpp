@@ -117,6 +117,8 @@ TSharedRef<SWidget> UCatanHUDWidget::RebuildWidget()
 void UCatanHUDWidget::NativeConstruct()
 {
     Super::NativeConstruct();
+    if (FParse::Param(FCommandLine::Get(), TEXT("CatanVisualCheck")))
+        SetVisibility(ESlateVisibility::Collapsed);
     GameSubsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     NetworkSubsystem = GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>();
     if (GameSubsystem)

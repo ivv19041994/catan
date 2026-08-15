@@ -3,6 +3,7 @@
 #include "CatanHexMeshBuilder.h"
 #include "CatanResourceVisualBuilder.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
@@ -36,6 +37,14 @@ UMaterialInstanceDynamic* TerrainMaterial(UObject* Owner, UMaterialInterface* Ba
     Material->SetVectorParameterValue(TEXT("Color"), Color);
     Material->SetVectorParameterValue(TEXT("BaseColor"), Color);
     Material->SetScalarParameterValue(TEXT("Roughness"), 0.88f);
+    return Material;
+}
+
+UMaterialInstanceDynamic* TiledSurfaceMaterial(UObject* Owner, UMaterialInterface* Base, float Tiling)
+{
+    UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Base, Owner);
+    Material->SetScalarParameterValue(TEXT("Tiling"), Tiling);
+    Material->SetScalarParameterValue(TEXT("SamplingScale"), Tiling);
     return Material;
 }
 
@@ -80,11 +89,16 @@ void ACatanMenuBackdropActor::BeginPlay()
 void ACatanMenuBackdropActor::BuildEnvironment()
 {
     if (!BasicMaterial) return;
-    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
-    Sea->SetStaticMesh(Cube);
-    Sea->SetRelativeLocation(FVector(0, 0, -48));
+    UStaticMesh* Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
+    Sea->SetStaticMesh(Plane);
+    // Keep the surface just above the template level floor.  A flat water mesh
+    // below Z=0 is completely occluded by that floor in the menu map.
+    Sea->SetRelativeLocation(FVector(0, 0, 2.0f));
     Sea->SetRelativeScale3D(FVector(150.0f, 150.0f, 1.0f));
-    Sea->SetMaterial(0, TerrainMaterial(this, BasicMaterial, FLinearColor(0.012f, 0.18f, 0.38f)));
+    UMaterialInterface* Water = LoadObject<UMaterialInterface>(nullptr,
+        TEXT("/Game/Environment/Ocean/M_CatanOceanDepth.M_CatanOceanDepth"));
+    Sea->SetMaterial(0, Water ? Water
+        : TerrainMaterial(this, BasicMaterial, FLinearColor(0.012f, 0.18f, 0.38f)));
 
     struct FLayer { float RadiusScale; float Height; FLinearColor Color; };
     const FLayer Layers[] = {
@@ -105,7 +119,12 @@ void ACatanMenuBackdropActor::BuildEnvironment()
         }
         Shore->CreateMeshSection_LinearColor(Layer, Mesh.Vertices, Mesh.Triangles, Mesh.Normals,
             Mesh.UVs, Mesh.Colors, Mesh.Tangents, false);
-        Shore->SetMaterial(Layer, TerrainMaterial(this, BasicMaterial, Layers[Layer].Color));
+        const TCHAR* ShoreMaterialPath = Layer == 1
+            ? TEXT("/Game/Fab/Megascans/Surfaces/Rocky_Sand_vd4pbdt/High/vd4pbdt_tier_1/Materials/MI_vd4pbdt.MI_vd4pbdt")
+            : TEXT("/Game/Fab/Megascans/Surfaces/Rocky_Ground_vjdqcba/High/vjdqcba_tier_1/Materials/MI_vjdqcba.MI_vjdqcba");
+        UMaterialInterface* ShoreMaterial = LoadObject<UMaterialInterface>(nullptr, ShoreMaterialPath);
+        Shore->SetMaterial(Layer, ShoreMaterial ? TiledSurfaceMaterial(this, ShoreMaterial, 5.0f)
+            : TerrainMaterial(this, BasicMaterial, Layers[Layer].Color));
     }
 }
 
@@ -145,7 +164,7 @@ void ACatanMenuBackdropActor::BuildField()
                 ++BuiltHexes;
 
                 const FVector Center = AxialToWorld(Q, R, Height);
-                CatanHexMesh::AppendPrism(Mesh, Center, HexRadius * 0.985f, 24.0f, 12.0f,
+                CatanHexMesh::AppendPrism(Mesh, Center, HexRadius, 24.0f, 12.0f,
                     TerrainColors[Terrain], TerrainColors[Terrain] * 0.62f, 0.0f);
                 BuildResourceCluster(BuiltHexes, Center + FVector(0, 0, 24),
                     static_cast<uint8>(Terrain));
@@ -154,7 +173,20 @@ void ACatanMenuBackdropActor::BuildField()
 
         HexField->CreateMeshSection_LinearColor(Terrain, Mesh.Vertices, Mesh.Triangles, Mesh.Normals,
             Mesh.UVs, Mesh.Colors, Mesh.Tangents, false);
-        HexField->SetMaterial(Terrain, TerrainMaterial(this, BasicMaterial, TerrainColors[Terrain]));
+        if (UMaterialInterface* GroundMaterial = CatanResourceVisuals::GetGroundMaterial(
+            static_cast<ECatanResource>(Terrain)))
+        {
+            HexField->SetMaterial(Terrain, GroundMaterial);
+        }
+        else HexField->SetMaterial(Terrain, TerrainMaterial(this, BasicMaterial, TerrainColors[Terrain]));
+    }
+    // Instances are added in large batches while their hierarchy rebuild is
+    // disabled. Build each tree once after the complete layout is known.
+    for (UHierarchicalInstancedStaticMeshComponent* Instances : ResourceInstancedParts)
+    {
+        if (!Instances) continue;
+        Instances->bAutoRebuildTreeOnInstanceChanges = true;
+        Instances->BuildTreeIfOutdated(true, true);
     }
     UE_LOG(LogTemp, Display, TEXT("CATAN_MENU backdrop ready radius=%d hexes=%d seed=%d"),
         FieldRadius, BuiltHexes, LayoutSeed);
@@ -183,6 +215,107 @@ void ACatanMenuBackdropActor::BuildResourceCluster(int32 VisualId, const FVector
         ResourceParts.Add(Part);
         return Part;
     };
+    Callbacks.AddAuthoredStatic = [this, SurfaceCenter](const FString& Name, UStaticMesh* Mesh,
+        const FVector& Local, const FVector& Scale, const FRotator& Rotation)
+    {
+        UHierarchicalInstancedStaticMeshComponent* Instances = nullptr;
+        for (UHierarchicalInstancedStaticMeshComponent* Part : ResourceInstancedParts)
+        {
+            if (Part && Part->GetStaticMesh() == Mesh)
+            {
+                Instances = Part;
+                break;
+            }
+        }
+        if (!Instances)
+        {
+            Instances = NewObject<UHierarchicalInstancedStaticMeshComponent>(this,
+                *FString::Printf(TEXT("Menu%sInstances"), *Name));
+            Instances->SetupAttachment(HexField);
+            Instances->SetStaticMesh(Mesh);
+            Instances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            Instances->SetGenerateOverlapEvents(false);
+            Instances->SetCanEverAffectNavigation(false);
+            Instances->SetAffectDistanceFieldLighting(false);
+            Instances->SetCastShadow(false);
+#if PLATFORM_ANDROID || PLATFORM_IOS
+            Instances->SetCullDistances(2800, 4400);
+#else
+            Instances->SetCullDistances(3800, 6000);
+#endif
+            Instances->bAutoRebuildTreeOnInstanceChanges = false;
+            Instances->RegisterComponent();
+            ResourceInstancedParts.Add(Instances);
+        }
+        Instances->AddInstance(FTransform(Rotation, SurfaceCenter + Local, Scale));
+    };
+    // Keep AddAuthoredUniqueStatic unset in the menu. BuildCluster then falls
+    // back to AddAuthoredStatic and batches repeated barns, bales, sheep,
+    // mountains and brick props by mesh in HISM components. They do not need
+    // independent gameplay state in this decorative backdrop.
+    Callbacks.AddColoredInstance = [this, SurfaceCenter](const FString& Name, UStaticMesh* Mesh,
+        const FVector& Local, const FVector& Scale, const FLinearColor& Color, const FRotator& Rotation)
+    {
+        UHierarchicalInstancedStaticMeshComponent* Instances = nullptr;
+        for (UHierarchicalInstancedStaticMeshComponent* Part : ResourceInstancedParts)
+            if (Part && Part->GetName().Contains(Name)) { Instances = Part; break; }
+        if (!Instances)
+        {
+            Instances = NewObject<UHierarchicalInstancedStaticMeshComponent>(this,
+                *FString::Printf(TEXT("Menu%sInstances"), *Name));
+            Instances->SetupAttachment(HexField);
+            Instances->SetStaticMesh(Mesh);
+            Instances->SetMaterial(0, TerrainMaterial(this, BasicMaterial, Color));
+            Instances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            Instances->SetGenerateOverlapEvents(false);
+            Instances->SetCanEverAffectNavigation(false);
+            Instances->SetAffectDistanceFieldLighting(false);
+            Instances->SetCastShadow(false);
+#if PLATFORM_ANDROID || PLATFORM_IOS
+            Instances->SetCullDistances(2800, 4400);
+#else
+            Instances->SetCullDistances(3800, 6000);
+#endif
+            Instances->bAutoRebuildTreeOnInstanceChanges = false;
+            Instances->RegisterComponent();
+            ResourceInstancedParts.Add(Instances);
+        }
+        Instances->AddInstance(FTransform(Rotation, SurfaceCenter + Local, Scale));
+    };
+    Callbacks.AddMaterialStatic = [this, SurfaceCenter](const FString& Name, UStaticMesh* Mesh,
+        UMaterialInterface* Material, const FVector& Local, const FVector& Scale, const FRotator& Rotation)
+    {
+        UHierarchicalInstancedStaticMeshComponent* Instances = nullptr;
+        for (UHierarchicalInstancedStaticMeshComponent* Part : ResourceInstancedParts)
+            if (Part && Part->GetName().Contains(Name)) { Instances = Part; break; }
+        if (!Instances)
+        {
+            Instances = NewObject<UHierarchicalInstancedStaticMeshComponent>(this,
+                *FString::Printf(TEXT("Menu%sMaterialInstances"), *Name));
+            Instances->SetupAttachment(HexField);
+            Instances->SetStaticMesh(Mesh);
+            Instances->SetMaterial(0, Material ? Material : TerrainMaterial(this, BasicMaterial,
+                FLinearColor(0.18f, 0.24f, 0.10f)));
+            Instances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            Instances->SetGenerateOverlapEvents(false);
+            Instances->SetCanEverAffectNavigation(false);
+            Instances->SetAffectDistanceFieldLighting(false);
+            Instances->SetCastShadow(false);
+#if PLATFORM_ANDROID || PLATFORM_IOS
+            Instances->SetCullDistances(2800, 4400);
+#else
+            Instances->SetCullDistances(3800, 6000);
+#endif
+            Instances->bAutoRebuildTreeOnInstanceChanges = false;
+            Instances->RegisterComponent();
+            ResourceInstancedParts.Add(Instances);
+        }
+        Instances->AddInstance(FTransform(Rotation, SurfaceCenter + Local, Scale));
+    };
+    Callbacks.AuthoredForestTreeBudget = 7;
+#if PLATFORM_ANDROID || PLATFORM_IOS
+    Callbacks.AuthoredForestTreeBudget = 4;
+#endif
     Callbacks.AddHexPyramid = [this, SurfaceCenter](const FString& Name, const FVector& Local,
         float Radius, float Height, const FLinearColor& Color)
     {

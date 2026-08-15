@@ -13,6 +13,7 @@ class CATAN_API ACatanGameState final : public AGameStateBase
 
 public:
     ACatanGameState();
+    virtual void BeginPlay() override;
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
     UPROPERTY(ReplicatedUsing=OnRep_NetworkState, BlueprintReadOnly)

@@ -38,8 +38,21 @@
 - Blueprint-friendly снимок состояния (`FCatanGameView`) без передачи в UI
   указателей из чистого C++ core.
 
-Поле использует процедурную стилизацию из стандартных мешей и материалов Engine,
-поэтому запускается без ручного импорта внешних ассетов.
+Поле использует фотореалистичные ассеты Fab/Marketplace. Сами пакеты не входят
+в репозиторий и должны быть добавлены в проект локально (их каталоги исключены
+из Git согласно условиям распространения). Используются пакеты:
+
+- `DZ Trees`, `Pirate`, `Viking Village Pack`;
+- `Cobblestones Scan`, `Cut Ash Tree Logs Stack`, `Gislinge Viking Boat`;
+- `Historical House with Exposed Bricks`, `Medieval Castle Tower 4`;
+- `Mountain 1`, `Old Dry Bamboo Bridge`, `Old Wooden Barn (House 4)`;
+- `Round Hay Bale`, `Stacked Bricks`, `Suffolk Sheep`;
+- поверхности Megascans `Dry Trampled Soil`, `Forest Floor`, `Rocky Ground`,
+  `Rocky Sand`, `Soil Mud` и `Uncut Grass`.
+
+Созданные специально для Catan материалы, оптимизированные runtime-копии и
+исходные текстуры находятся в `Content/Catan`, `Content/Environment` и
+`ArtSource`; они входят в репозиторий.
 
 ## Запуск
 

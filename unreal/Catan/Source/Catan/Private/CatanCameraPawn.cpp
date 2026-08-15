@@ -25,6 +25,8 @@ void ACatanCameraPawn::BeginPlay()
 {
     Super::BeginPlay();
     SetActorLocation(FVector(0.0f, 0.0f, 80.0f));
+    if (FParse::Param(FCommandLine::Get(), TEXT("CatanRobberCheck")))
+        SpringArm->TargetArmLength = 760.0f;
     DesiredArmLength = SpringArm->TargetArmLength;
 }
 
