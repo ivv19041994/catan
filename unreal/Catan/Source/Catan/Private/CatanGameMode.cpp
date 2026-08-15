@@ -168,6 +168,14 @@ void ACatanGameMode::StartSinglePlayerGame(const FString& HumanName, int32 BotCo
         State->NetworkMode = ECatanNetworkMode::Playing;
 }
 
+void ACatanGameMode::ShowDedicatedGameBoard()
+{
+    if (GetNetMode() != NM_Standalone) return;
+    ShowGameBoard();
+    if (ACatanGameState* State = GetGameState<ACatanGameState>())
+        State->NetworkMode = ECatanNetworkMode::Playing;
+}
+
 void ACatanGameMode::ShowGameBoard()
 {
     if (MenuBackdrop)

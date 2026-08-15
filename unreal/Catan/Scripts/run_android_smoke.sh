@@ -134,6 +134,66 @@ test_bank_preview() {
   [[ -s "$output" ]] || fail "bank rate screenshot is empty"
 }
 
+test_online_page_preview() {
+  local mode="$1"
+  local output="$log_dir/${mode:l}-page.png"
+  print "Testing $mode online page..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline "-CatanUIPreview=$mode" >/dev/null \
+    || fail "$mode page launch failed"
+  local preview_ready=0
+  local split_ready=0
+  for attempt in {1..60}; do
+    adb logcat -d >"$log_file"
+    if rg -q "$fatal_pattern" "$log_file"; then
+      rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
+      fail "$mode page crashed during startup"
+    fi
+    rg -q "CATAN_UI_PREVIEW ready mode=$mode" "$log_file" && preview_ready=1
+    rg -q 'CATAN_ONLINE_MENU_SPLIT ready pages=chooser,local,dedicated dedicatedScroll=0' "$log_file" \
+      && split_ready=1
+    (( preview_ready && split_ready )) && break
+    sleep 1
+  done
+  (( preview_ready )) || fail "$mode page preview marker was not observed"
+  (( split_ready )) || fail "split online menu marker was not observed"
+  assert_running_without_fatal "$mode online page failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "$mode page screenshot is empty"
+}
+
+test_online_navigation() {
+  print "Testing touch navigation between split online pages..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline '-CatanUIPreview=Online' >/dev/null \
+    || fail "online navigation preview launch failed"
+  for attempt in {1..60}; do
+    adb logcat -d >"$log_file"
+    rg -q 'CATAN_UI_PREVIEW ready mode=Online' "$log_file" && break
+    sleep 1
+  done
+  rg -q 'CATAN_UI_PREVIEW ready mode=Online' "$log_file" \
+    || fail "online chooser was not ready for navigation"
+  sleep 2
+  adb shell input tap 1200 495
+  sleep 1
+  adb logcat -d >"$log_file"
+  rg -q 'CATAN_ONLINE_NAV page=dedicated' "$log_file" \
+    || fail "Dedicated Server button did not open its page"
+  adb shell input tap 1200 615
+  sleep 1
+  adb shell input tap 1200 420
+  sleep 1
+  adb logcat -d >"$log_file"
+  rg -q 'CATAN_ONLINE_NAV page=chooser' "$log_file" \
+    || fail "Dedicated Server Back button did not return to the chooser"
+  rg -q 'CATAN_ONLINE_NAV page=local' "$log_file" \
+    || fail "Local Network button did not open its page"
+  assert_running_without_fatal "split online touch navigation failed"
+}
+
 adb logcat -c
 adb shell am force-stop "$package_name"
 adb shell am start -n "$activity" >/dev/null || fail "activity launch failed"
@@ -163,7 +223,10 @@ adb exec-out screencap -p >"$screenshot"
 
 test_combo_preview PlayerTrade 1180 490
 test_combo_preview Development 1200 565
-test_combo_preview Online 1200 415
+test_online_navigation
+test_online_page_preview Online
+test_online_page_preview DedicatedServer
+test_combo_preview LocalNetwork 1200 460
 test_combo_preview Bots 1200 390
 test_bank_preview
 

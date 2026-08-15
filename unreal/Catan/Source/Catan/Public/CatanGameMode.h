@@ -25,6 +25,7 @@ public:
     void SetPlayerDisplayName(APlayerController* Player, const FString& RequestedName);
     void StartLobbyGame(APlayerController* Requester);
     void StartSinglePlayerGame(const FString& HumanName, int32 BotCount);
+    void ShowDedicatedGameBoard();
     void PublishLobby();
 
 private:

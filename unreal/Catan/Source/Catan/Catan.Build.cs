@@ -11,7 +11,7 @@ public class Catan : ModuleRules
 
         PublicDependencyModuleNames.AddRange(new[] {
             "Core", "CoreUObject", "Engine", "InputCore", "ProceduralMeshComponent",
-            "UMG", "Slate", "SlateCore", "CommonUI", "OnlineSubsystem",
+            "UMG", "Slate", "SlateCore", "ApplicationCore", "CommonUI", "OnlineSubsystem",
             "OnlineSubsystemUtils", "Sockets", "Networking"
         });
 
