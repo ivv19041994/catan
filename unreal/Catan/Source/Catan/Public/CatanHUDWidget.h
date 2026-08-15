@@ -71,8 +71,8 @@ private:
     UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> TradeModeSwitcher;
     UPROPERTY(Transient) TArray<TObjectPtr<UButton>> BankFromButtons;
     UPROPERTY(Transient) TArray<TObjectPtr<UButton>> BankToButtons;
-    UPROPERTY(Transient) TArray<TObjectPtr<USpinBox>> OfferedInputs;
-    UPROPERTY(Transient) TArray<TObjectPtr<USpinBox>> RequestedInputs;
+    UPROPERTY(Transient) TArray<TObjectPtr<UComboBoxString>> OfferedInputs;
+    UPROPERTY(Transient) TArray<TObjectPtr<UComboBoxString>> RequestedInputs;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DealText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> BankRateText;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> TradingPlayer;
@@ -164,6 +164,7 @@ private:
     UFUNCTION() void AcceptTrade();
     UFUNCTION() void CancelTrade();
     UFUNCTION() void CloseTrading();
+    UFUNCTION() UWidget* GenerateLargeComboOption(FString Item);
     UFUNCTION() void StartNewGame();
     UFUNCTION() void ConfirmNewGame();
     UFUNCTION() void UpdatePlayerCount(FString SelectedItem, ESelectInfo::Type SelectionType);

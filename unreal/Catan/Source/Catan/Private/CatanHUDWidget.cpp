@@ -492,6 +492,9 @@ void UCatanHUDWidget::BuildLayout()
     TradeModeSwitcher->AddChild(PlayerTradePanel);
     AddText(PlayerTradePanel, TEXT("OFFER TO"), 18);
     TradingPlayer = WidgetTree->ConstructWidget<UComboBoxString>();
+    TradingPlayer->OnGenerateWidgetEvent.BindDynamic(this, &UCatanHUDWidget::GenerateLargeComboOption);
+    TradingPlayer->SetContentPadding(FMargin(14, 10));
+    TradingPlayer->SetMaxListHeight(320.0f);
     USizeBox* RecipientSize = WidgetTree->ConstructWidget<USizeBox>();
     RecipientSize->SetMinDesiredHeight(56.0f);
     RecipientSize->AddChild(TradingPlayer);
@@ -499,7 +502,7 @@ void UCatanHUDWidget::BuildLayout()
     UHorizontalBox* PlayerColumns = WidgetTree->ConstructWidget<UHorizontalBox>();
     PlayerTradePanel->AddChildToVerticalBox(PlayerColumns);
     auto AddResourceInputs = [this, PlayerColumns, &ResourceNames](const FString& Label,
-        TArray<TObjectPtr<USpinBox>>& Inputs)
+        TArray<TObjectPtr<UComboBoxString>>& Inputs)
     {
         UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>();
         UHorizontalBoxSlot* ColumnSlot = PlayerColumns->AddChildToHorizontalBox(Column);
@@ -515,15 +518,20 @@ void UCatanHUDWidget::BuildLayout()
             Card->SetContent(Row);
             UCommonTextBlock* Name = WidgetTree->ConstructWidget<UCommonTextBlock>();
             Name->SetText(FText::FromString(ResourceNames[Index]));
-            FSlateFontInfo Font = Name->GetFont(); Font.Size = 18; Name->SetFont(Font);
+            FSlateFontInfo Font = Name->GetFont(); Font.Size = 22; Name->SetFont(Font);
             UHorizontalBoxSlot* NameSlot = Row->AddChildToHorizontalBox(Name);
             NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
             NameSlot->SetVerticalAlignment(VAlign_Center);
-            USpinBox* Input = WidgetTree->ConstructWidget<USpinBox>();
-            ConfigureIntegerInput(Input);
+            UComboBoxString* Input = WidgetTree->ConstructWidget<UComboBoxString>();
+            for (int32 Count = 0; Count <= 5; ++Count)
+                Input->AddOption(FString::FromInt(Count));
+            Input->SetSelectedOption(TEXT("0"));
+            Input->OnGenerateWidgetEvent.BindDynamic(this, &UCatanHUDWidget::GenerateLargeComboOption);
+            Input->SetContentPadding(FMargin(18, 8));
+            Input->SetMaxListHeight(360.0f);
             USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
-            InputSize->SetMinDesiredWidth(140.0f);
-            InputSize->SetMinDesiredHeight(50.0f);
+            InputSize->SetMinDesiredWidth(150.0f);
+            InputSize->SetMinDesiredHeight(56.0f);
             InputSize->AddChild(Input);
             Row->AddChildToHorizontalBox(InputSize);
             UVerticalBoxSlot* CardSlot = Column->AddChildToVerticalBox(Card);
@@ -1145,15 +1153,6 @@ void UCatanHUDWidget::Refresh()
             LocalPlayer->TradeRates.Wood, LocalPlayer->TradeRates.Clay,
             LocalPlayer->TradeRates.Hay, LocalPlayer->TradeRates.Sheep,
             LocalPlayer->TradeRates.Stone)));
-        const int32 Holdings[] = {
-            LocalPlayer->Resources.Wood, LocalPlayer->Resources.Clay, LocalPlayer->Resources.Hay,
-            LocalPlayer->Resources.Sheep, LocalPlayer->Resources.Stone
-        };
-        for (int32 Index = 0; Index < OfferedInputs.Num(); ++Index)
-        {
-            OfferedInputs[Index]->SetMaxValue(Holdings[Index]);
-            OfferedInputs[Index]->SetMaxSliderValue(Holdings[Index]);
-        }
         const FString PreviousRecipient = TradingPlayer->GetSelectedOption();
         TradingPlayer->ClearOptions();
         for (const FCatanPlayerView& Player : View.Players)
@@ -1464,21 +1463,21 @@ void UCatanHUDWidget::UpdateBankSelectionStyles()
 void UCatanHUDWidget::ResetTradeInputs()
 {
     FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
-    for (USpinBox* Input : OfferedInputs) Input->SetValue(0.0f);
-    for (USpinBox* Input : RequestedInputs) Input->SetValue(0.0f);
+    for (UComboBoxString* Input : OfferedInputs) Input->SetSelectedOption(TEXT("0"));
+    for (UComboBoxString* Input : RequestedInputs) Input->SetSelectedOption(TEXT("0"));
 }
 
 void UCatanHUDWidget::OfferTrade()
 {
     if (OfferedInputs.Num() != 5 || RequestedInputs.Num() != 5) return;
-    auto ReadResources = [](const TArray<TObjectPtr<USpinBox>>& Inputs)
+    auto ReadResources = [](const TArray<TObjectPtr<UComboBoxString>>& Inputs)
     {
         FCatanResourceView Resources;
-        Resources.Wood = FMath::RoundToInt(Inputs[0]->GetValue());
-        Resources.Clay = FMath::RoundToInt(Inputs[1]->GetValue());
-        Resources.Hay = FMath::RoundToInt(Inputs[2]->GetValue());
-        Resources.Sheep = FMath::RoundToInt(Inputs[3]->GetValue());
-        Resources.Stone = FMath::RoundToInt(Inputs[4]->GetValue());
+        Resources.Wood = FCString::Atoi(*Inputs[0]->GetSelectedOption());
+        Resources.Clay = FCString::Atoi(*Inputs[1]->GetSelectedOption());
+        Resources.Hay = FCString::Atoi(*Inputs[2]->GetSelectedOption());
+        Resources.Sheep = FCString::Atoi(*Inputs[3]->GetSelectedOption());
+        Resources.Stone = FCString::Atoi(*Inputs[4]->GetSelectedOption());
         return Resources;
     };
     FString Error;
@@ -1516,6 +1515,17 @@ void UCatanHUDWidget::CloseTrading()
     FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
     bTradePanelOpen = false;
     Refresh();
+}
+
+UWidget* UCatanHUDWidget::GenerateLargeComboOption(FString Item)
+{
+    UCommonTextBlock* Text = WidgetTree->ConstructWidget<UCommonTextBlock>();
+    Text->SetText(FText::FromString(Item));
+    FSlateFontInfo Font = Text->GetFont();
+    Font.Size = 24;
+    Text->SetFont(Font);
+    Text->SetJustification(ETextJustify::Center);
+    return Text;
 }
 
 void UCatanHUDWidget::StartNewGame()
