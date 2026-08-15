@@ -34,6 +34,31 @@ cmake --build build --parallel
 ./build/catan
 ```
 
+### Выделенный сервер
+
+Все команды ниже выполняются из корня репозитория — папки, в которой находится
+этот `README.md`:
+
+```bash
+cd /Users/ivanoviot/catan
+cmake -S . -B build-server -DCATAN_BUILD_CONSOLE=OFF
+cmake --build build-server --target catan-dedicated-server --parallel
+./build-server/catan-dedicated-server --bind 0.0.0.0 --port 17777
+```
+
+После строки `CATAN_DEDICATED_READY` сервер готов принимать подключения. В игре
+укажите IP компьютера с сервером и порт `17777`. На другом компьютере путь к
+репозиторию может отличаться — важно выполнять команды именно из его корня.
+
+Проверка сервера и двух независимых лобби:
+
+```bash
+./scripts/run_dedicated_server_smoke.sh build-server
+```
+
+Расширенное описание протокола, токенов и UE e2e находится в
+[`docs/DEDICATED_SERVER.md`](docs/DEDICATED_SERVER.md).
+
 Цели CMake:
 
 - `catan_engine` — библиотека игровой логики;
