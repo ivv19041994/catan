@@ -23,6 +23,15 @@ constexpr float RootThreeOverTwo = 0.86602540378f;
 constexpr float DiceAnimationDuration = 1.15f;
 constexpr float DiceSettleDuration = 0.34f;
 constexpr float DiceTableY = -1370.0f;
+constexpr float DiceScale = 0.58f * 4.0f;
+constexpr float DiceSpacing = 340.0f;
+constexpr float DiceRestZ = 157.0f;
+
+FVector DiceRestLocation(int32 Index, float HeightOffset = 0.0f)
+{
+    return FVector((static_cast<float>(Index) - 0.5f) * DiceSpacing,
+        DiceTableY, DiceRestZ + HeightOffset);
+}
 enum : uint8 { ResourceSway = 1, ResourceBob, ResourcePulse, ResourceDrift };
 
 FVector ToWorld(float X, float Y, float Z = 0.0f)
@@ -867,9 +876,9 @@ void ACatanBoardActor::BuildDice()
     DiceTargetRotations.SetNum(2);
     for (int32 Index = 0; Index < 2; ++Index)
     {
-        const FVector Position(-95.0f + Index * 190.0f, DiceTableY, 70.0f);
+        const FVector Position = DiceRestLocation(Index);
         UStaticMeshComponent* Die = AddDecoration(FString::Printf(TEXT("Die%d"), Index), Cube,
-            Position, FVector(0.58f), FLinearColor(0.94f, 0.88f, 0.70f), FRotator(12, Index * 23.0f, 8));
+            Position, FVector(DiceScale), FLinearColor(0.94f, 0.88f, 0.70f), FRotator(12, Index * 23.0f, 8));
         DicePieces.Add(Die);
         DiceTargetRotations[Index] = Die->GetRelativeRotation().Quaternion();
 
@@ -978,7 +987,7 @@ void ACatanBoardActor::AnimateFeedback(float DeltaSeconds)
         for (int32 Index = 0; Index < DicePieces.Num(); ++Index)
         {
             const float Bounce = FMath::Abs(FMath::Sin((1.0f - Alpha) * PI * 3.0f)) * 120.0f * Alpha;
-            DicePieces[Index]->SetRelativeLocation(FVector(-95.0f + Index * 190.0f, DiceTableY, 70.0f + Bounce));
+            DicePieces[Index]->SetRelativeLocation(DiceRestLocation(Index, Bounce));
             if (DiceAnimationRemaining > DiceSettleDuration)
             {
                 const float Direction = Index == 0 ? 1.0f : -1.0f;
@@ -995,7 +1004,7 @@ void ACatanBoardActor::AnimateFeedback(float DeltaSeconds)
                 if (DiceAnimationRemaining <= 0.0f)
                 {
                     DicePieces[Index]->SetRelativeRotation(DiceTargetRotations[Index]);
-                    DicePieces[Index]->SetRelativeLocation(FVector(-95.0f + Index * 190.0f, DiceTableY, 70.0f));
+                    DicePieces[Index]->SetRelativeLocation(DiceRestLocation(Index));
                 }
             }
         }

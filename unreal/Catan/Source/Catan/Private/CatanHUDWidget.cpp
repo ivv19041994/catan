@@ -1060,9 +1060,8 @@ void UCatanHUDWidget::Refresh()
         SetModalSize(680.0f, 420.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(7);
-        ConfirmationText->SetText(FText::FromString(PendingExpensiveAction == 1
-            ? TEXT("Upgrade a settlement to a city?\nThis costs 2 hay and 3 ore. After confirming, choose your settlement on the board.")
-            : TEXT("Buy a random development card?\nThis costs 1 hay, 1 sheep and 1 ore.")));
+        ConfirmationText->SetText(FText::FromString(
+            TEXT("Buy a random development card?\nThis costs 1 hay, 1 sheep and 1 ore.")));
     }
     else if (View.Phase == ECatanGamePhase::DropCards && bLocalTurn && LocalPlayer)
     {
@@ -1402,8 +1401,7 @@ void UCatanHUDWidget::SelectRoad()
 
 void UCatanHUDWidget::SelectCity()
 {
-    PendingExpensiveAction = 1;
-    Refresh();
+    GameSubsystem->SelectBoardAction(ECatanBoardAction::BuildCity);
 }
 
 void UCatanHUDWidget::BuyDevelopmentCard()
@@ -1656,11 +1654,7 @@ void UCatanHUDWidget::ConfirmExpensiveAction()
 {
     const int32 Action = PendingExpensiveAction;
     PendingExpensiveAction = 0;
-    if (Action == 1)
-    {
-        GameSubsystem->SelectBoardAction(ECatanBoardAction::BuildCity);
-    }
-    else if (Action == 2)
+    if (Action == 2)
     {
         FString Error;
         GameSubsystem->TryBuyDevelopmentCard(Error);
