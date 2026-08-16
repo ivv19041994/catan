@@ -79,15 +79,19 @@ test_combo_preview() {
       fail "$mode preview crashed during startup"
     fi
     rg -q "CATAN_UI_PREVIEW ready mode=$mode" "$log_file" && preview_ready=1
-    rg -q 'CATAN_COMBO_STYLE ready widgets=15 popupText=white' "$log_file" && style_ready=1
+    rg -q 'CATAN_COMBO_STYLE ready widgets=20 popupText=white' "$log_file" && style_ready=1
     (( preview_ready && style_ready )) && break
     sleep 1
   done
   (( preview_ready )) || fail "$mode preview marker was not observed"
-  (( style_ready )) || fail "readable combo style was not applied to all 15 dropdowns"
+  (( style_ready )) || fail "readable combo style was not applied to all 20 dropdowns"
   if [[ "$mode" == "PlayerTrade" ]]; then
     rg -q 'CATAN_PLAYER_TRADE_LIMITS max=1,2,3,4,7 receive=5' "$log_file" \
       || fail "Other Player give limits do not match the local hand"
+  fi
+  if [[ "$mode" == "Discard" ]]; then
+    rg -q 'CATAN_DISCARD_LIMITS max=8,8,8,8,8 integerDropdowns=1' "$log_file" \
+      || fail "Discard dropdown limits do not match the local hand"
   fi
   local combo_open=0
   # The preview marker can arrive one frame before Android starts routing touch to Slate.
@@ -245,6 +249,7 @@ adb exec-out screencap -p >"$screenshot"
 [[ -s "$screenshot" ]] || fail "Android screenshot is empty"
 
 test_combo_preview PlayerTrade 1180 490
+test_combo_preview Discard 1200 390
 test_combo_preview Development 1200 565
 test_online_navigation
 test_online_page_preview Online

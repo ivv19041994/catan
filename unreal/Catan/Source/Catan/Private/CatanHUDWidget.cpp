@@ -7,6 +7,7 @@
 #include "CatanPlayerController.h"
 #include "CatanPlayerState.h"
 #include "CatanTradePolicy.h"
+#include "CatanInteractionPolicy.h"
 #include "CatanTextResources.h"
 #include "CatanUserSettings.h"
 #include "CommonTextBlock.h"
@@ -21,7 +22,6 @@
 #include "Components/Image.h"
 #include "Components/Spacer.h"
 #include "Components/ScrollBox.h"
-#include "Components/SpinBox.h"
 #include "Components/SizeBox.h"
 #include "Components/SafeZone.h"
 #include "Components/VerticalBox.h"
@@ -129,18 +129,6 @@ FLinearColor ResourceColor(int32 Index)
     return Colors[FMath::Clamp(Index, 0, 4)];
 }
 
-void ConfigureIntegerInput(USpinBox* Input, int32 MaxValue = 99)
-{
-    Input->SetValue(0.0f);
-    Input->SetMinValue(0.0f);
-    Input->SetMaxValue(static_cast<float>(MaxValue));
-    Input->SetMinSliderValue(0.0f);
-    Input->SetMaxSliderValue(static_cast<float>(MaxValue));
-    Input->SetDelta(1.0f);
-    Input->SetMinFractionalDigits(0);
-    Input->SetMaxFractionalDigits(0);
-    Input->SetAlwaysUsesDeltaSnap(true);
-}
 }
 
 TSharedRef<SWidget> UCatanHUDWidget::RebuildWidget()
@@ -164,7 +152,23 @@ void UCatanHUDWidget::NativeConstruct()
     if (GameSubsystem)
     {
         GameSubsystem->OnGameStateChanged.AddDynamic(this, &UCatanHUDWidget::Refresh);
-        Refresh();
+        if (FParse::Param(FCommandLine::Get(), TEXT("CatanPlacementPreview")))
+        {
+            bSetupPanelOpen = false;
+            if (ACatanGameMode* Mode = GetWorld() ? GetWorld()->GetAuthGameMode<ACatanGameMode>() : nullptr)
+                Mode->StartSinglePlayerGame(TEXT("Player"), 1);
+            else
+                GameSubsystem->StartLocalGame({TEXT("Player"), TEXT("Player 2")});
+            const FCatanGameView View = GameSubsystem->GetSnapshot();
+            FString Error;
+            if (!View.ValidNodeTargets.IsEmpty())
+                GameSubsystem->SelectPendingBuildTarget(
+                    ECatanBoardAction::BuildSettlement, View.ValidNodeTargets[0], Error);
+            UE_LOG(LogTemp, Display, TEXT("CATAN_BUILD_CONFIRM_PREVIEW target=%d pending=%d"),
+                View.ValidNodeTargets.IsEmpty() ? INDEX_NONE : View.ValidNodeTargets[0],
+                GameSubsystem->HasPendingBuildTarget());
+        }
+        else Refresh();
     }
     if (NetworkSubsystem)
         NetworkSubsystem->OnNetworkChanged.AddDynamic(this, &UCatanHUDWidget::Refresh);
@@ -368,20 +372,25 @@ void UCatanHUDWidget::BuildLayout()
         UCommonTextBlock* Label = WidgetTree->ConstructWidget<UCommonTextBlock>();
         Label->SetText(FText::FromString(Localize(ResourceName)));
         RegisterLocalizedText(Label, ResourceName);
-        FSlateFontInfo Font = Label->GetFont(); Font.Size = 18; Label->SetFont(Font);
+        FSlateFontInfo Font = Label->GetFont(); Font.Size = 22; Label->SetFont(Font);
         UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(Label);
         LabelSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-        USpinBox* Input = WidgetTree->ConstructWidget<USpinBox>();
-        ConfigureIntegerInput(Input, 0);
+        UComboBoxString* Input = WidgetTree->ConstructWidget<UComboBoxString>();
+        ConfigureComboBox(Input, 24);
+        Input->AddOption(TEXT("0"));
+        Input->SetSelectedOption(TEXT("0"));
+        Input->SetContentPadding(FMargin(18, 8));
+        Input->SetMaxListHeight(360.0f);
+        Input->OnSelectionChanged.AddDynamic(this, &UCatanHUDWidget::UpdateDropConfirmation);
         USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
-        InputSize->SetMinDesiredWidth(180.0f);
-        InputSize->SetMinDesiredHeight(68.0f);
+        InputSize->SetMinDesiredWidth(150.0f);
+        InputSize->SetMinDesiredHeight(56.0f);
         InputSize->AddChild(Input);
         Row->AddChildToHorizontalBox(InputSize);
         DropInputs.Add(Input);
     }
-    UButton* ConfirmDrop = AddButton(DropPanel, TEXT("CONFIRM DISCARD"));
-    ConfirmDrop->OnClicked.AddDynamic(this, &UCatanHUDWidget::ConfirmDiscard);
+    ConfirmDropButton = AddButton(DropPanel, TEXT("CONFIRM DISCARD"));
+    ConfirmDropButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ConfirmDiscard);
 
     UVerticalBox* VictimPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(VictimPanel);
@@ -741,7 +750,7 @@ void UCatanHUDWidget::BuildLayout()
     MonopolyButton->SetToolTipText(FText::FromString(TEXT("Take the selected resource from every opponent")));
     ApplyLanguage();
     UE_LOG(LogTemp, Display, TEXT("CATAN_COMBO_STYLE ready widgets=%d popupText=white"),
-        5 + OfferedInputs.Num() + RequestedInputs.Num());
+        5 + DropInputs.Num() + OfferedInputs.Num() + RequestedInputs.Num());
 }
 
 void UCatanHUDWidget::ConfigureComboBox(UComboBoxString* ComboBox, int32 FontSize)
@@ -966,6 +975,7 @@ void UCatanHUDWidget::Refresh()
 {
     if (!GameSubsystem || !PhaseText) return;
     SetModalSize(680.0f, 650.0f);
+    SetModalPosition(FVector2D::ZeroVector);
     if (NetworkSubsystem)
     {
         for (UCommonTextBlock* NetworkStatusText : NetworkStatusTexts)
@@ -1256,6 +1266,22 @@ void UCatanHUDWidget::Refresh()
         bDevelopmentPanelOpen = false;
         bTradePanelOpen = false;
     }
+    else if (GameSubsystem->HasPendingBuildTarget())
+    {
+        SetModalSize(620.0f, 360.0f);
+        SetModalPosition(FVector2D(bCompactLayout ? 250.0f : 360.0f, 0.0f));
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(7);
+        FString Prompt;
+        switch (GameSubsystem->GetPendingBuildAction())
+        {
+        case ECatanBoardAction::BuildRoad: Prompt = Localize(TEXT("Build this road?")); break;
+        case ECatanBoardAction::BuildCity: Prompt = Localize(TEXT("Upgrade this settlement to a city?")); break;
+        default: Prompt = Localize(TEXT("Build this settlement?")); break;
+        }
+        ConfirmationText->SetText(FText::FromString(Prompt + TEXT("\n")
+            + Localize(TEXT("The selected target is highlighted in red."))));
+    }
     else if (PendingExpensiveAction != 0)
     {
         SetModalSize(680.0f, 420.0f);
@@ -1271,21 +1297,10 @@ void UCatanHUDWidget::Refresh()
         ModalSwitcher->SetActiveWidgetIndex(0);
         DropTitle->SetText(FText::FromString(Localize(TEXT("DISCARD")) + FString::Printf(TEXT(" %d "),
             View.RequiredDiscardCount) + Localize(TEXT("RESOURCES")) + TEXT(" — ") + View.CurrentPlayer));
-        const int32 Holdings[] = {
-            LocalPlayer->Resources.Wood, LocalPlayer->Resources.Clay, LocalPlayer->Resources.Hay,
-            LocalPlayer->Resources.Sheep, LocalPlayer->Resources.Stone
-        };
-        if (LastDropPlayer != View.CurrentPlayer)
-        {
-            FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
-            for (USpinBox* Input : DropInputs) Input->SetValue(0.0f);
-            LastDropPlayer = View.CurrentPlayer;
-        }
-        for (int32 Index = 0; Index < DropInputs.Num(); ++Index)
-        {
-            DropInputs[Index]->SetMaxValue(Holdings[Index]);
-            DropInputs[Index]->SetMaxSliderValue(Holdings[Index]);
-        }
+        const bool bResetDrop = LastDropPlayer != View.CurrentPlayer;
+        UpdateDropLimits(LocalPlayer->Resources, bResetDrop);
+        if (bResetDrop) LastDropPlayer = View.CurrentPlayer;
+        UpdateDropConfirmation(FString(), ESelectInfo::Direct);
     }
     else if (bLocalTurn && View.PendingRobberHex != INDEX_NONE && !View.RobberVictims.IsEmpty())
     {
@@ -1445,11 +1460,12 @@ void UCatanHUDWidget::ApplyUIPreview()
         SetModalSize(900.0f, 620.0f);
         ModalSwitcher->SetActiveWidgetIndex(0);
         DropTitle->SetText(FText::FromString(TEXT("DISCARD 4 RESOURCES — PLAYER")));
-        for (USpinBox* Input : DropInputs)
-        {
-            Input->SetMaxValue(8.0f);
-            Input->SetMaxSliderValue(8.0f);
-        }
+        FCatanResourceView PreviewResources;
+        PreviewResources.Wood = PreviewResources.Clay = PreviewResources.Hay
+            = PreviewResources.Sheep = PreviewResources.Stone = 8;
+        UpdateDropLimits(PreviewResources, true);
+        if (!bUIPreviewReported)
+            UE_LOG(LogTemp, Display, TEXT("CATAN_DISCARD_LIMITS max=8,8,8,8,8 integerDropdowns=1"));
     }
     else if (Preview.Equals(TEXT("IncomingTrade"), ESearchCase::IgnoreCase))
     {
@@ -1514,6 +1530,12 @@ void UCatanHUDWidget::SetModalSize(float Width, float Height)
 {
     if (UCanvasPanelSlot* Slot = ModalBorder ? Cast<UCanvasPanelSlot>(ModalBorder->Slot) : nullptr)
         Slot->SetSize(FVector2D(Width, Height));
+}
+
+void UCatanHUDWidget::SetModalPosition(const FVector2D& Position)
+{
+    if (UCanvasPanelSlot* Slot = ModalBorder ? Cast<UCanvasPanelSlot>(ModalBorder->Slot) : nullptr)
+        Slot->SetPosition(Position);
 }
 
 void UCatanHUDWidget::ReportComboOpening()
@@ -1737,13 +1759,30 @@ void UCatanHUDWidget::ConfirmDiscard()
 {
     if (DropInputs.Num() != 5) return;
     FCatanResourceView Resources;
-    Resources.Wood = FMath::RoundToInt(DropInputs[0]->GetValue());
-    Resources.Clay = FMath::RoundToInt(DropInputs[1]->GetValue());
-    Resources.Hay = FMath::RoundToInt(DropInputs[2]->GetValue());
-    Resources.Sheep = FMath::RoundToInt(DropInputs[3]->GetValue());
-    Resources.Stone = FMath::RoundToInt(DropInputs[4]->GetValue());
+    Resources.Wood = FCString::Atoi(*DropInputs[0]->GetSelectedOption());
+    Resources.Clay = FCString::Atoi(*DropInputs[1]->GetSelectedOption());
+    Resources.Hay = FCString::Atoi(*DropInputs[2]->GetSelectedOption());
+    Resources.Sheep = FCString::Atoi(*DropInputs[3]->GetSelectedOption());
+    Resources.Stone = FCString::Atoi(*DropInputs[4]->GetSelectedOption());
     FString Error;
     GameSubsystem->TryDropResources(Resources, Error);
+}
+
+void UCatanHUDWidget::UpdateDropConfirmation(FString SelectedItem, ESelectInfo::Type SelectionType)
+{
+    if (!ConfirmDropButton || !GameSubsystem || DropInputs.Num() != 5) return;
+    FCatanResourceView Selected;
+    Selected.Wood = FCString::Atoi(*DropInputs[0]->GetSelectedOption());
+    Selected.Clay = FCString::Atoi(*DropInputs[1]->GetSelectedOption());
+    Selected.Hay = FCString::Atoi(*DropInputs[2]->GetSelectedOption());
+    Selected.Sheep = FCString::Atoi(*DropInputs[3]->GetSelectedOption());
+    Selected.Stone = FCString::Atoi(*DropInputs[4]->GetSelectedOption());
+    const FCatanGameView View = GameSubsystem->GetSnapshot();
+    const FCatanPlayerView* LocalPlayer = View.Players.FindByPredicate(
+        [](const FCatanPlayerView& Player) { return Player.bIsLocalPlayer && Player.bResourcesVisible; });
+    ConfirmDropButton->SetIsEnabled(LocalPlayer &&
+        CatanInteractionPolicy::IsDiscardSelectionValid(
+            Selected, LocalPlayer->Resources, View.RequiredDiscardCount));
 }
 
 void UCatanHUDWidget::ChooseVictim0() { ChooseVictim(0); }
@@ -1850,6 +1889,29 @@ void UCatanHUDWidget::UpdatePlayerTradeLimits(const FCatanResourceView& Resource
     }
 }
 
+void UCatanHUDWidget::UpdateDropLimits(const FCatanResourceView& Resources, bool bReset)
+{
+    const int32 Limits[] = {
+        Resources.Wood, Resources.Clay, Resources.Hay, Resources.Sheep, Resources.Stone
+    };
+    if (bReset) FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
+    for (int32 Index = 0; Index < DropInputs.Num() && Index < UE_ARRAY_COUNT(Limits); ++Index)
+    {
+        UComboBoxString* Input = DropInputs[Index];
+        const int32 MaxValue = FMath::Max(0, Limits[Index]);
+        const int32 PreviousValue = bReset ? 0 : FMath::Clamp(
+            FCString::Atoi(*Input->GetSelectedOption()), 0, MaxValue);
+        if (Input->GetOptionCount() != MaxValue + 1
+            || Input->GetOptionAtIndex(MaxValue) != FString::FromInt(MaxValue))
+        {
+            Input->ClearOptions();
+            for (int32 Count = 0; Count <= MaxValue; ++Count)
+                Input->AddOption(FString::FromInt(Count));
+        }
+        Input->SetSelectedOption(FString::FromInt(PreviousValue));
+    }
+}
+
 void UCatanHUDWidget::ResetTradeInputs()
 {
     FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
@@ -1932,6 +1994,12 @@ void UCatanHUDWidget::UpdatePlayerCount(FString SelectedItem, ESelectInfo::Type 
 
 void UCatanHUDWidget::ConfirmExpensiveAction()
 {
+    if (GameSubsystem && GameSubsystem->HasPendingBuildTarget())
+    {
+        FString Error;
+        GameSubsystem->ConfirmPendingBuildTarget(Error);
+        return;
+    }
     const int32 Action = PendingExpensiveAction;
     PendingExpensiveAction = 0;
     if (Action == 2)
@@ -1944,6 +2012,11 @@ void UCatanHUDWidget::ConfirmExpensiveAction()
 
 void UCatanHUDWidget::CancelExpensiveAction()
 {
+    if (GameSubsystem && GameSubsystem->HasPendingBuildTarget())
+    {
+        GameSubsystem->CancelPendingBuildTarget();
+        return;
+    }
     PendingExpensiveAction = 0;
     Refresh();
 }

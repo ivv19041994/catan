@@ -97,6 +97,7 @@ private:
     int32 PreviousFirstDie = 0;
     int32 PreviousSecondDie = 0;
     bool bBoardBuilt = false;
+    bool bPlacementCameraFocused = false;
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UTextRenderComponent>> Labels;

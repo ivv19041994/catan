@@ -37,9 +37,43 @@ void ACatanCameraPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
     PlayerInputComponent->BindAxis(TEXT("Rotate"), this, &ACatanCameraPawn::Rotate);
 }
 
+void ACatanCameraPawn::FocusPlacement(const FVector& WorldLocation)
+{
+    if (!bPlacementFocusActive) PlacementReturnLocation = GetActorLocation();
+    const float ScreenClearance = FMath::Clamp(DesiredArmLength * 0.16f, 180.0f, 560.0f);
+    PlacementFocusLocation = FVector(WorldLocation.X, WorldLocation.Y, GetActorLocation().Z)
+        + GetActorRightVector() * ScreenClearance;
+    PlacementFocusLocation.X = FMath::Clamp(PlacementFocusLocation.X, -3000.0f, 3000.0f);
+    PlacementFocusLocation.Y = FMath::Clamp(PlacementFocusLocation.Y, -3000.0f, 3000.0f);
+    bPlacementFocusActive = true;
+    bReturningFromPlacement = false;
+}
+
+void ACatanCameraPawn::RestorePlacementFocus()
+{
+    if (!bPlacementFocusActive) return;
+    PlacementFocusLocation = PlacementReturnLocation;
+    bReturningFromPlacement = true;
+}
+
 void ACatanCameraPawn::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (bPlacementFocusActive)
+    {
+        const FVector Next = FMath::VInterpTo(
+            GetActorLocation(), PlacementFocusLocation, DeltaSeconds, 7.5f);
+        SetActorLocation(Next);
+        if (bReturningFromPlacement && Next.Equals(PlacementFocusLocation, 1.0f))
+        {
+            SetActorLocation(PlacementFocusLocation);
+            bPlacementFocusActive = false;
+            bReturningFromPlacement = false;
+        }
+        SpringArm->TargetArmLength = FMath::FInterpTo(
+            SpringArm->TargetArmLength, DesiredArmLength, DeltaSeconds, 12.0f);
+        return;
+    }
     float EffectiveForward = ForwardInput;
     float EffectiveRight = RightInput;
     FVector MousePan = FVector::ZeroVector;

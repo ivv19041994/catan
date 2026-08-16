@@ -1,5 +1,6 @@
 #include "CatanBoardActor.h"
 
+#include "CatanCameraPawn.h"
 #include "CatanGameSubsystem.h"
 #include "CatanHexMeshBuilder.h"
 #include "CatanResourceVisualBuilder.h"
@@ -7,6 +8,7 @@
 #include "Components/TextRenderComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
+#include "GameFramework/PlayerController.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "ProceduralMeshComponent.h"
@@ -1047,6 +1049,28 @@ void ACatanBoardActor::RefreshPieces()
     if (!TryBuildBoard()) return;
     const FCatanGameView View = Subsystem->GetSnapshot();
     const bool bCanLocalPlayerAct = Subsystem->CanLocalPlayerAct(View);
+    if (Subsystem->HasPendingBuildTarget() && !bPlacementCameraFocused)
+    {
+        const bool bRoad = Subsystem->GetPendingBuildAction() == ECatanBoardAction::BuildRoad;
+        const int32 TargetId = Subsystem->GetPendingBuildTargetId();
+        UStaticMeshComponent* Target = bRoad
+            ? (RoadSlots.IsValidIndex(TargetId) ? RoadSlots[TargetId].Get() : nullptr)
+            : (NodeSlots.IsValidIndex(TargetId) ? NodeSlots[TargetId].Get() : nullptr);
+        if (Target)
+            if (APlayerController* Controller = GetWorld()->GetFirstPlayerController())
+                if (ACatanCameraPawn* CameraPawn = Cast<ACatanCameraPawn>(Controller->GetPawn()))
+                {
+                    CameraPawn->FocusPlacement(Target->GetComponentLocation());
+                    bPlacementCameraFocused = true;
+                }
+    }
+    if (!Subsystem->HasPendingBuildTarget() && bPlacementCameraFocused)
+    {
+        if (APlayerController* Controller = GetWorld()->GetFirstPlayerController())
+            if (ACatanCameraPawn* CameraPawn = Cast<ACatanCameraPawn>(Controller->GetPawn()))
+                CameraPawn->RestorePlacementFocus();
+        bPlacementCameraFocused = false;
+    }
     if ((View.FirstDie != PreviousFirstDie || View.SecondDie != PreviousSecondDie) && View.FirstDie > 0)
     {
         PreviousFirstDie = View.FirstDie;
@@ -1121,8 +1145,12 @@ void ACatanBoardActor::RefreshPieces()
         if (bNewBuilding) PieceAnimationRemaining = 0.45f;
         PreviousNodeOwners[Index] = Node.OwnerId;
         const bool bValidTarget = bCanLocalPlayerAct && View.ValidNodeTargets.Contains(Index);
+        const bool bPendingTarget = Subsystem->HasPendingBuildTarget()
+            && Subsystem->GetPendingBuildTargetId() == Index
+            && Subsystem->GetPendingBuildAction() != ECatanBoardAction::BuildRoad;
         FLinearColor Color = Node.OwnerId != INDEX_NONE ? PlayerColor(Node.OwnerId) : FLinearColor(0.08f,0.1f,0.12f);
-        if (bValidTarget) Color = FMath::Lerp(Color, FLinearColor(0.05f, 0.95f, 0.85f), 0.72f);
+        if (bPendingTarget) Color = FLinearColor(0.95f, 0.04f, 0.03f);
+        else if (bValidTarget) Color = FMath::Lerp(Color, FLinearColor(0.05f, 0.95f, 0.85f), 0.72f);
         Cast<UMaterialInstanceDynamic>(NodeSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
         NodeSlots[Index]->SetHiddenInGame(!bValidTarget);
         NodeSlots[Index]->SetCollisionEnabled(bValidTarget
@@ -1169,8 +1197,12 @@ void ACatanBoardActor::RefreshPieces()
         if (bNewRoad) PieceAnimationRemaining = 0.45f;
         PreviousRoadOwners[Index] = Road.OwnerId;
         const bool bValidTarget = bCanLocalPlayerAct && View.ValidRoadTargets.Contains(Index);
+        const bool bPendingTarget = Subsystem->HasPendingBuildTarget()
+            && Subsystem->GetPendingBuildAction() == ECatanBoardAction::BuildRoad
+            && Subsystem->GetPendingBuildTargetId() == Index;
         FLinearColor Color = Road.OwnerId != INDEX_NONE ? PlayerColor(Road.OwnerId) : FLinearColor(0.14f,0.15f,0.16f);
-        if (bValidTarget) Color = FLinearColor(0.05f, 0.95f, 0.85f);
+        if (bPendingTarget) Color = FLinearColor(0.95f, 0.04f, 0.03f);
+        else if (bValidTarget) Color = FLinearColor(0.05f, 0.95f, 0.85f);
         Cast<UMaterialInstanceDynamic>(RoadSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
         RoadSlots[Index]->SetHiddenInGame(!bValidTarget);
         RoadSlots[Index]->SetCollisionEnabled(bValidTarget
@@ -1213,13 +1245,14 @@ void ACatanBoardActor::HandleSlotClicked(UPrimitiveComponent* TouchedComponent, 
     bool bSucceeded = false;
     if (Kind == TEXT("Node"))
     {
-        bSucceeded = View.BoardAction == ECatanBoardAction::BuildCity
-            ? Subsystem->TryBuildCity(FCString::Atoi(*IdText), Error)
-            : Subsystem->TryBuildSettlement(FCString::Atoi(*IdText), Error);
+        const ECatanBoardAction Action = View.BoardAction == ECatanBoardAction::BuildCity
+            ? ECatanBoardAction::BuildCity : ECatanBoardAction::BuildSettlement;
+        bSucceeded = Subsystem->SelectPendingBuildTarget(Action, FCString::Atoi(*IdText), Error);
     }
     else if (Kind == TEXT("Road"))
     {
-        bSucceeded = Subsystem->TryBuildRoad(FCString::Atoi(*IdText), Error);
+        bSucceeded = Subsystem->SelectPendingBuildTarget(
+            ECatanBoardAction::BuildRoad, FCString::Atoi(*IdText), Error);
     }
     else if (Kind == TEXT("Hex"))
     {
@@ -1227,7 +1260,14 @@ void ACatanBoardActor::HandleSlotClicked(UPrimitiveComponent* TouchedComponent, 
     }
     if (bSucceeded)
     {
-        ShowStatus(Subsystem->GetSnapshot().Step, FColor::Green);
+        if (Kind == TEXT("Node") || Kind == TEXT("Road"))
+        {
+            ShowStatus(TEXT("Confirm the selected build target"), FColor::Yellow);
+        }
+        else
+        {
+            ShowStatus(Subsystem->GetSnapshot().Step, FColor::Green);
+        }
     }
     else
     {

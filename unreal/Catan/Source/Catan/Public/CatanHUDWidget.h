@@ -14,7 +14,6 @@ class UEditableTextBox;
 class UCatanGameSubsystem;
 class UCatanNetworkSubsystem;
 class UBorder;
-class USpinBox;
 class UVerticalBox;
 class UWidgetSwitcher;
 class UWrapBox;
@@ -61,7 +60,8 @@ private:
     UPROPERTY(Transient) TObjectPtr<UBorder> ModalBorder;
     UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> ModalSwitcher;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DropTitle;
-    UPROPERTY(Transient) TArray<TObjectPtr<USpinBox>> DropInputs;
+    UPROPERTY(Transient) TArray<TObjectPtr<UComboBoxString>> DropInputs;
+    UPROPERTY(Transient) TObjectPtr<UButton> ConfirmDropButton;
     UPROPERTY(Transient) TArray<TObjectPtr<UButton>> VictimButtons;
     UPROPERTY(Transient) TObjectPtr<UButton> KnightButton;
     UPROPERTY(Transient) TObjectPtr<UButton> RoadBuildingButton;
@@ -151,6 +151,7 @@ private:
     UFUNCTION() void ShowTrading();
     UFUNCTION() void PassTurn();
     UFUNCTION() void ConfirmDiscard();
+    UFUNCTION() void UpdateDropConfirmation(FString SelectedItem, ESelectInfo::Type SelectionType);
     UFUNCTION() void ChooseVictim0();
     UFUNCTION() void ChooseVictim1();
     UFUNCTION() void ChooseVictim2();
@@ -211,7 +212,9 @@ private:
     void UpdateActionLabels();
     void UpdateBankSelectionStyles();
     void UpdatePlayerTradeLimits(const FCatanResourceView& Resources);
+    void UpdateDropLimits(const FCatanResourceView& Resources, bool bReset);
     void ResetTradeInputs();
     void ApplyUIPreview();
     void SetModalSize(float Width, float Height);
+    void SetModalPosition(const FVector2D& Position);
 };
