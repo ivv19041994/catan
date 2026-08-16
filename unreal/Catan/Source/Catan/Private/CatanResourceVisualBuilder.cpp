@@ -38,32 +38,58 @@ void CatanResourceVisuals::BuildCluster(ECatanResource Resource, int32 VisualId,
     case ECatanResource::Clay:
         Add(TEXT("Quarry"), 0, Cylinder, FVector(0, 86, 7), FVector(1.28f, 0.82f, 0.06f),
             FLinearColor(0.28f, 0.055f, 0.018f));
-        for (int32 Item = 0; Item < 7; ++Item)
         {
-            const int32 Row = Item / 4;
-            Add(TEXT("Brick"), Item, Cube,
-                FVector(-105.0f + (Item % 4) * 66.0f + Row * 22.0f, 70.0f + Row * 38.0f, 17.0f + Row * 12.0f),
-                FVector(0.30f, 0.19f, 0.11f), FLinearColor(0.62f + Item * 0.018f, 0.095f, 0.025f),
-                FRotator(0, YawDegrees + (Item % 2) * 7.0f, 0));
+            const FVector StackCenters[] = {
+                FVector(-90, 54, 0), FVector(84, 47, 0),
+                FVector(-76, 130, 0), FVector(92, 120, 0)
+            };
+            const float StackYaws[] = {-18.0f, 11.0f, 27.0f, -8.0f};
+            const FVector LayerJitters[] = {
+                FVector::ZeroVector, FVector(2.5f, -1.5f, 0), FVector(-1.5f, 2.0f, 0)
+            };
+            int32 BrickId = 0;
+            for (int32 Stack = 0; Stack < UE_ARRAY_COUNT(StackCenters); ++Stack)
+            {
+                for (int32 Layer = 0; Layer < 3; ++Layer)
+                {
+                    const bool bAcross = Layer == 1;
+                    const float LayerYaw = StackYaws[Stack] + (bAcross ? 90.0f : 0.0f)
+                        + (Layer - 1) * 2.0f;
+                    const FVector SideDirection = FRotator(0, LayerYaw, 0).RotateVector(FVector::YAxisVector);
+                    for (int32 Brick = 0; Brick < 2; ++Brick)
+                    {
+                        const float Side = Brick == 0 ? -7.0f : 7.0f;
+                        Add(TEXT("Brick"), BrickId++, Cube,
+                            StackCenters[Stack] + LayerJitters[Layer] + SideDirection * Side
+                                + FVector(0, 0, 5.0f + Layer * 7.2f),
+                            FVector(0.24f, 0.11f, 0.07f),
+                            FLinearColor(0.61f + Layer * 0.035f, 0.085f, 0.020f),
+                            FRotator(0, YawDegrees + LayerYaw, 0));
+                    }
+                }
+            }
         }
-        for (int32 Item = 0; Item < 3; ++Item)
-            Animate(Add(TEXT("ClayDust"), Item, Sphere, FVector(-70 + Item * 70, 126, 28 + Item * 5),
-                FVector(0.10f + Item * 0.025f), FLinearColor(0.70f, 0.30f, 0.10f)),
-                ECatanResourceAnimation::Drift, Item * 1.4f);
         break;
     case ECatanResource::Hay:
-        for (int32 Item = 0; Item < 11; ++Item)
         {
-            const int32 Row = Item / 6;
-            const FVector Local(-120.0f + (Item % 6) * 47.0f,
-                66.0f + Row * 46.0f + (Item % 2) * 7.0f, 27.0f);
-            Animate(Add(TEXT("HayStalk"), Item, Cylinder, Local,
-                FVector(0.028f, 0.028f, 0.43f + (Item % 3) * 0.035f),
-                FLinearColor(0.94f, 0.66f + (Item % 3) * 0.045f, 0.035f),
-                FRotator(Item % 2 ? 3.0f : -3.0f, YawDegrees, 0)), ECatanResourceAnimation::Sway, Item * 0.34f);
-            Animate(Add(TEXT("HayHead"), Item, Sphere, Local + FVector(0, 0, 45 + (Item % 3) * 3),
-                FVector(0.055f, 0.055f, 0.12f), FLinearColor(1.0f, 0.82f, 0.12f)),
-                ECatanResourceAnimation::Sway, Item * 0.34f);
+            const FLinearColor BaleColor(0.62f, 0.39f, 0.035f);
+            const FVector Locations[] = {
+                FVector(-82, 70, 16), FVector(-48, 72, 18),
+                FVector(38, 108, 16), FVector(72, 106, 18),
+                FVector(112, 52, 18)
+            };
+            const bool Standing[] = {true, false, true, false, false};
+            for (int32 Item = 0; Item < UE_ARRAY_COUNT(Locations); ++Item)
+            {
+                const FRotator Rotation = Standing[Item]
+                    ? FRotator(0, YawDegrees, 0)
+                    : FRotator(90.0f, YawDegrees + Item * 31.0f, 0);
+                FVector Location = Locations[Item];
+                Location.Z = Standing[Item] ? 28.0f : 18.0f;
+                Add(TEXT("HayBale"), Item, Cylinder, Location,
+                    FVector(0.36f, 0.36f, 0.56f),
+                    BaleColor * (0.92f + Item * 0.018f), Rotation);
+            }
         }
         break;
     case ECatanResource::Sheep:
@@ -77,7 +103,7 @@ void CatanResourceVisuals::BuildCluster(ECatanResource Resource, int32 VisualId,
                 FLinearColor(0.10f, 0.09f, 0.08f)), ECatanResourceAnimation::Bob, Phase);
             for (int32 Leg = 0; Leg < 4; ++Leg)
                 Animate(Add(TEXT("SheepLeg"), Item * 4 + Leg, Cylinder,
-                    Local + FVector(Leg < 2 ? -16 : 16, Leg % 2 ? -12 : 12, -20),
+                    Local + FVector(Leg < 2 ? -14 : 14, Leg % 2 ? -10 : 10, -20),
                     FVector(0.035f, 0.035f, 0.17f), FLinearColor(0.12f, 0.10f, 0.08f)),
                     ECatanResourceAnimation::Bob, Phase);
         }
@@ -98,15 +124,49 @@ void CatanResourceVisuals::BuildCluster(ECatanResource Resource, int32 VisualId,
         }
         break;
     case ECatanResource::Desert:
-        for (int32 Item = 0; Item < 5; ++Item)
-            Animate(Add(TEXT("Dune"), Item, Sphere,
-                FVector(-112.0f + Item * 56.0f, 72.0f + (Item % 2) * 36.0f, 11.0f),
-                FVector(0.48f, 0.25f + (Item % 2) * 0.04f, 0.10f),
-                FLinearColor(0.70f + Item * 0.028f, 0.48f, 0.20f)), ECatanResourceAnimation::Pulse, Item * 0.72f);
-        Add(TEXT("CactusStem"), 0, Cylinder, FVector(103, 88, 29), FVector(0.075f, 0.075f, 0.36f),
-            FLinearColor(0.08f, 0.34f, 0.12f));
-        Animate(Add(TEXT("CactusTop"), 0, Sphere, FVector(103, 88, 66), FVector(0.085f, 0.085f, 0.13f),
-            FLinearColor(0.10f, 0.43f, 0.15f)), ECatanResourceAnimation::Sway, 0.4f);
+        {
+            const FLinearColor CactusColor(0.055f, 0.31f, 0.095f);
+            auto AddCactus = [&](int32 Cactus, const FVector& Base, float Size)
+            {
+                const float JointZ = 52.0f * Size;
+                const float MainTopZ = 80.0f * Size;
+                const float ElbowX = -34.0f * Size;
+                const float BranchTopZ = 69.0f * Size;
+                const FVector ArmDirection = Yaw.RotateVector(-FVector::XAxisVector);
+                const FRotator ArmRotation = FQuat::FindBetweenNormals(
+                    FVector::UpVector, ArmDirection).Rotator();
+
+                // A taller, slightly wider base supports the thinner main stem.
+                Add(TEXT("CactusBase"), Cactus, Cylinder,
+                    Base + FVector(0, 0, 22.0f * Size),
+                    FVector(0.15f, 0.15f, 0.44f) * Size, CactusColor);
+                Add(TEXT("CactusStem"), Cactus, Cylinder,
+                    Base + FVector(0, 0, 62.0f * Size),
+                    FVector(0.11f, 0.11f, 0.36f) * Size, CactusColor * 1.05f);
+                Add(TEXT("CactusTop"), Cactus, Sphere,
+                    Base + FVector(0, 0, MainTopZ), FVector(0.12f) * Size,
+                    CactusColor * 1.08f);
+
+                Add(TEXT("CactusJoint"), Cactus, Sphere,
+                    Base + FVector(0, 0, JointZ), FVector(0.115f) * Size,
+                    CactusColor * 1.04f);
+                Add(TEXT("CactusArm"), Cactus, Cylinder,
+                    Base + FVector(ElbowX * 0.5f, 0, JointZ),
+                    FVector(0.10f, 0.10f, 0.34f) * Size,
+                    CactusColor * 1.03f, ArmRotation);
+                Add(TEXT("CactusElbow"), Cactus, Sphere,
+                    Base + FVector(ElbowX, 0, JointZ), FVector(0.11f) * Size,
+                    CactusColor * 1.06f);
+                Add(TEXT("CactusBranch"), Cactus, Cylinder,
+                    Base + FVector(ElbowX, 0, (JointZ + BranchTopZ) * 0.5f),
+                    FVector(0.10f, 0.10f, 0.17f) * Size, CactusColor * 1.03f);
+                Add(TEXT("CactusBranchTop"), Cactus, Sphere,
+                    Base + FVector(ElbowX, 0, BranchTopZ), FVector(0.11f) * Size,
+                    CactusColor * 1.08f);
+            };
+            AddCactus(0, FVector(-63, 79, 0), 1.0f);
+            AddCactus(1, FVector(91, 112, 0), 0.72f);
+        }
         break;
     }
 }

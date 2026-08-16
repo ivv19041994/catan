@@ -315,6 +315,92 @@ UStaticMeshComponent* ACatanBoardActor::AddDecoration(const FString& Name, UStat
     return Component;
 }
 
+UProceduralMeshComponent* ACatanBoardActor::AddTriangularPrism(const FString& Name,
+    const FVector& Location, float HalfLength, float HalfBase, float Height,
+    const FLinearColor& Color, const FRotator& Rotation, bool bHorizontal)
+{
+    UProceduralMeshComponent* Component = NewObject<UProceduralMeshComponent>(this, *Name);
+    Component->SetupAttachment(SceneRoot);
+    Component->RegisterComponent();
+    Component->SetRelativeLocation(Location);
+    Component->SetRelativeRotation(Rotation);
+    Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+    TArray<FVector> Vertices;
+    TArray<int32> Triangles;
+    TArray<FVector> Normals;
+    TArray<FVector2D> UVs;
+    TArray<FLinearColor> Colors;
+    TArray<FProcMeshTangent> Tangents;
+    auto AddFace = [&](const FVector& A, const FVector& B, const FVector& C, bool bTwoSided = false)
+    {
+        const int32 Base = Vertices.Num();
+        const FVector Normal = FVector::CrossProduct(B - A, C - A).GetSafeNormal();
+        Vertices.Append({A, B, C});
+        Triangles.Append({Base, Base + 1, Base + 2});
+        Normals.Append({Normal, Normal, Normal});
+        UVs.Append({FVector2D(0, 1), FVector2D(1, 1), FVector2D(0.5f, 0)});
+        Colors.Append({Color, Color, Color});
+        Tangents.Append({FProcMeshTangent(1, 0, 0), FProcMeshTangent(1, 0, 0),
+            FProcMeshTangent(1, 0, 0)});
+        if (bTwoSided)
+        {
+            const int32 BackBase = Vertices.Num();
+            Vertices.Append({A, C, B});
+            Triangles.Append({BackBase, BackBase + 1, BackBase + 2});
+            // Keep the roof's outward lighting normal on the culling-safe copy.
+            Normals.Append({Normal, Normal, Normal});
+            UVs.Append({FVector2D(0, 1), FVector2D(0.5f, 0), FVector2D(1, 1)});
+            Colors.Append({Color, Color, Color});
+            Tangents.Append({FProcMeshTangent(1, 0, 0), FProcMeshTangent(1, 0, 0),
+                FProcMeshTangent(1, 0, 0)});
+        }
+    };
+    auto AddQuad = [&](const FVector& A, const FVector& B, const FVector& C, const FVector& D,
+        bool bTwoSided = false)
+    {
+        AddFace(A, B, C, bTwoSided);
+        AddFace(A, C, D, bTwoSided);
+    };
+
+    if (bHorizontal)
+    {
+        const float Bottom = -Height * 0.5f;
+        const float Top = Height * 0.5f;
+        const FVector A(-HalfLength, -HalfBase, Bottom);
+        const FVector B(-HalfLength, HalfBase, Bottom);
+        const FVector C(HalfLength, 0, Bottom);
+        const FVector D(-HalfLength, -HalfBase, Top);
+        const FVector E(-HalfLength, HalfBase, Top);
+        const FVector F(HalfLength, 0, Top);
+        AddFace(A, C, B);
+        AddFace(D, E, F);
+        AddQuad(A, D, F, C);
+        AddQuad(B, C, F, E);
+        AddQuad(A, B, E, D);
+    }
+    else
+    {
+        const FVector A(-HalfLength, -HalfBase, 0);
+        const FVector B(-HalfLength, HalfBase, 0);
+        const FVector C(-HalfLength, 0, Height);
+        const FVector D(HalfLength, -HalfBase, 0);
+        const FVector E(HalfLength, HalfBase, 0);
+        const FVector F(HalfLength, 0, Height);
+        AddFace(A, C, B);
+        AddFace(D, E, F);
+        AddQuad(A, D, F, C, true);
+        AddQuad(B, C, F, E, true);
+        // The roof underside rests on the house body. Omitting this coplanar
+        // face avoids depth fighting with the body's top surface.
+    }
+    Component->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UVs,
+        Colors, Tangents, false);
+    Component->SetMaterial(0, ColoredMaterial(this, BasicMaterial, Color));
+    ProceduralDecorations.Add(Component);
+    return Component;
+}
+
 void ACatanBoardActor::BuildEnvironment()
 {
     UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
@@ -596,36 +682,39 @@ void ACatanBoardActor::BuildNodes()
                 FString::Printf(TEXT("Settlement%dHouse%d"), Index, House), Cube,
                 GroundCenter + HouseOffsets[House] + FVector(0, 0, 16.5f),
                 FVector(0.285f, 0.24f, 0.33f), FLinearColor::White);
-            UStaticMeshComponent* HouseRoof = AddDecoration(
-                FString::Printf(TEXT("Settlement%dRoof%d"), Index, House), Cone,
-                GroundCenter + HouseOffsets[House] + FVector(0, 0, 43.0f),
-                FVector(0.345f, 0.30f, 0.225f), FLinearColor::White, FRotator(0, 45, 0));
-            for (UStaticMeshComponent* Part : {HouseBody, HouseRoof})
-            {
-                Part->SetHiddenInGame(true);
-                BuildingParts.Add(Part);
-                BuildingPartNodeIds.Add(Index);
-                BuildingPartModes.Add(0);
-                BuildingPartShades.Add(Part == HouseRoof ? 0.62f : 1.0f);
-                BuildingPartScaleTargets.Add(Part->GetRelativeScale3D());
-            }
+            UProceduralMeshComponent* HouseRoof = AddTriangularPrism(
+                FString::Printf(TEXT("Settlement%dRoof%d"), Index, House),
+                GroundCenter + HouseOffsets[House] + FVector(0, 0, 32.5f),
+                18.0f, 17.0f, 22.5f, FLinearColor::White, FRotator(0, House * 90.0f, 0));
+            HouseBody->SetHiddenInGame(true);
+            BuildingParts.Add(HouseBody);
+            BuildingPartNodeIds.Add(Index);
+            BuildingPartModes.Add(0);
+            BuildingPartShades.Add(1.0f);
+            BuildingPartScaleTargets.Add(HouseBody->GetRelativeScale3D());
+            HouseRoof->SetHiddenInGame(true);
+            BuildingPrismParts.Add(HouseRoof);
+            BuildingPrismNodeIds.Add(Index);
+            BuildingPrismModes.Add(0);
+            BuildingPrismShades.Add(0.62f);
+            BuildingPrismScaleTargets.Add(HouseRoof->GetRelativeScale3D());
         }
 
         const FVector TowerOffsets[] = {
-            FVector(-30, -30, 0), FVector(30, -30, 0), FVector(-30, 30, 0),
-            FVector(30, 30, 0), FVector(0, 0, 0)
+            FVector(-45, -45, 0), FVector(45, -45, 0), FVector(-45, 45, 0),
+            FVector(45, 45, 0), FVector(0, 0, 0)
         };
         for (int32 Tower = 0; Tower < UE_ARRAY_COUNT(TowerOffsets); ++Tower)
         {
             const bool bCenterTower = Tower == 4;
             UStaticMeshComponent* TowerBody = AddDecoration(
                 FString::Printf(TEXT("City%dTower%d"), Index, Tower), Cylinder,
-                GroundCenter + TowerOffsets[Tower] + FVector(0, 0, bCenterTower ? 27 : 21),
-                bCenterTower ? FVector(0.24f, 0.24f, 0.50f) : FVector(0.18f, 0.18f, 0.39f), FLinearColor::White);
+                GroundCenter + TowerOffsets[Tower] + FVector(0, 0, bCenterTower ? 40.5f : 31.5f),
+                bCenterTower ? FVector(0.36f, 0.36f, 0.75f) : FVector(0.27f, 0.27f, 0.585f), FLinearColor::White);
             UStaticMeshComponent* TowerTop = AddDecoration(
                 FString::Printf(TEXT("City%dTowerTop%d"), Index, Tower), Cone,
-                GroundCenter + TowerOffsets[Tower] + FVector(0, 0, bCenterTower ? 69 : 54),
-                bCenterTower ? FVector(0.28f, 0.28f, 0.25f) : FVector(0.22f, 0.22f, 0.20f),
+                GroundCenter + TowerOffsets[Tower] + FVector(0, 0, bCenterTower ? 103.5f : 81.0f),
+                bCenterTower ? FVector(0.42f, 0.42f, 0.375f) : FVector(0.33f, 0.33f, 0.30f),
                 FLinearColor::White);
             for (UStaticMeshComponent* Part : {TowerBody, TowerTop})
             {
@@ -639,10 +728,10 @@ void ACatanBoardActor::BuildNodes()
         }
         struct FWallSpec { FVector Offset; FVector Scale; };
         const FWallSpec Walls[] = {
-            {FVector(0, -30, 18), FVector(0.39f, 0.075f, 0.27f)},
-            {FVector(0, 30, 18), FVector(0.39f, 0.075f, 0.27f)},
-            {FVector(-30, 0, 18), FVector(0.075f, 0.39f, 0.27f)},
-            {FVector(30, 0, 18), FVector(0.075f, 0.39f, 0.27f)}
+            {FVector(0, -45, 27), FVector(0.585f, 0.1125f, 0.405f)},
+            {FVector(0, 45, 27), FVector(0.585f, 0.1125f, 0.405f)},
+            {FVector(-45, 0, 27), FVector(0.1125f, 0.585f, 0.405f)},
+            {FVector(45, 0, 27), FVector(0.1125f, 0.585f, 0.405f)}
         };
         for (int32 Wall = 0; Wall < UE_ARRAY_COUNT(Walls); ++Wall)
         {
@@ -730,7 +819,6 @@ void ACatanBoardActor::BuildPorts()
     };
     UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
     UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
-    UStaticMesh* Cone = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone"));
     UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
     const TArray<FVector> Nodes = NodeCenters();
     for (int32 Index = 0; Index < UE_ARRAY_COUNT(Ports); ++Index)
@@ -784,9 +872,10 @@ void ACatanBoardActor::BuildPorts()
             FVector(1.10f, 0.42f, 0.20f), FLinearColor(0.23f, 0.075f, 0.018f), FRotator(0, ShipYaw, 0));
         AddDecoration(FString::Printf(TEXT("Port%dDeck"), Index), Cube, ShipPosition + FVector(0, 0, 13),
             FVector(0.88f, 0.36f, 0.08f), FLinearColor(0.48f, 0.25f, 0.075f), FRotator(0, ShipYaw, 0));
-        const FRotator BowRotation = FQuat::FindBetweenNormals(FVector::UpVector, Along).Rotator();
-        AddDecoration(FString::Printf(TEXT("Port%dBow"), Index), Cone, ShipPosition + Along * 76.0f + FVector(0, 0, 1),
-            FVector(0.38f, 0.38f, 0.44f), FLinearColor(0.30f, 0.10f, 0.025f), BowRotation);
+        AddTriangularPrism(FString::Printf(TEXT("Port%dBow"), Index),
+            ShipPosition + Along * 98.0f,
+            44.0f, 20.0f, 20.0f, FLinearColor(0.23f, 0.075f, 0.018f),
+            FRotator(0, ShipYaw, 0), true);
         AddDecoration(FString::Printf(TEXT("Port%dMast"), Index), Cylinder, ShipPosition + FVector(0, 0, 52),
             FVector(0.07f, 0.07f, 0.78f), FLinearColor(0.25f, 0.095f, 0.02f));
         AddDecoration(FString::Printf(TEXT("Port%dSail"), Index), Cube,
@@ -829,15 +918,23 @@ void ACatanBoardActor::BuildPorts()
                     }
                     break;
                 case ECatanResource::Hay:
-                    for (int32 Item = 0; Item < 6; ++Item)
+                {
+                    const FLinearColor BaleColor(0.62f, 0.39f, 0.035f);
+                    const FRotator LyingRotation = FQuat::FindBetweenNormals(
+                        FVector::UpVector, Along).Rotator();
+                    const int32 BaleCount = CargoSide < 0 ? 3 : 2;
+                    for (int32 Bale = 0; Bale < BaleCount; ++Bale)
                     {
-                        const int32 Row = Item / 3;
-                        const int32 Column = Item % 3;
-                        AddDecoration(FString::Printf(TEXT("Port%dHay%d_%d"), Index, CargoSide + 1, Item), Cylinder,
-                            CargoCenter + Direction * ((Column - 1) * 5.0f) + Along * ((Row * 2 - 1) * 4.0f),
-                            FVector(0.02f, 0.02f, 0.18f), FLinearColor(1.0f, 0.76f, 0.05f));
+                        const bool bStanding = Bale == 0;
+                        const float Across = (Bale - (BaleCount - 1) * 0.5f) * 11.0f;
+                        AddDecoration(FString::Printf(TEXT("Port%dHay%d_%d"), Index, CargoSide + 1, Bale),
+                            Cylinder, CargoCenter + Direction * Across,
+                            FVector(0.104f, 0.104f, bStanding ? 0.18f : 0.20f),
+                            BaleColor * (0.92f + Bale * 0.035f),
+                            bStanding ? FRotator::ZeroRotator : LyingRotation);
                     }
                     break;
+                }
                 case ECatanResource::Sheep:
                     AddDecoration(FString::Printf(TEXT("Port%dSheepBody%d"), Index, CargoSide + 1), Sphere, CargoCenter,
                         FVector(0.18f, 0.13f, 0.13f), FLinearColor(0.94f, 0.95f, 0.89f));
@@ -1035,6 +1132,10 @@ void ACatanBoardActor::AnimateFeedback(float DeltaSeconds)
             if (!BuildingParts[Index]->bHiddenInGame)
                 BuildingParts[Index]->SetRelativeScale3D(FMath::VInterpTo(
                     BuildingParts[Index]->GetRelativeScale3D(), BuildingPartScaleTargets[Index], DeltaSeconds, 12.0f));
+        for (int32 Index = 0; Index < BuildingPrismParts.Num() && Index < BuildingPrismScaleTargets.Num(); ++Index)
+            if (!BuildingPrismParts[Index]->bHiddenInGame)
+                BuildingPrismParts[Index]->SetRelativeScale3D(FMath::VInterpTo(
+                    BuildingPrismParts[Index]->GetRelativeScale3D(), BuildingPrismScaleTargets[Index], DeltaSeconds, 12.0f));
         for (int32 Index = 0; Index < RoadPavingParts.Num() && Index < RoadPavingScaleTargets.Num(); ++Index)
             if (!RoadPavingParts[Index]->bHiddenInGame)
                 RoadPavingParts[Index]->SetRelativeScale3D(FMath::VInterpTo(
@@ -1188,6 +1289,23 @@ void ACatanBoardActor::RefreshPieces()
         {
             const FLinearColor Color = PlayerColor(Node.OwnerId) * BuildingPartShades[Index];
             Cast<UMaterialInstanceDynamic>(BuildingParts[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
+        }
+    }
+    for (int32 Index = 0; Index < BuildingPrismParts.Num(); ++Index)
+    {
+        if (!BuildingPrismNodeIds.IsValidIndex(Index) || !BuildingPrismModes.IsValidIndex(Index)
+            || !BuildingPrismShades.IsValidIndex(Index)) continue;
+        const int32 NodeId = BuildingPrismNodeIds[Index];
+        if (!View.Nodes.IsValidIndex(NodeId)) continue;
+        const FCatanNodeView& Node = View.Nodes[NodeId];
+        const bool bShow = Node.OwnerId != INDEX_NONE
+            && (Node.bIsCity ? BuildingPrismModes[Index] == 1 : BuildingPrismModes[Index] == 0);
+        BuildingPrismParts[Index]->SetHiddenInGame(!bShow);
+        if (bShow)
+        {
+            const FLinearColor Color = PlayerColor(Node.OwnerId) * BuildingPrismShades[Index];
+            Cast<UMaterialInstanceDynamic>(BuildingPrismParts[Index]->GetMaterial(0))
+                ->SetVectorParameterValue(TEXT("Color"), Color);
         }
     }
     for (int32 Index=0; Index<RoadSlots.Num() && Index<View.Roads.Num(); ++Index)
