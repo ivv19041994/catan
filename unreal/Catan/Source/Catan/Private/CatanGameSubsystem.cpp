@@ -1,4 +1,5 @@
 #include "CatanGameSubsystem.h"
+#include "CatanBotStrategy.h"
 #include "CatanTradePolicy.h"
 
 #include "CatanGameState.h"
@@ -125,6 +126,30 @@ std::map<ivv::catan::Resurse, size_t> ToResourceMap(const FCatanResourceView& Re
     Add(ivv::catan::Resurse::Stone, Resources.Stone);
     return Result;
 }
+
+FCatanBotTopology BuildBotTopology(ivv::catan::GameController& Game)
+{
+    FCatanBotTopology Result;
+    const auto& Hexes = Game.GetMap().GetGexes();
+    auto Nodes = Game.GetMap().GetNodes();
+    Result.NodeHexes.SetNum(static_cast<int32>(Nodes.size()));
+    for (int32 NodeId = 0; NodeId < static_cast<int32>(Nodes.size()); ++NodeId)
+        for (const ivv::catan::Gex* Hex : Nodes[NodeId].getNeighborGexs())
+        {
+            const ptrdiff_t HexId = Hex - Hexes.data();
+            if (HexId >= 0 && HexId < static_cast<ptrdiff_t>(Hexes.size()))
+                Result.NodeHexes[NodeId].Add(static_cast<int32>(HexId));
+        }
+    const auto Roads = Game.GetMap().GetFacets();
+    Result.RoadNodes.SetNum(static_cast<int32>(Roads.size()));
+    for (int32 RoadId = 0; RoadId < static_cast<int32>(Roads.size()); ++RoadId)
+    {
+        TArray<int32> Ends;
+        for (const ivv::catan::Node* Node : Roads[RoadId].GetNeighborNodes()) Ends.Add(Node->index);
+        Result.RoadNodes[RoadId] = Ends.Num() == 2 ? FIntPoint(Ends[0], Ends[1]) : FIntPoint(INDEX_NONE);
+    }
+    return Result;
+}
 }
 
 UCatanGameSubsystem::~UCatanGameSubsystem() = default;
@@ -234,13 +259,21 @@ void UCatanGameSubsystem::TickBots(float DeltaSeconds)
         BotTradeResponseDelay -= DeltaSeconds;
         if (BotTradeResponseDelay > 0.0f) return;
         FString Error;
+        const FCatanPlayerView* Recipient = View.Players.FindByPredicate(
+            [this](const FCatanPlayerView& Player) { return Player.Name == ActiveTradeTarget; });
+        const FCatanPlayerView* Offerer = View.Players.FindByPredicate(
+            [&View](const FCatanPlayerView& Player) { return Player.Name == View.ActiveDeal.OfferingPlayer; });
+        const bool bAccept = Recipient && FCatanBotStrategy::ShouldAcceptTrade(*Recipient, Offerer,
+            View.ActiveDeal.Offered, View.ActiveDeal.Requested, View);
         const auto& Deal = Game->GetActivDeal();
         try
         {
-            Game->SetDeal(TCHAR_TO_UTF8(*ActiveTradeTarget), Deal->buy, Deal->sell);
             const FString BotName = ActiveTradeTarget;
+            if (bAccept) Game->SetDeal(TCHAR_TO_UTF8(*ActiveTradeTarget), Deal->buy, Deal->sell);
+            else Game->CancelDeal(TCHAR_TO_UTF8(*ActiveTradeTarget));
             ActiveTradeTarget.Reset();
-            CompleteCommand(true, FString::Printf(TEXT("%s accepted the trade"), *BotName), Error);
+            CompleteCommand(true, FString::Printf(TEXT("%s %s the trade"), *BotName,
+                bAccept ? TEXT("accepted") : TEXT("declined")), Error);
         }
         catch (const std::exception&)
         {
@@ -251,6 +284,7 @@ void UCatanGameSubsystem::TickBots(float DeltaSeconds)
         }
         return;
     }
+    if (View.ActiveDeal.bIsActive) return;
     if (!IsBotPlayer(View.CurrentPlayer)) return;
     BotActionDelay -= DeltaSeconds;
     if (BotActionDelay > 0.0f) return;
@@ -370,55 +404,60 @@ bool UCatanGameSubsystem::CanLocalPlayerAct(const FCatanGameView& View) const
 void UCatanGameSubsystem::PerformBotAction()
 {
     const FCatanGameView View = BuildAuthoritativeSnapshot();
+    if (BotTurnPlayer != View.CurrentPlayer)
+    {
+        BotTurnPlayer = View.CurrentPlayer;
+        bBotDevelopmentAttempted = false;
+        bBotTradeAttempted = false;
+    }
     UE_LOG(LogTemp, Display, TEXT("CATAN_BOT turn=%s phase=%d nodes=%d roads=%d hexes=%d"),
         *View.CurrentPlayer, static_cast<int32>(View.Phase), View.ValidNodeTargets.Num(),
         View.ValidRoadTargets.Num(), View.ValidHexTargets.Num());
     FString Error;
-    auto RandomTarget = [this](const TArray<int32>& Targets)
-    {
-        return Targets.IsEmpty() ? INDEX_NONE : Targets[BotRandom.RandRange(0, Targets.Num() - 1)];
-    };
+    const FCatanBotTopology Topology = BuildBotTopology(*Game);
+    const FCatanPlayerView* Player = View.Players.FindByPredicate(
+        [&View](const FCatanPlayerView& Item) { return Item.Name == View.CurrentPlayer; });
+    const int32 PlayerId = Player ? Player->Id : INDEX_NONE;
 
     if (View.PendingRobberHex != INDEX_NONE && !View.RobberVictims.IsEmpty())
     {
-        TryChooseRobberVictim(View.RobberVictims[BotRandom.RandRange(0, View.RobberVictims.Num() - 1)], Error);
+        TryChooseRobberVictim(FCatanBotStrategy::ChooseRobberVictim(View), Error);
         return;
     }
     switch (View.Phase)
     {
     case ECatanGamePhase::SetupSettlement:
-        if (const int32 Target = RandomTarget(View.ValidNodeTargets); Target != INDEX_NONE)
+        if (const int32 Target = FCatanBotStrategy::ChooseSettlement(
+            View, Topology, View.ValidNodeTargets, PlayerId); Target != INDEX_NONE)
             TryBuildSettlement(Target, Error);
         return;
     case ECatanGamePhase::SetupRoad:
     case ECatanGamePhase::RoadBuilding:
-        if (const int32 Target = RandomTarget(View.ValidRoadTargets); Target != INDEX_NONE)
+        if (const int32 Target = FCatanBotStrategy::ChooseRoad(
+            View, Topology, View.ValidRoadTargets, PlayerId); Target != INDEX_NONE)
             TryBuildRoad(Target, Error);
         else if (View.Phase == ECatanGamePhase::RoadBuilding)
             TryPass(Error);
         return;
     case ECatanGamePhase::RollDice:
+        if (Player && Player->Knights > 0 && !bBotDevelopmentAttempted)
+        {
+            bBotDevelopmentAttempted = true;
+            if (TryUseDevelopmentCard(ECatanDevelopmentCard::Knight,
+                ECatanResource::Wood, ECatanResource::Clay, Error)) return;
+        }
         TryRollDice(Error);
         return;
     case ECatanGamePhase::DropCards:
         {
-            const FCatanPlayerView* Player = View.Players.FindByPredicate(
-                [&View](const FCatanPlayerView& Item) { return Item.Name == View.CurrentPlayer; });
             if (!Player) return;
-            FCatanResourceView Drop;
-            int32 Holdings[] = {Player->Resources.Wood, Player->Resources.Clay, Player->Resources.Hay,
-                Player->Resources.Sheep, Player->Resources.Stone};
-            int32* Counts[] = {&Drop.Wood, &Drop.Clay, &Drop.Hay, &Drop.Sheep, &Drop.Stone};
-            for (int32 Remaining = View.RequiredDiscardCount; Remaining > 0;)
-            {
-                const int32 Resource = BotRandom.RandRange(0, 4);
-                if (*Counts[Resource] < Holdings[Resource]) { ++*Counts[Resource]; --Remaining; }
-            }
-            TryDropResources(Drop, Error);
+            TryDropResources(FCatanBotStrategy::ChooseDiscard(*Player,
+                View.RequiredDiscardCount, View), Error);
         }
         return;
     case ECatanGamePhase::MoveRobber:
-        if (const int32 Target = RandomTarget(View.ValidHexTargets); Target != INDEX_NONE)
+        if (const int32 Target = FCatanBotStrategy::ChooseRobberHex(
+            View, Topology, View.ValidHexTargets, PlayerId); Target != INDEX_NONE)
             TryMoveRobber(Target, Error);
         return;
     case ECatanGamePhase::CommonPlay:
@@ -429,54 +468,109 @@ void UCatanGameSubsystem::PerformBotAction()
 
     if (View.BoardAction == ECatanBoardAction::BuildCity)
     {
-        if (const int32 Target = RandomTarget(View.ValidNodeTargets); Target != INDEX_NONE)
+        if (const int32 Target = FCatanBotStrategy::ChooseCity(
+            View, Topology, View.ValidNodeTargets, PlayerId); Target != INDEX_NONE)
             TryBuildCity(Target, Error);
         else BoardAction = ECatanBoardAction::Automatic;
         return;
     }
     if (View.BoardAction == ECatanBoardAction::BuildSettlement)
     {
-        if (const int32 Target = RandomTarget(View.ValidNodeTargets); Target != INDEX_NONE)
+        if (const int32 Target = FCatanBotStrategy::ChooseSettlement(
+            View, Topology, View.ValidNodeTargets, PlayerId); Target != INDEX_NONE)
             TryBuildSettlement(Target, Error);
         else BoardAction = ECatanBoardAction::Automatic;
         return;
     }
     if (View.BoardAction == ECatanBoardAction::BuildRoad)
     {
-        if (const int32 Target = RandomTarget(View.ValidRoadTargets); Target != INDEX_NONE)
+        if (const int32 Target = FCatanBotStrategy::ChooseRoad(
+            View, Topology, View.ValidRoadTargets, PlayerId); Target != INDEX_NONE)
             TryBuildRoad(Target, Error);
         else BoardAction = ECatanBoardAction::Automatic;
         return;
     }
 
-    const FCatanPlayerView* Player = View.Players.FindByPredicate(
-        [&View](const FCatanPlayerView& Item) { return Item.Name == View.CurrentPlayer; });
     if (!Player) return;
     const FCatanResourceView& Have = Player->Resources;
-    if (Player->FreeCities > 0 && Have.Hay >= 2 && Have.Stone >= 3 && BotRandom.FRand() < 0.82f)
+    if (Player->FreeCities > 0 && View.bHasCityTarget && Have.Hay >= 2 && Have.Stone >= 3)
     {
         SelectBoardAction(ECatanBoardAction::BuildCity);
         return;
     }
     if (Player->FreeSettlements > 0 && Have.Wood > 0 && Have.Clay > 0
-        && Have.Hay > 0 && Have.Sheep > 0 && BotRandom.FRand() < 0.82f)
+        && Have.Hay > 0 && Have.Sheep > 0 && View.bHasSettlementTarget)
     {
         SelectBoardAction(ECatanBoardAction::BuildSettlement);
         return;
     }
-    if (Player->FreeRoads > 0 && Have.Wood > 0 && Have.Clay > 0 && BotRandom.FRand() < 0.62f)
+    if (!bBotDevelopmentAttempted)
     {
-        SelectBoardAction(ECatanBoardAction::BuildRoad);
-        return;
+        if (Player->RoadBuildingCards > 0 && Player->FreeRoads > 0 && View.bHasRoadTarget)
+        {
+            bBotDevelopmentAttempted = true;
+            if (TryUseDevelopmentCard(ECatanDevelopmentCard::RoadBuilding,
+                ECatanResource::Wood, ECatanResource::Clay, Error)) return;
+        }
+        if (Player->YearOfPlentyCards > 0)
+        {
+            const auto Resources = FCatanBotStrategy::ChooseYearOfPlenty(*Player, View);
+            bBotDevelopmentAttempted = true;
+            if (TryUseDevelopmentCard(ECatanDevelopmentCard::YearOfPlenty,
+                Resources.Key, Resources.Value, Error)) return;
+        }
+        if (Player->MonopolyCards > 0)
+        {
+            const ECatanResource Resource = FCatanBotStrategy::ChooseMonopoly(View, PlayerId);
+            if (FCatanBotStrategy::MonopolyGain(View, PlayerId, Resource) >= 3)
+            {
+                bBotDevelopmentAttempted = true;
+                if (TryUseDevelopmentCard(ECatanDevelopmentCard::Monopoly,
+                    Resource, ECatanResource::Wood, Error)) return;
+            }
+        }
+        if (Player->Knights > 0 && !Player->bHasLargestArmy)
+        {
+            bBotDevelopmentAttempted = true;
+            if (TryUseDevelopmentCard(ECatanDevelopmentCard::Knight,
+                ECatanResource::Wood, ECatanResource::Clay, Error)) return;
+        }
     }
-    if (Have.Hay > 0 && Have.Sheep > 0 && Have.Stone > 0 && BotRandom.FRand() < 0.58f)
+
+    if (const FCatanBotBankTrade Trade = FCatanBotStrategy::ChooseBankTrade(*Player, View);
+        Trade.bValid && TryBankTrade(Trade.From, Trade.To, Error)) return;
+
+    if (!bBotTradeAttempted)
+    {
+        bBotTradeAttempted = true;
+        const FCatanBotPlayerTrade Trade = FCatanBotStrategy::ChoosePlayerTrade(*Player, View);
+        const FCatanPlayerView* Target = nullptr;
+        for (const FCatanPlayerView& Candidate : View.Players)
+        {
+            if (Candidate.Id == PlayerId || Candidate.VictoryPoints >= 9 || Candidate.ResourceCards <= 0) continue;
+            if (!Target || Candidate.VictoryPoints < Target->VictoryPoints
+                || (Candidate.VictoryPoints == Target->VictoryPoints
+                    && Candidate.ResourceCards > Target->ResourceCards))
+                Target = &Candidate;
+        }
+        if (Trade.bValid && Target
+            && TryOfferTrade(Trade.Offered, Trade.Requested, Target->Name, Error)) return;
+    }
+
+    const int32 TotalResources = Have.Wood + Have.Clay + Have.Hay + Have.Sheep + Have.Stone;
+    const bool bNearlyCity = View.bHasCityTarget && Have.Hay >= 1 && Have.Stone >= 2;
+    const bool bNearlySettlement = View.bHasSettlementTarget
+        && Have.Wood + Have.Clay + Have.Hay + Have.Sheep >= 3;
+    if (Have.Hay > 0 && Have.Sheep > 0 && Have.Stone > 0
+        && (!bNearlyCity && !bNearlySettlement || TotalResources >= 8))
     {
         if (TryBuyDevelopmentCard(Error)) return;
     }
-    if (Player->Knights > 0 && BotRandom.FRand() < 0.3f)
+    if (Player->FreeRoads > 0 && View.bHasRoadTarget && Have.Wood > 0 && Have.Clay > 0
+        && (!View.bHasSettlementTarget || TotalResources >= 7))
     {
-        if (TryUseDevelopmentCard(ECatanDevelopmentCard::Knight,
-            ECatanResource::Wood, ECatanResource::Clay, Error)) return;
+        SelectBoardAction(ECatanBoardAction::BuildRoad);
+        return;
     }
     TryPass(Error);
 }
