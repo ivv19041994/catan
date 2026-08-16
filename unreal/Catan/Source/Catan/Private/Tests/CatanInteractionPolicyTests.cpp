@@ -53,4 +53,28 @@ bool FCatanBuildConfirmationPolicyTest::RunTest(const FString&)
         CatanInteractionPolicy::CanSelectBuildTarget(View, ECatanBoardAction::BuildRoad, 12));
     return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCatanDevelopmentParameterPolicyTest,
+    "Catan.UX.DevelopmentParameters", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCatanDevelopmentParameterPolicyTest::RunTest(const FString&)
+{
+    TestEqual(TEXT("one resource can take both Plenty choices when no others are selected"),
+        CatanInteractionPolicy::YearOfPlentyMaxForResource(0), 2);
+    TestEqual(TEXT("one other choice leaves one option"),
+        CatanInteractionPolicy::YearOfPlentyMaxForResource(1), 1);
+    TestEqual(TEXT("two other choices disable the resource"),
+        CatanInteractionPolicy::YearOfPlentyMaxForResource(2), 0);
+    FCatanResourceView Selected;
+    Selected.Wood = 2;
+    TestTrue(TEXT("two copies of one resource are valid"),
+        CatanInteractionPolicy::IsYearOfPlentySelectionComplete(Selected));
+    Selected.Wood = 1; Selected.Clay = 1;
+    TestTrue(TEXT("two different resources are valid"),
+        CatanInteractionPolicy::IsYearOfPlentySelectionComplete(Selected));
+    Selected.Clay = 0;
+    TestFalse(TEXT("one selected resource cannot be confirmed"),
+        CatanInteractionPolicy::IsYearOfPlentySelectionComplete(Selected));
+    return true;
+}
 #endif

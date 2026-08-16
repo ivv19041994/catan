@@ -79,12 +79,12 @@ test_combo_preview() {
       fail "$mode preview crashed during startup"
     fi
     rg -q "CATAN_UI_PREVIEW ready mode=$mode" "$log_file" && preview_ready=1
-    rg -q 'CATAN_COMBO_STYLE ready widgets=20 popupText=white' "$log_file" && style_ready=1
+    rg -q 'CATAN_COMBO_STYLE ready widgets=23 popupText=white' "$log_file" && style_ready=1
     (( preview_ready && style_ready )) && break
     sleep 1
   done
   (( preview_ready )) || fail "$mode preview marker was not observed"
-  (( style_ready )) || fail "readable combo style was not applied to all 20 dropdowns"
+  (( style_ready )) || fail "readable combo style was not applied to all 23 dropdowns"
   if [[ "$mode" == "PlayerTrade" ]]; then
     rg -q 'CATAN_PLAYER_TRADE_LIMITS max=1,2,3,4,7 receive=5' "$log_file" \
       || fail "Other Player give limits do not match the local hand"
@@ -92,6 +92,10 @@ test_combo_preview() {
   if [[ "$mode" == "Discard" ]]; then
     rg -q 'CATAN_DISCARD_LIMITS max=8,8,8,8,8 integerDropdowns=1' "$log_file" \
       || fail "Discard dropdown limits do not match the local hand"
+  fi
+  if [[ "$mode" == "DevelopmentPlenty" ]]; then
+    rg -q 'CATAN_DEVELOPMENT_MENU mode=plenty totalLimit=2' "$log_file" \
+      || fail "Year of Plenty total selection limit was not applied"
   fi
   local combo_open=0
   # The preview marker can arrive one frame before Android starts routing touch to Slate.
@@ -136,6 +140,33 @@ test_bank_preview() {
   assert_running_without_fatal "bank rate labels failed"
   adb exec-out screencap -p >"$output"
   [[ -s "$output" ]] || fail "bank rate screenshot is empty"
+}
+
+test_development_monopoly_preview() {
+  local output="$log_dir/development-monopoly.png"
+  print "Testing Monopoly resource submenu..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline '-CatanUIPreview=DevelopmentMonopoly' >/dev/null \
+    || fail "Monopoly preview launch failed"
+  local preview_ready=0
+  local selection_ready=0
+  for attempt in {1..60}; do
+    adb logcat -d >"$log_file"
+    if rg -q "$fatal_pattern" "$log_file"; then
+      rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
+      fail "Monopoly preview crashed during startup"
+    fi
+    rg -q 'CATAN_UI_PREVIEW ready mode=DevelopmentMonopoly' "$log_file" && preview_ready=1
+    rg -q 'CATAN_DEVELOPMENT_MENU mode=monopoly singleSelection=1' "$log_file" && selection_ready=1
+    (( preview_ready && selection_ready )) && break
+    sleep 1
+  done
+  (( preview_ready )) || fail "Monopoly preview marker was not observed"
+  (( selection_ready )) || fail "Monopoly single-resource selection was not applied"
+  assert_running_without_fatal "Monopoly resource submenu failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "Monopoly resource submenu screenshot is empty"
 }
 
 test_online_page_preview() {
@@ -249,8 +280,9 @@ adb exec-out screencap -p >"$screenshot"
 [[ -s "$screenshot" ]] || fail "Android screenshot is empty"
 
 test_combo_preview PlayerTrade 1180 490
-test_combo_preview Discard 1200 390
-test_combo_preview Development 1200 565
+test_combo_preview Discard 1600 320
+test_combo_preview DevelopmentPlenty 1550 390
+test_development_monopoly_preview
 test_online_navigation
 test_online_page_preview Online
 test_online_page_preview DedicatedServer
@@ -259,7 +291,7 @@ test_combo_preview Bots 1200 390
 test_bank_preview
 test_settings_preview
 
-print "PASS: Android startup, settings, dynamic trade limits, bank labels and all dropdown families"
+print "PASS: Android startup, settings, development menus, dynamic trade limits, bank labels and all dropdown families"
 print "APK: $apk"
 print "Artifacts: $log_dir"
 if (( started_emulator )); then

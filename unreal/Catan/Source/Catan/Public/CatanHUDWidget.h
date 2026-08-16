@@ -42,7 +42,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> HandTitleText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DevelopmentHandText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DevelopmentAvailabilityText;
-    UPROPERTY(Transient) TObjectPtr<UVerticalBox> DevelopmentResourcePanel;
+    UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> DevelopmentModeSwitcher;
     UPROPERTY(Transient) TArray<TObjectPtr<UCommonTextBlock>> ResourceCountTexts;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> HintText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> StatusText;
@@ -67,8 +67,9 @@ private:
     UPROPERTY(Transient) TObjectPtr<UButton> RoadBuildingButton;
     UPROPERTY(Transient) TObjectPtr<UButton> YearOfPlentyButton;
     UPROPERTY(Transient) TObjectPtr<UButton> MonopolyButton;
-    UPROPERTY(Transient) TObjectPtr<UComboBoxString> FirstResource;
-    UPROPERTY(Transient) TObjectPtr<UComboBoxString> SecondResource;
+    UPROPERTY(Transient) TArray<TObjectPtr<UComboBoxString>> PlentyInputs;
+    UPROPERTY(Transient) TObjectPtr<UButton> ConfirmPlentyButton;
+    UPROPERTY(Transient) TArray<TObjectPtr<UButton>> MonopolyResourceButtons;
     UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> TradeModeSwitcher;
     UPROPERTY(Transient) TArray<TObjectPtr<UButton>> BankFromButtons;
     UPROPERTY(Transient) TArray<TObjectPtr<UButton>> BankToButtons;
@@ -129,6 +130,8 @@ private:
     bool bUIPreviewReported = false;
     ECatanResource BankFromSelection = ECatanResource::Wood;
     ECatanResource BankToSelection = ECatanResource::Clay;
+    ECatanResource MonopolySelection = ECatanResource::Wood;
+    bool bUpdatingPlentyInputs = false;
     FCatanResourceView CurrentBankTradeRates;
     FCatanUserPreferences UserPreferences;
     TArray<TPair<TWeakObjectPtr<UCommonTextBlock>, FString>> LocalizedTexts;
@@ -157,8 +160,17 @@ private:
     UFUNCTION() void ChooseVictim2();
     UFUNCTION() void PlayKnight();
     UFUNCTION() void PlayRoadBuilding();
-    UFUNCTION() void PlayYearOfPlenty();
-    UFUNCTION() void PlayMonopoly();
+    UFUNCTION() void ShowYearOfPlentyParameters();
+    UFUNCTION() void ShowMonopolyParameters();
+    UFUNCTION() void ConfirmYearOfPlenty();
+    UFUNCTION() void ConfirmMonopoly();
+    UFUNCTION() void CancelDevelopmentParameters();
+    UFUNCTION() void UpdatePlentySelection(FString SelectedItem, ESelectInfo::Type SelectionType);
+    UFUNCTION() void SelectMonopolyWood();
+    UFUNCTION() void SelectMonopolyClay();
+    UFUNCTION() void SelectMonopolyHay();
+    UFUNCTION() void SelectMonopolySheep();
+    UFUNCTION() void SelectMonopolyStone();
     UFUNCTION() void CloseDevelopmentCards();
     UFUNCTION() void TradeWithBank();
     UFUNCTION() void ShowBankTrade();
@@ -211,6 +223,8 @@ private:
     void ApplyAdaptiveLayout(bool bCompact);
     void UpdateActionLabels();
     void UpdateBankSelectionStyles();
+    void UpdateMonopolySelectionStyles();
+    void ResetPlentyInputs();
     void UpdatePlayerTradeLimits(const FCatanResourceView& Resources);
     void UpdateDropLimits(const FCatanResourceView& Resources, bool bReset);
     void ResetTradeInputs();

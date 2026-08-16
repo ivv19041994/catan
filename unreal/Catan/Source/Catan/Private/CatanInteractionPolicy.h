@@ -21,6 +21,21 @@ inline bool IsDiscardSelectionValid(const FCatanResourceView& Selected,
         && Selected.Stone >= 0 && Selected.Stone <= Hand.Stone;
 }
 
+inline int32 YearOfPlentyMaxForResource(int32 OtherSelected)
+{
+    return FMath::Clamp(2 - OtherSelected, 0, 2);
+}
+
+inline bool IsYearOfPlentySelectionComplete(const FCatanResourceView& Selected)
+{
+    return ResourceTotal(Selected) == 2
+        && Selected.Wood >= 0 && Selected.Wood <= 2
+        && Selected.Clay >= 0 && Selected.Clay <= 2
+        && Selected.Hay >= 0 && Selected.Hay <= 2
+        && Selected.Sheep >= 0 && Selected.Sheep <= 2
+        && Selected.Stone >= 0 && Selected.Stone <= 2;
+}
+
 inline bool CanSelectBuildTarget(const FCatanGameView& View, ECatanBoardAction Action,
     int32 TargetId)
 {
