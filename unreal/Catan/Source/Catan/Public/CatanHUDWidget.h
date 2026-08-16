@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "CommonActivatableWidget.h"
+#include "CatanUserSettings.h"
 #include "CatanViewTypes.h"
 
 #include "CatanHUDWidget.generated.h"
@@ -81,8 +82,9 @@ private:
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> AvailabilityText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> BuildCostText;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> PlayerCount;
-    UPROPERTY(Transient) TArray<TObjectPtr<UEditableTextBox>> PlayerNameInputs;
-    UPROPERTY(Transient) TArray<TObjectPtr<UCommonTextBlock>> PlayerSlotLabels;
+    UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> MainPlayerNameText;
+    UPROPERTY(Transient) TObjectPtr<UEditableTextBox> SettingsNameInput;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> SettingsLanguageInput;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> ConfirmationText;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> LobbyNameInput;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> ManualAddressInput;
@@ -128,11 +130,16 @@ private:
     ECatanResource BankFromSelection = ECatanResource::Wood;
     ECatanResource BankToSelection = ECatanResource::Clay;
     FCatanResourceView CurrentBankTradeRates;
+    FCatanUserPreferences UserPreferences;
+    TArray<TPair<TWeakObjectPtr<UCommonTextBlock>, FString>> LocalizedTexts;
 
     void BuildLayout();
     void ConfigureComboBox(UComboBoxString* ComboBox, int32 FontSize);
     UCommonTextBlock* AddText(UVerticalBox* Parent, const FString& Text, int32 Size);
     UButton* AddButton(UVerticalBox* Parent, const FString& Label);
+    FString Localize(const FString& Key) const;
+    void RegisterLocalizedText(UCommonTextBlock* Widget, const FString& Key);
+    void ApplyLanguage();
 
     UFUNCTION() void Refresh();
     UFUNCTION() void RollDice();
@@ -182,6 +189,8 @@ private:
     UFUNCTION() void ShowLocalNetworkSetup();
     UFUNCTION() void ShowDedicatedServerSetup();
     UFUNCTION() void ShowBotSetup();
+    UFUNCTION() void ShowSettings();
+    UFUNCTION() void SaveSettings();
     UFUNCTION() void ShowMainSetup();
     UFUNCTION() void FindLanLobbies();
     UFUNCTION() void JoinSelectedLobby();
