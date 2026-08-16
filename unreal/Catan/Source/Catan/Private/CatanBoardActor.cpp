@@ -236,7 +236,7 @@ void ACatanBoardActor::BeginPlay()
 {
     Super::BeginPlay();
     BasicMaterial = LoadObject<UMaterialInterface>(nullptr,
-        TEXT("/Game/Materials/M_CatanColor.M_CatanColor"));
+        TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
     if (UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>())
     {
         Subsystem->OnGameStateChanged.AddDynamic(this, &ACatanBoardActor::RefreshPieces);
@@ -373,11 +373,14 @@ UProceduralMeshComponent* ACatanBoardActor::AddTriangularPrism(const FString& Na
         const FVector D(-HalfLength, -HalfBase, Top);
         const FVector E(-HalfLength, HalfBase, Top);
         const FVector F(HalfLength, 0, Top);
-        AddFace(A, C, B);
-        AddFace(D, E, F);
-        AddQuad(A, D, F, C);
-        AddQuad(B, C, F, E);
-        AddQuad(A, B, E, D);
+        // Keep every normal pointing out of the hull.  The old winding was
+        // harmless with the unlit material, but made the bow almost black
+        // once the board started using directional lighting.
+        AddFace(A, B, C, true);
+        AddFace(D, F, E, true);
+        AddQuad(A, C, F, D, true);
+        AddQuad(B, E, F, C, true);
+        AddQuad(A, D, E, B, true);
     }
     else
     {
@@ -582,23 +585,31 @@ void ACatanBoardActor::BuildResourceDecorations()
             Pyramid->SetCollisionEnabled(ECollisionEnabled::NoCollision);
             Pyramid->ComponentTags.Add(ResourceTag);
             const FVector Position = Center + Local;
-            TArray<FVector> Vertices{Position + FVector(0, 0, Height)};
-            TArray<FVector> Normals{FVector::UpVector};
-            TArray<FVector2D> UVs{FVector2D(0.5f, 0.0f)};
-            TArray<FLinearColor> Colors{Color};
-            TArray<FProcMeshTangent> Tangents{FProcMeshTangent(1, 0, 0)};
+            const FVector Apex = Position + FVector(0, 0, Height);
+            TArray<FVector> Vertices;
+            TArray<FVector> Normals;
+            TArray<FVector2D> UVs;
+            TArray<FLinearColor> Colors;
+            TArray<FProcMeshTangent> Tangents;
             TArray<int32> Triangles;
             for (int32 Side = 0; Side < 6; ++Side)
             {
-                const float Angle = FMath::DegreesToRadians(30.0f + Side * 60.0f);
-                Vertices.Add(Position + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0) * Radius);
-                Normals.Add(FVector::UpVector);
-                UVs.Add(FVector2D(static_cast<float>(Side) / 6.0f, 1.0f));
-                Colors.Add(Color * (0.83f + (Side % 3) * 0.08f));
-                Tangents.Add(FProcMeshTangent(1, 0, 0));
-                Triangles.Add(0);
-                Triangles.Add((Side + 1) % 6 + 1);
-                Triangles.Add(Side + 1);
+                const float CurrentAngle = FMath::DegreesToRadians(30.0f + Side * 60.0f);
+                const float NextAngle = FMath::DegreesToRadians(30.0f + ((Side + 1) % 6) * 60.0f);
+                const FVector Current = Position
+                    + FVector(FMath::Cos(CurrentAngle), FMath::Sin(CurrentAngle), 0) * Radius;
+                const FVector Next = Position
+                    + FVector(FMath::Cos(NextAngle), FMath::Sin(NextAngle), 0) * Radius;
+                const FVector FaceNormal = FVector::CrossProduct(Current - Apex, Next - Apex).GetSafeNormal();
+                const int32 Face = Vertices.Num();
+                Vertices.Append({Apex, Current, Next});
+                Normals.Append({FaceNormal, FaceNormal, FaceNormal});
+                UVs.Append({FVector2D(0.5f, 0), FVector2D(0, 1), FVector2D(1, 1)});
+                Colors.Append({Color, Color, Color});
+                Tangents.Append({FProcMeshTangent(1, 0, 0), FProcMeshTangent(1, 0, 0),
+                    FProcMeshTangent(1, 0, 0)});
+                // Preserve the clockwise winding used by the gameplay board.
+                Triangles.Append({Face, Face + 2, Face + 1});
             }
             Pyramid->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UVs, Colors, Tangents, false);
             Pyramid->SetMaterial(0, ColoredMaterial(this, BasicMaterial, Color));
@@ -828,7 +839,10 @@ void ACatanBoardActor::BuildPorts()
         Direction.Normalize();
         const FVector Along(-Direction.Y, Direction.X, 0);
         const FVector BridgeAnchor = Shore + Direction * 175.0f + FVector(0, 0, -14);
-        const FVector ShipPosition = BridgeAnchor + Direction * 22.0f + FVector(0, 0, 5.0f);
+        // Sink the lower part of the hull below the sea surface.  Previously
+        // its bottom only touched the water plane, so lit shadows exposed a
+        // visible air gap even though the unlit scene hid it.
+        const FVector ShipPosition = BridgeAnchor + Direction * 22.0f + FVector(0, 0, -3.0f);
         const float ShipYaw = FMath::RadiansToDegrees(FMath::Atan2(Along.Y, Along.X));
 
         auto AddBridge = [this, Cube, Index](int32 BridgeIndex, const FVector& Start, const FVector& End)
@@ -846,8 +860,8 @@ void ACatanBoardActor::BuildPorts()
                     FVector(0.035f, 0.14f, 0.025f), FLinearColor(0.47f, 0.24f, 0.07f), FRotator(0, Yaw, 0));
         };
         const FVector ShipEnds[] = {
-            BridgeAnchor - Along * 28.0f + FVector(0, 0, 12),
-            BridgeAnchor + Along * 28.0f + FVector(0, 0, 12)
+            BridgeAnchor - Along * 28.0f + FVector(0, 0, 4),
+            BridgeAnchor + Along * 28.0f + FVector(0, 0, 4)
         };
         const FVector PortNodes[] = {
             FVector(Nodes[Ports[Index].FirstNode].X, Nodes[Ports[Index].FirstNode].Y, 2.0f),
