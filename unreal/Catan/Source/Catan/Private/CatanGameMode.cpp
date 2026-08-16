@@ -84,6 +84,8 @@ void ACatanGameMode::Logout(AController* Exiting)
     if (bWasHost && !GameState->PlayerArray.IsEmpty())
         if (ACatanPlayerState* State = Cast<ACatanPlayerState>(GameState->PlayerArray[0])) State->bLobbyHost = true;
     PublishLobby();
+    UE_LOG(LogCatanNetworkMode, Display, TEXT("CATAN_HUD_GRAPH logout total=%d"),
+        GameState ? GameState->PlayerArray.Num() : 0);
 }
 
 void ACatanGameMode::SetPlayerReady(APlayerController* Player, bool bReady)

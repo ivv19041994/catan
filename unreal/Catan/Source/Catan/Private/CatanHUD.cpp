@@ -1,6 +1,8 @@
 #include "CatanHUD.h"
 
 #include "CatanHUDWidget.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 void ACatanHUD::BeginPlay()
 {
@@ -9,6 +11,11 @@ void ACatanHUD::BeginPlay()
     {
         CatanWidget = Widget;
         Widget->AddToViewport(10);
+        // Android's activity override can leave a bare final flag that is not
+        // recognized by FParse::Param on every engine/platform combination.
+        if (FParse::Param(FCommandLine::Get(), TEXT("CatanHUDGraphSmoke"))
+            || FString(FCommandLine::Get()).Contains(TEXT("-CatanHUDGraphSmoke")))
+            Widget->RunHUDGraphSmoke();
     }
 }
 

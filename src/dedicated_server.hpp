@@ -166,6 +166,7 @@ public:
 
     IdentityResult CreateLobby(std::string player_name, std::string lobby_name);
     IdentityResult JoinLobby(std::string_view lobby_token, std::string player_name);
+    Result LeaveLobby(std::string_view lobby_token, std::string_view player_token);
     Result SetReady(std::string_view lobby_token, std::string_view player_token, bool ready);
     Result StartGame(std::string_view lobby_token, std::string_view player_token);
     Result Execute(std::string_view lobby_token, std::string_view player_token,

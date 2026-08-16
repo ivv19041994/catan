@@ -67,6 +67,17 @@ Headless smoke-test:
   -ExecCmds="quit"
 ```
 
+Полный smoke графа HUD и сетевых негативных переходов:
+
+```bash
+unreal/Catan/Scripts/run_hud_graph_smoke.sh
+```
+
+Он обходит все локальные переходы основного меню, подменю торговли и карт
+развития, confirm/cancel и мобильных details-панелей. Отдельные процессы
+проверяют неуспешные LAN/dedicated-подключения, выход клиента, закрытие комнаты
+хостом и возврат оставшегося клиента в главное меню.
+
 ## Граница core / Unreal
 
 `UCatanGameSubsystem` владеет `GameController`. UI и поле получают копируемый

@@ -36,6 +36,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "HAL/PlatformApplicationMisc.h"
+#include "Containers/Ticker.h"
 
 namespace
 {
@@ -1079,6 +1080,7 @@ void UCatanHUDWidget::Refresh()
         StartLobbyButton->SetVisibility(bLocalHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
         StartLobbyButton->SetIsEnabled(bLocalHost && bAllReady && Players.Num() <= 4);
         CopyLobbyTokenButton->SetVisibility(ESlateVisibility::Visible);
+        ScheduleAutomatedLobbyLeave(Players.Num(), bLocalHost);
         return;
     }
     if (const ACatanGameState* NetworkState = GetWorld() ? GetWorld()->GetGameState<ACatanGameState>() : nullptr;
@@ -1112,6 +1114,7 @@ void UCatanHUDWidget::Refresh()
         StartLobbyButton->SetVisibility(bLocalHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
         StartLobbyButton->SetIsEnabled(bLocalHost && bAllReady && NetworkState->LobbyPlayers.Num() <= 4);
         CopyLobbyTokenButton->SetVisibility(ESlateVisibility::Collapsed);
+        ScheduleAutomatedLobbyLeave(NetworkState->LobbyPlayers.Num(), bLocalHost);
         return;
     }
     const FCatanGameView View = GameSubsystem->GetSnapshot();
@@ -1599,6 +1602,133 @@ void UCatanHUDWidget::ApplyUIPreview()
         bUIPreviewReported = true;
         UE_LOG(LogTemp, Display, TEXT("CATAN_UI_PREVIEW ready mode=%s"), *Preview);
     }
+}
+
+void UCatanHUDWidget::RunHUDGraphSmoke()
+{
+    if (!GameSubsystem)
+        GameSubsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
+    if (!NetworkSubsystem)
+        NetworkSubsystem = GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>();
+    int32 Edges = 0;
+    int32 Failures = 0;
+    auto Verify = [&Edges, &Failures](const TCHAR* Edge, bool bCondition)
+    {
+        ++Edges;
+        if (!bCondition)
+        {
+            ++Failures;
+            UE_LOG(LogTemp, Error, TEXT("CATAN_HUD_GRAPH FAIL edge=%s"), Edge);
+        }
+        else UE_LOG(LogTemp, Display, TEXT("CATAN_HUD_GRAPH edge=%s"), Edge);
+    };
+
+    bSetupPanelOpen = true;
+    ShowMainSetup();
+    Verify(TEXT("main-online"), (ShowOnlineSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupOnlineIndex));
+    Verify(TEXT("online-local"), (ShowLocalNetworkSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupLocalNetworkIndex));
+    ManualAddressInput->SetText(FText::GetEmpty());
+    JoinManualLobby();
+    Verify(TEXT("local-empty-address-rejected"), NetworkSubsystem
+        && NetworkSubsystem->GetStatus().Contains(TEXT("Enter host IP")));
+    JoinSelectedLobby();
+    Verify(TEXT("local-empty-selection-rejected"), NetworkSubsystem
+        && NetworkSubsystem->GetStatus().Contains(TEXT("Select a discovered lobby")));
+    Verify(TEXT("local-back-online"), (ShowOnlineSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupOnlineIndex));
+    Verify(TEXT("online-dedicated"), (ShowDedicatedServerSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupDedicatedServerIndex));
+    const FText SavedDedicatedAddress = DedicatedAddressInput->GetText();
+    DedicatedAddressInput->SetText(FText::GetEmpty());
+    CreateDedicatedLobby();
+    Verify(TEXT("dedicated-empty-create-address-rejected"), NetworkSubsystem
+        && NetworkSubsystem->GetStatus().Contains(TEXT("Enter server IP")));
+    JoinDedicatedLobby();
+    Verify(TEXT("dedicated-empty-join-address-rejected"), NetworkSubsystem
+        && NetworkSubsystem->GetStatus().Contains(TEXT("Enter server IP")));
+    DedicatedAddressInput->SetText(SavedDedicatedAddress);
+    Verify(TEXT("dedicated-back-online"), (ShowOnlineSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupOnlineIndex));
+    Verify(TEXT("online-back-main"), (ShowMainSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupMainIndex));
+    Verify(TEXT("main-bots"), (ShowBotSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupBotsIndex));
+    Verify(TEXT("bots-back-main"), (ShowMainSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupMainIndex));
+    Verify(TEXT("main-settings"), (ShowSettings(), SetupSwitcher->GetActiveWidgetIndex() == SetupSettingsIndex));
+    SaveSettings();
+    Verify(TEXT("settings-save-main"), SetupSwitcher->GetActiveWidgetIndex() == SetupMainIndex);
+    ShowSettings();
+    Verify(TEXT("settings-back-main"), (ShowMainSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupMainIndex));
+
+    ShowBotSetup();
+    StartBotMatch();
+    Verify(TEXT("bots-start-game"), !bSetupPanelOpen && GameSubsystem->GetSnapshot().Players.Num() == 2);
+    StartNewGame();
+    ShowMainSetup();
+
+    bSetupPanelOpen = false;
+    ShowDevelopmentCards();
+    Verify(TEXT("game-development"), bDevelopmentPanelOpen
+        && DevelopmentModeSwitcher->GetActiveWidgetIndex() == 0);
+    ShowYearOfPlentyParameters();
+    Verify(TEXT("development-plenty"), DevelopmentModeSwitcher->GetActiveWidgetIndex() == 1);
+    CancelDevelopmentParameters();
+    Verify(TEXT("plenty-back-development"), DevelopmentModeSwitcher->GetActiveWidgetIndex() == 0);
+    ShowMonopolyParameters();
+    Verify(TEXT("development-monopoly"), DevelopmentModeSwitcher->GetActiveWidgetIndex() == 2);
+    CancelDevelopmentParameters();
+    Verify(TEXT("monopoly-back-development"), DevelopmentModeSwitcher->GetActiveWidgetIndex() == 0);
+    CloseDevelopmentCards();
+    Verify(TEXT("development-close-game"), !bDevelopmentPanelOpen);
+
+    ShowTrading();
+    Verify(TEXT("game-trade-bank"), bTradePanelOpen && TradeModeSwitcher->GetActiveWidgetIndex() == 0);
+    ShowPlayerTrade();
+    Verify(TEXT("trade-bank-player"), TradeModeSwitcher->GetActiveWidgetIndex() == 1);
+    ShowBankTrade();
+    Verify(TEXT("trade-player-bank"), TradeModeSwitcher->GetActiveWidgetIndex() == 0);
+    CloseTrading();
+    Verify(TEXT("trade-close-game"), !bTradePanelOpen);
+
+    BuyDevelopmentCard();
+    Verify(TEXT("game-buy-confirmation"), PendingExpensiveAction == 2);
+    CancelExpensiveAction();
+    Verify(TEXT("confirmation-cancel-game"), PendingExpensiveAction == 0);
+    ApplyAdaptiveLayout(true);
+    ToggleLeftDetails();
+    Verify(TEXT("game-open-left-details"), bLeftDetailsOpen);
+    ToggleLeftDetails();
+    Verify(TEXT("left-details-close-game"), !bLeftDetailsOpen);
+    ToggleRightDetails();
+    Verify(TEXT("game-open-right-details"), bRightDetailsOpen);
+    ToggleRightDetails();
+    Verify(TEXT("right-details-close-game"), !bRightDetailsOpen);
+    ApplyAdaptiveLayout(false);
+    StartNewGame();
+    ShowMainSetup();
+    Verify(TEXT("game-new-game-main"), bSetupPanelOpen
+        && SetupSwitcher->GetActiveWidgetIndex() == SetupMainIndex);
+
+    if (Failures == 0)
+    {
+        UE_LOG(LogTemp, Display, TEXT("CATAN_HUD_GRAPH PASS edges=%d failures=0"), Edges);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("CATAN_HUD_GRAPH FAIL edges=%d failures=%d"), Edges, Failures);
+    }
+}
+
+void UCatanHUDWidget::ScheduleAutomatedLobbyLeave(int32 LobbyPlayerCount, bool bLocalHost)
+{
+    if (bAutoLeaveScheduled || !FParse::Param(FCommandLine::Get(), TEXT("CatanAutoLeaveLobby"))) return;
+    int32 RequiredPlayers = 1;
+    FParse::Value(FCommandLine::Get(), TEXT("CatanAutoLeaveWhenPlayers="), RequiredPlayers);
+    if (LobbyPlayerCount < FMath::Max(1, RequiredPlayers)) return;
+    bAutoLeaveScheduled = true;
+    UE_LOG(LogTemp, Display, TEXT("CATAN_HUD_GRAPH leave-scheduled role=%s players=%d"),
+        bLocalHost ? TEXT("host") : TEXT("client"), LobbyPlayerCount);
+    TWeakObjectPtr<UCatanHUDWidget> WeakThis(this);
+    FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakThis](float)
+    {
+        if (WeakThis.IsValid()) WeakThis->LeaveLobby();
+        return false;
+    }), 0.5f);
 }
 
 void UCatanHUDWidget::SetModalSize(float Width, float Height)

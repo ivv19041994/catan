@@ -246,7 +246,12 @@ std::string HandleRequest(Service& service, std::string_view request)
         if (!result.ok) return Error(result.message);
         return "OK\tJOINED\t" + result.lobby_token + '\t' + result.player_token + '\t' + HexEncode(result.player_name);
     }
-    if (fields.size() >= 3 && (fields[0] == "READY" || fields[0] == "START" || fields[0] == "SNAPSHOT" || fields[0] == "COMMAND")) {
+    if (fields.size() >= 3 && (fields[0] == "LEAVE" || fields[0] == "READY"
+        || fields[0] == "START" || fields[0] == "SNAPSHOT" || fields[0] == "COMMAND")) {
+        if (fields[0] == "LEAVE" && fields.size() == 3) {
+            const auto result = service.LeaveLobby(fields[1], fields[2]);
+            return result.ok ? "OK\tLEFT\t" + HexEncode(result.message) : Error(result.message);
+        }
         if (fields[0] == "READY" && fields.size() == 4) {
             int ready = 0; if (!ParseInt(fields[3], ready) || (ready != 0 && ready != 1)) return Error("Invalid ready value");
             const auto result = service.SetReady(fields[1], fields[2], ready != 0);
