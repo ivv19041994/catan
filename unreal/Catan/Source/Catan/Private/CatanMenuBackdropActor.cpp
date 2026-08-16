@@ -63,7 +63,7 @@ void ACatanMenuBackdropActor::BeginPlay()
 {
     Super::BeginPlay();
     BasicMaterial = LoadObject<UMaterialInterface>(nullptr,
-        TEXT("/Game/Materials/M_CatanColor.M_CatanColor"));
+        TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
     BuildEnvironment();
     if (HasAuthority())
     {
@@ -192,21 +192,30 @@ void ACatanMenuBackdropActor::BuildResourceCluster(int32 VisualId, const FVector
         Pyramid->RegisterComponent();
         Pyramid->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         const FVector Position = SurfaceCenter + Local;
-        TArray<FVector> Vertices{Position + FVector(0, 0, Height)};
-        TArray<FVector> Normals{FVector::UpVector};
-        TArray<FVector2D> UVs{FVector2D(0.5f, 0.0f)};
-        TArray<FLinearColor> Colors{Color};
-        TArray<FProcMeshTangent> Tangents{FProcMeshTangent(1, 0, 0)};
+        const FVector Apex = Position + FVector(0, 0, Height);
+        TArray<FVector> Vertices;
+        TArray<FVector> Normals;
+        TArray<FVector2D> UVs;
+        TArray<FLinearColor> Colors;
+        TArray<FProcMeshTangent> Tangents;
         TArray<int32> Triangles;
         for (int32 Side = 0; Side < 6; ++Side)
         {
-            const float Angle = FMath::DegreesToRadians(30.0f + Side * 60.0f);
-            Vertices.Add(Position + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0) * Radius);
-            Normals.Add(FVector::UpVector);
-            UVs.Add(FVector2D(static_cast<float>(Side) / 6.0f, 1.0f));
-            Colors.Add(Color * (0.83f + (Side % 3) * 0.08f));
-            Tangents.Add(FProcMeshTangent(1, 0, 0));
-            Triangles.Append({0, (Side + 1) % 6 + 1, Side + 1});
+            const float CurrentAngle = FMath::DegreesToRadians(30.0f + Side * 60.0f);
+            const float NextAngle = FMath::DegreesToRadians(30.0f + ((Side + 1) % 6) * 60.0f);
+            const FVector Current = Position
+                + FVector(FMath::Cos(CurrentAngle), FMath::Sin(CurrentAngle), 0) * Radius;
+            const FVector Next = Position
+                + FVector(FMath::Cos(NextAngle), FMath::Sin(NextAngle), 0) * Radius;
+            const FVector FaceNormal = FVector::CrossProduct(Current - Apex, Next - Apex).GetSafeNormal();
+            const int32 Face = Vertices.Num();
+            Vertices.Append({Apex, Current, Next});
+            Normals.Append({FaceNormal, FaceNormal, FaceNormal});
+            UVs.Append({FVector2D(0.5f, 0), FVector2D(0, 1), FVector2D(1, 1)});
+            Colors.Append({Color, Color, Color});
+            Tangents.Append({FProcMeshTangent(1, 0, 0), FProcMeshTangent(1, 0, 0),
+                FProcMeshTangent(1, 0, 0)});
+            Triangles.Append({Face, Face + 2, Face + 1});
         }
         Pyramid->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UVs, Colors, Tangents, false);
         Pyramid->SetMaterial(0, TerrainMaterial(this, BasicMaterial, Color));
