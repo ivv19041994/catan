@@ -7,6 +7,8 @@
 #include "CatanPlayerController.h"
 #include "CatanPlayerState.h"
 #include "CatanTradePolicy.h"
+#include "CatanTextResources.h"
+#include "CatanUserSettings.h"
 #include "CommonTextBlock.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -42,6 +44,7 @@ constexpr int32 SetupOnlineIndex = 1;
 constexpr int32 SetupLocalNetworkIndex = 2;
 constexpr int32 SetupDedicatedServerIndex = 3;
 constexpr int32 SetupBotsIndex = 4;
+constexpr int32 SetupSettingsIndex = 5;
 
 UBorder* AddPanel(UWidgetTree* Tree, UCanvasPanel* Canvas, const FAnchors& Anchors,
     const FVector2D& Alignment, const FMargin& Offsets)
@@ -56,46 +59,44 @@ UBorder* AddPanel(UWidgetTree* Tree, UCanvasPanel* Canvas, const FAnchors& Ancho
     return Border;
 }
 
-FString PhaseHint(ECatanGamePhase Phase)
+FString PhaseHint(ECatanGamePhase Phase, ECatanLanguage Language)
 {
+    FString Key;
     switch (Phase)
     {
-    case ECatanGamePhase::SetupSettlement: return TEXT("Click a free intersection to place a settlement");
-    case ECatanGamePhase::SetupRoad: return TEXT("Click an adjacent edge to place a road");
-    case ECatanGamePhase::RollDice: return TEXT("Roll both dice to start the turn");
-    case ECatanGamePhase::CommonPlay: return TEXT("Choose an action, then click its target on the board");
-    case ECatanGamePhase::DropCards: return TEXT("Choose exactly half of the shown player's resources to discard");
-    case ECatanGamePhase::MoveRobber: return TEXT("Click a different hex to move the robber");
-    case ECatanGamePhase::RoadBuilding: return TEXT("Click up to two valid road edges");
-    case ECatanGamePhase::Finished: return TEXT("Game finished");
+    case ECatanGamePhase::SetupSettlement: Key = TEXT("Click a free intersection to place a settlement"); break;
+    case ECatanGamePhase::SetupRoad: Key = TEXT("Click an adjacent edge to place a road"); break;
+    case ECatanGamePhase::RollDice: Key = TEXT("Roll both dice to start the turn"); break;
+    case ECatanGamePhase::CommonPlay: Key = TEXT("Choose an action, then click its target on the board"); break;
+    case ECatanGamePhase::DropCards: Key = TEXT("Choose exactly half of the shown player's resources to discard"); break;
+    case ECatanGamePhase::MoveRobber: Key = TEXT("Click a different hex to move the robber"); break;
+    case ECatanGamePhase::RoadBuilding: Key = TEXT("Click up to two valid road edges"); break;
+    case ECatanGamePhase::Finished: Key = TEXT("Game finished"); break;
     }
-    return FString();
+    return FCatanTextResources::Get(Language, Key);
 }
 
-FString PhaseTitle(ECatanGamePhase Phase)
+FString PhaseTitle(ECatanGamePhase Phase, ECatanLanguage Language)
 {
+    FString Key;
     switch (Phase)
     {
-    case ECatanGamePhase::SetupSettlement: return TEXT("Setup: place settlement");
-    case ECatanGamePhase::SetupRoad: return TEXT("Setup: place road");
-    case ECatanGamePhase::RollDice: return TEXT("Roll dice");
-    case ECatanGamePhase::CommonPlay: return TEXT("Build and trade");
-    case ECatanGamePhase::DropCards: return TEXT("Discard resources");
-    case ECatanGamePhase::MoveRobber: return TEXT("Move robber");
-    case ECatanGamePhase::RoadBuilding: return TEXT("Road Building card");
-    case ECatanGamePhase::Finished: return TEXT("Finished");
+    case ECatanGamePhase::SetupSettlement: Key = TEXT("Setup: place settlement"); break;
+    case ECatanGamePhase::SetupRoad: Key = TEXT("Setup: place road"); break;
+    case ECatanGamePhase::RollDice: Key = TEXT("Roll dice"); break;
+    case ECatanGamePhase::CommonPlay: Key = TEXT("Build and trade"); break;
+    case ECatanGamePhase::DropCards: Key = TEXT("Discard resources"); break;
+    case ECatanGamePhase::MoveRobber: Key = TEXT("Move robber"); break;
+    case ECatanGamePhase::RoadBuilding: Key = TEXT("Road Building card"); break;
+    case ECatanGamePhase::Finished: Key = TEXT("Finished"); break;
     }
-    return TEXT("Unknown phase");
+    if (Key.IsEmpty()) Key = TEXT("Unknown phase");
+    return FCatanTextResources::Get(Language, Key);
 }
 
 ECatanResource SelectedResource(const UComboBoxString* Combo)
 {
-    const FString Value = Combo ? Combo->GetSelectedOption() : TEXT("Wood");
-    if (Value == TEXT("Clay")) return ECatanResource::Clay;
-    if (Value == TEXT("Hay")) return ECatanResource::Hay;
-    if (Value == TEXT("Sheep")) return ECatanResource::Sheep;
-    if (Value == TEXT("Stone")) return ECatanResource::Stone;
-    return ECatanResource::Wood;
+    return static_cast<ECatanResource>(FMath::Clamp(Combo ? Combo->GetSelectedIndex() : 0, 0, 4));
 }
 
 FString ResourceSummary(const FCatanResourceView& Resources)
@@ -144,7 +145,14 @@ void ConfigureIntegerInput(USpinBox* Input, int32 MaxValue = 99)
 
 TSharedRef<SWidget> UCatanHUDWidget::RebuildWidget()
 {
-    if (!WidgetTree->RootWidget) BuildLayout();
+    if (!WidgetTree->RootWidget)
+    {
+        UserPreferences = FCatanUserSettings::Load();
+        FString LanguageOverride;
+        if (FParse::Value(FCommandLine::Get(), TEXT("CatanLanguage="), LanguageOverride))
+            UserPreferences.Language = FCatanTextResources::ParseLanguage(LanguageOverride);
+        BuildLayout();
+    }
     return Super::RebuildWidget();
 }
 
@@ -240,7 +248,7 @@ void UCatanHUDWidget::BuildLayout()
     HandTitleText = AddText(PlayerPanel, TEXT("YOUR HAND"), 22);
     UHorizontalBox* ResourceBadges = WidgetTree->ConstructWidget<UHorizontalBox>();
     PlayerPanel->AddChildToVerticalBox(ResourceBadges);
-    struct FResourceBadge { const TCHAR* Name; FLinearColor Color; };
+    struct FResourceBadge { FString Name; FLinearColor Color; };
     const FResourceBadge Badges[] = {
         {TEXT("WOOD"), FLinearColor(0.08f, 0.52f, 0.16f)},
         {TEXT("CLAY"), FLinearColor(0.76f, 0.18f, 0.05f)},
@@ -346,10 +354,10 @@ void UCatanHUDWidget::BuildLayout()
     UVerticalBox* DropPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(DropPanel);
     DropTitle = AddText(DropPanel, TEXT("DISCARD RESOURCES"), 25);
-    constexpr const TCHAR* ResourceNames[] = {TEXT("Wood"), TEXT("Clay"), TEXT("Hay"), TEXT("Sheep"), TEXT("Stone")};
+    const TArray<FString> ResourceNames = {TEXT("Wood"), TEXT("Clay"), TEXT("Hay"), TEXT("Sheep"), TEXT("Stone")};
     for (int32 ResourceIndex = 0; ResourceIndex < 5; ++ResourceIndex)
     {
-        const TCHAR* ResourceName = ResourceNames[ResourceIndex];
+        const FString& ResourceName = ResourceNames[ResourceIndex];
         UBorder* Card = WidgetTree->ConstructWidget<UBorder>();
         Card->SetBrushColor(ResourceColor(ResourceIndex));
         Card->SetPadding(FMargin(10));
@@ -358,7 +366,8 @@ void UCatanHUDWidget::BuildLayout()
         UVerticalBoxSlot* RowSlot = DropPanel->AddChildToVerticalBox(Card);
         RowSlot->SetPadding(FMargin(3, 5));
         UCommonTextBlock* Label = WidgetTree->ConstructWidget<UCommonTextBlock>();
-        Label->SetText(FText::FromString(ResourceName));
+        Label->SetText(FText::FromString(Localize(ResourceName)));
+        RegisterLocalizedText(Label, ResourceName);
         FSlateFontInfo Font = Label->GetFont(); Font.Size = 18; Label->SetFont(Font);
         UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(Label);
         LabelSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
@@ -398,13 +407,13 @@ void UCatanHUDWidget::BuildLayout()
     SecondResource = WidgetTree->ConstructWidget<UComboBoxString>();
     ConfigureComboBox(FirstResource, 22);
     ConfigureComboBox(SecondResource, 22);
-    for (const TCHAR* ResourceName : ResourceNames)
+    for (const FString& ResourceName : ResourceNames)
     {
-        FirstResource->AddOption(ResourceName);
-        SecondResource->AddOption(ResourceName);
+        FirstResource->AddOption(Localize(ResourceName));
+        SecondResource->AddOption(Localize(ResourceName));
     }
-    FirstResource->SetSelectedOption(TEXT("Wood"));
-    SecondResource->SetSelectedOption(TEXT("Clay"));
+    FirstResource->SetSelectedIndex(0);
+    SecondResource->SetSelectedIndex(1);
     DevelopmentResourcePanel->AddChildToVerticalBox(FirstResource);
     DevelopmentResourcePanel->AddChildToVerticalBox(SecondResource);
     YearOfPlentyButton = AddButton(DevelopmentPanel, TEXT("PLAY YEAR OF PLENTY"));
@@ -436,13 +445,14 @@ void UCatanHUDWidget::BuildLayout()
     TradeModeSwitcher = WidgetTree->ConstructWidget<UWidgetSwitcher>();
     TradePanel->AddChildToVerticalBox(TradeModeSwitcher);
 
-    auto AddResourceButton = [this](UVerticalBox* Parent, const TCHAR* Name, int32 Index,
+    auto AddResourceButton = [this](UVerticalBox* Parent, const FString& Name, int32 Index,
         TArray<TObjectPtr<UButton>>& Buttons)
     {
         UButton* Button = WidgetTree->ConstructWidget<UButton>();
         Button->SetBackgroundColor(ResourceColor(Index));
         UCommonTextBlock* Text = WidgetTree->ConstructWidget<UCommonTextBlock>();
-        Text->SetText(FText::FromString(Name));
+        Text->SetText(FText::FromString(Localize(Name)));
+        RegisterLocalizedText(Text, Name);
         Text->SetJustification(ETextJustify::Center);
         FSlateFontInfo Font = Text->GetFont(); Font.Size = 18; Text->SetFont(Font);
         Button->AddChild(Text);
@@ -524,7 +534,8 @@ void UCatanHUDWidget::BuildLayout()
             UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
             Card->SetContent(Row);
             UCommonTextBlock* Name = WidgetTree->ConstructWidget<UCommonTextBlock>();
-            Name->SetText(FText::FromString(ResourceNames[Index]));
+            Name->SetText(FText::FromString(Localize(ResourceNames[Index])));
+            RegisterLocalizedText(Name, ResourceNames[Index]);
             FSlateFontInfo Font = Name->GetFont(); Font.Size = 22; Name->SetFont(Font);
             UHorizontalBoxSlot* NameSlot = Row->AddChildToHorizontalBox(Name);
             NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
@@ -584,17 +595,13 @@ void UCatanHUDWidget::BuildLayout()
     SetupSwitcher->AddChild(SetupPanel);
     AddText(SetupPanel, TEXT("CATAN"), 32);
     AddText(SetupPanel, TEXT("Choose a game mode"), 20);
-    PlayerSlotLabels.Add(AddText(SetupPanel, TEXT("PLAYER NAME"), 18));
-    UEditableTextBox* MainName = WidgetTree->ConstructWidget<UEditableTextBox>();
-    MainName->SetText(FText::FromString(TEXT("Player")));
-    MainName->SetHintText(FText::FromString(TEXT("Player name")));
-    MainName->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
-    SetupPanel->AddChildToVerticalBox(MainName);
-    PlayerNameInputs.Add(MainName);
+    MainPlayerNameText = AddText(SetupPanel, FString(), 18);
     UButton* OnlineMode = AddButton(SetupPanel, TEXT("ONLINE"));
     UButton* BotMode = AddButton(SetupPanel, TEXT("PLAY AGAINST BOTS"));
+    UButton* SettingsMode = AddButton(SetupPanel, TEXT("SETTINGS"));
     OnlineMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowOnlineSetup);
     BotMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowBotSetup);
+    SettingsMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowSettings);
 
     UVerticalBox* OnlinePanel = WidgetTree->ConstructWidget<UVerticalBox>();
     SetupSwitcher->AddChild(OnlinePanel);
@@ -677,6 +684,27 @@ void UCatanHUDWidget::BuildLayout()
     UButton* BotBack = AddButton(BotPanel, TEXT("BACK"));
     BotBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMainSetup);
 
+    UVerticalBox* SettingsPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    SetupSwitcher->AddChild(SettingsPanel);
+    AddText(SettingsPanel, TEXT("SETTINGS"), 27);
+    AddText(SettingsPanel, TEXT("PLAYER NAME"), 18);
+    SettingsNameInput = WidgetTree->ConstructWidget<UEditableTextBox>();
+    SettingsNameInput->SetText(FText::FromString(UserPreferences.PlayerName));
+    SettingsNameInput->SetHintText(FText::FromString(Localize(TEXT("Player name"))));
+    SettingsNameInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
+    SettingsPanel->AddChildToVerticalBox(SettingsNameInput);
+    AddText(SettingsPanel, TEXT("LANGUAGE"), 18);
+    SettingsLanguageInput = WidgetTree->ConstructWidget<UComboBoxString>();
+    ConfigureComboBox(SettingsLanguageInput, 22);
+    SettingsLanguageInput->AddOption(TEXT("English"));
+    SettingsLanguageInput->AddOption(TEXT("Русский"));
+    SettingsLanguageInput->SetSelectedIndex(UserPreferences.Language == ECatanLanguage::Russian ? 1 : 0);
+    SettingsPanel->AddChildToVerticalBox(SettingsLanguageInput);
+    UButton* SaveSettingsButton = AddButton(SettingsPanel, TEXT("SAVE SETTINGS"));
+    UButton* SettingsBack = AddButton(SettingsPanel, TEXT("BACK"));
+    SaveSettingsButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::SaveSettings);
+    SettingsBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMainSetup);
+
     UVerticalBox* ConfirmationPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(ConfirmationPanel);
     AddText(ConfirmationPanel, TEXT("CONFIRM ACTION"), 30);
@@ -711,6 +739,7 @@ void UCatanHUDWidget::BuildLayout()
     RoadBuildingButton->SetToolTipText(FText::FromString(TEXT("Place two roads for free")));
     YearOfPlentyButton->SetToolTipText(FText::FromString(TEXT("Take the two selected resources")));
     MonopolyButton->SetToolTipText(FText::FromString(TEXT("Take the selected resource from every opponent")));
+    ApplyLanguage();
     UE_LOG(LogTemp, Display, TEXT("CATAN_COMBO_STYLE ready widgets=%d popupText=white"),
         5 + OfferedInputs.Num() + RequestedInputs.Num());
 }
@@ -773,9 +802,11 @@ void UCatanHUDWidget::ApplyAdaptiveLayout(bool bCompact)
         Slot->SetPosition(FVector2D(-24.0f, bCompact && bRightDetailsOpen ? 610.0f : 500.0f));
 
     if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(LeftDetailsButton->GetChildAt(0)))
-        Label->SetText(FText::FromString(bLeftDetailsOpen ? TEXT("HIDE EVENTS & HELP") : TEXT("SHOW EVENTS & HELP")));
+        Label->SetText(FText::FromString(Localize(bLeftDetailsOpen
+            ? TEXT("HIDE EVENTS & HELP") : TEXT("SHOW EVENTS & HELP"))));
     if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(RightDetailsButton->GetChildAt(0)))
-        Label->SetText(FText::FromString(bRightDetailsOpen ? TEXT("HIDE PLAYERS & COSTS") : TEXT("SHOW PLAYERS & COSTS")));
+        Label->SetText(FText::FromString(Localize(bRightDetailsOpen
+            ? TEXT("HIDE PLAYERS & COSTS") : TEXT("SHOW PLAYERS & COSTS"))));
 
     if (ActionButtons)
     {
@@ -808,7 +839,7 @@ void UCatanHUDWidget::UpdateActionLabels()
     {
         if (UCommonTextBlock* Label = Entry.Button
             ? Cast<UCommonTextBlock>(Entry.Button->GetChildAt(0)) : nullptr)
-            Label->SetText(FText::FromString(bCompactLayout ? Entry.Compact : Entry.Full));
+            Label->SetText(FText::FromString(Localize(bCompactLayout ? Entry.Compact : Entry.Full)));
     }
 }
 
@@ -829,7 +860,8 @@ void UCatanHUDWidget::ToggleRightDetails()
 UCommonTextBlock* UCatanHUDWidget::AddText(UVerticalBox* Parent, const FString& Text, int32 Size)
 {
     UCommonTextBlock* TextBlock = WidgetTree->ConstructWidget<UCommonTextBlock>();
-    TextBlock->SetText(FText::FromString(Text));
+    TextBlock->SetText(FText::FromString(Localize(Text)));
+    if (!Text.IsEmpty()) RegisterLocalizedText(TextBlock, Text);
     FSlateFontInfo Font = TextBlock->GetFont();
     Font.Size = Size;
     TextBlock->SetFont(Font);
@@ -845,7 +877,8 @@ UButton* UCatanHUDWidget::AddButton(UVerticalBox* Parent, const FString& Label)
     UButton* Button = WidgetTree->ConstructWidget<UButton>();
     Button->SetBackgroundColor(FLinearColor(0.10f, 0.24f, 0.42f, 1.0f));
     UCommonTextBlock* Text = WidgetTree->ConstructWidget<UCommonTextBlock>();
-    Text->SetText(FText::FromString(Label));
+    Text->SetText(FText::FromString(Localize(Label)));
+    RegisterLocalizedText(Text, Label);
     Text->SetJustification(ETextJustify::Center);
     Text->SetMargin(FMargin(16, 12));
     Button->AddChild(Text);
@@ -856,6 +889,77 @@ UButton* UCatanHUDWidget::AddButton(UVerticalBox* Parent, const FString& Label)
     UVerticalBoxSlot* Slot = Parent->AddChildToVerticalBox(TouchTarget);
     Slot->SetPadding(FMargin(2, 4));
     return Button;
+}
+
+FString UCatanHUDWidget::Localize(const FString& Key) const
+{
+    return FCatanTextResources::Get(UserPreferences.Language, Key);
+}
+
+void UCatanHUDWidget::RegisterLocalizedText(UCommonTextBlock* Widget, const FString& Key)
+{
+    if (Widget && !Key.IsEmpty()) LocalizedTexts.Emplace(Widget, Key);
+}
+
+void UCatanHUDWidget::ApplyLanguage()
+{
+    for (const TPair<TWeakObjectPtr<UCommonTextBlock>, FString>& Entry : LocalizedTexts)
+        if (Entry.Key.IsValid()) Entry.Key->SetText(FText::FromString(Localize(Entry.Value)));
+
+    if (MainPlayerNameText)
+        MainPlayerNameText->SetText(FText::FromString(FString::Printf(TEXT("%s: %s"),
+            *Localize(TEXT("PLAYER")), *UserPreferences.PlayerName)));
+    if (SettingsNameInput)
+    {
+        SettingsNameInput->SetText(FText::FromString(UserPreferences.PlayerName));
+        SettingsNameInput->SetHintText(FText::FromString(Localize(TEXT("Player name"))));
+    }
+    if (SettingsLanguageInput)
+    {
+        const int32 Selected = UserPreferences.Language == ECatanLanguage::Russian ? 1 : 0;
+        SettingsLanguageInput->ClearOptions();
+        SettingsLanguageInput->AddOption(TEXT("English"));
+        SettingsLanguageInput->AddOption(UserPreferences.Language == ECatanLanguage::Russian
+            ? TEXT("Русский") : TEXT("Russian"));
+        SettingsLanguageInput->SetSelectedIndex(Selected);
+    }
+    const int32 FirstIndex = FirstResource ? FMath::Max(0, FirstResource->GetSelectedIndex()) : 0;
+    const int32 SecondIndex = SecondResource ? FMath::Max(0, SecondResource->GetSelectedIndex()) : 1;
+    const TArray<FString> Resources = {TEXT("Wood"), TEXT("Clay"), TEXT("Hay"), TEXT("Sheep"), TEXT("Stone")};
+    for (UComboBoxString* Combo : {FirstResource.Get(), SecondResource.Get()})
+    {
+        if (!Combo) continue;
+        Combo->ClearOptions();
+        for (const FString& Resource : Resources) Combo->AddOption(Localize(Resource));
+    }
+    if (FirstResource) FirstResource->SetSelectedIndex(FirstIndex);
+    if (SecondResource) SecondResource->SetSelectedIndex(SecondIndex);
+    if (PlayerCount)
+    {
+        const int32 Selected = FMath::Max(0, PlayerCount->GetSelectedIndex());
+        PlayerCount->ClearOptions();
+        PlayerCount->AddOption(Localize(TEXT("2 players")));
+        PlayerCount->AddOption(Localize(TEXT("3 players")));
+        PlayerCount->AddOption(Localize(TEXT("4 players")));
+        PlayerCount->SetSelectedIndex(Selected);
+    }
+    if (SettlementButton) SettlementButton->SetToolTipText(FText::FromString(
+        Localize(TEXT("Build a settlement: wood + clay + hay + sheep"))));
+    if (RoadButton) RoadButton->SetToolTipText(FText::FromString(
+        Localize(TEXT("Build a road: wood + clay"))));
+    if (CityButton) CityButton->SetToolTipText(FText::FromString(
+        Localize(TEXT("Upgrade your settlement to a city: 2 hay + 3 ore"))));
+    if (BuyCardButton) BuyCardButton->SetToolTipText(FText::FromString(
+        Localize(TEXT("Buy a development card: hay + sheep + ore"))));
+    if (KnightButton) KnightButton->SetToolTipText(FText::FromString(
+        Localize(TEXT("Move the robber and steal from an adjacent player"))));
+    if (RoadBuildingButton) RoadBuildingButton->SetToolTipText(FText::FromString(
+        Localize(TEXT("Place two roads for free"))));
+    if (YearOfPlentyButton) YearOfPlentyButton->SetToolTipText(FText::FromString(
+        Localize(TEXT("Take the two selected resources"))));
+    if (MonopolyButton) MonopolyButton->SetToolTipText(FText::FromString(
+        Localize(TEXT("Take the selected resource from every opponent"))));
+    UpdateActionLabels();
 }
 
 void UCatanHUDWidget::Refresh()
@@ -875,7 +979,7 @@ void UCatanHUDWidget::Refresh()
             for (const FCatanDiscoveredLobby& Lobby : Results)
                 LobbyResults->AddOption(FString::Printf(TEXT("%s — %d/%d — %d ms"),
                     *Lobby.Name, Lobby.Players, Lobby.Capacity, Lobby.PingMs));
-            if (Results.IsEmpty()) LobbyResults->AddOption(TEXT("No LAN lobbies found"));
+            if (Results.IsEmpty()) LobbyResults->AddOption(Localize(TEXT("No LAN lobbies found")));
             LobbyResults->SetSelectedIndex(FMath::Clamp(Previous, 0, LobbyResults->GetOptionCount() - 1));
         }
     }
@@ -907,7 +1011,7 @@ void UCatanHUDWidget::Refresh()
             *NetworkSubsystem->GetDedicatedAddress(), *NetworkSubsystem->GetDedicatedLobbyToken(),
             *NetworkSubsystem->GetDedicatedPlayerToken())));
         if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(ReadyButton->GetChildAt(0)))
-            Label->SetText(FText::FromString(bLocalReady ? TEXT("NOT READY") : TEXT("READY")));
+            Label->SetText(FText::FromString(Localize(bLocalReady ? TEXT("NOT READY") : TEXT("READY"))));
         StartLobbyButton->SetVisibility(bLocalHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
         StartLobbyButton->SetIsEnabled(bLocalHost && bAllReady && Players.Num() <= 4);
         CopyLobbyTokenButton->SetVisibility(ESlateVisibility::Visible);
@@ -940,7 +1044,7 @@ void UCatanHUDWidget::Refresh()
         LobbyAddressText->SetText(FText::FromString(FString::Printf(TEXT("Share this address: %s"),
             NetworkSubsystem ? *NetworkSubsystem->GetLocalAddress() : TEXT("port 7777"))));
         if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(ReadyButton->GetChildAt(0)))
-            Label->SetText(FText::FromString(bLocalReady ? TEXT("NOT READY") : TEXT("READY")));
+            Label->SetText(FText::FromString(Localize(bLocalReady ? TEXT("NOT READY") : TEXT("READY"))));
         StartLobbyButton->SetVisibility(bLocalHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
         StartLobbyButton->SetIsEnabled(bLocalHost && bAllReady && NetworkState->LobbyPlayers.Num() <= 4);
         CopyLobbyTokenButton->SetVisibility(ESlateVisibility::Collapsed);
@@ -948,15 +1052,16 @@ void UCatanHUDWidget::Refresh()
     }
     const FCatanGameView View = GameSubsystem->GetSnapshot();
     const bool bLocalTurn = GameSubsystem->CanLocalPlayerAct(View);
-    PhaseText->SetText(FText::FromString(FString::Printf(
-        TEXT("%s\nCurrent: %s"), *PhaseTitle(View.Phase), *View.CurrentPlayer)));
+    PhaseText->SetText(FText::FromString(PhaseTitle(View.Phase, UserPreferences.Language)
+        + TEXT("\n") + Localize(TEXT("Current:")) + TEXT(" ") + View.CurrentPlayer));
     DiceText->SetText(View.FirstDie > 0
-        ? FText::FromString(FString::Printf(TEXT("Dice: %d + %d = %d"), View.FirstDie, View.SecondDie, View.FirstDie + View.SecondDie))
+        ? FText::FromString(Localize(TEXT("Dice:")) + FString::Printf(TEXT(" %d + %d = %d"),
+            View.FirstDie, View.SecondDie, View.FirstDie + View.SecondDie))
         : FText::GetEmpty());
     HintText->SetText(FText::FromString(bLocalTurn
-        ? PhaseHint(View.Phase)
-        : FString::Printf(TEXT("Waiting for %s"), *View.CurrentPlayer)));
-    StatusText->SetText(FText::FromString(View.StatusMessage));
+        ? PhaseHint(View.Phase, UserPreferences.Language)
+        : Localize(TEXT("Waiting for")) + TEXT(" ") + View.CurrentPlayer));
+    StatusText->SetText(FText::FromString(Localize(View.StatusMessage)));
     if (!PreviousToastStatus.IsEmpty() && PreviousToastStatus != View.StatusMessage)
     {
         ToastText->SetText(FText::FromString(View.StatusMessage));
@@ -968,7 +1073,7 @@ void UCatanHUDWidget::Refresh()
     FString Events;
     for (int32 Index = View.EventLog.Num() - 1; Index >= 0; --Index)
     {
-        Events += FString::Printf(TEXT("• %s\n"), *View.EventLog[Index]);
+        Events += FString::Printf(TEXT("• %s\n"), *Localize(View.EventLog[Index]));
     }
     EventText->SetText(FText::FromString(Events));
 
@@ -982,16 +1087,18 @@ void UCatanHUDWidget::Refresh()
             VisibleLocalPlayer->Resources.Hay, VisibleLocalPlayer->Resources.Sheep, VisibleLocalPlayer->Resources.Stone};
         for (int32 Index = 0; Index < ResourceCountTexts.Num() && Index < 5; ++Index)
             ResourceCountTexts[Index]->SetText(FText::AsNumber(Counts[Index]));
-        HandTitleText->SetText(FText::FromString(FString::Printf(TEXT("YOUR HAND — %d RESOURCE CARDS"),
-            VisibleLocalPlayer->ResourceCards)));
-        DevelopmentHandText->SetText(FText::FromString(FString::Printf(
-            TEXT("DEV %d  |  Knight %d  Roads %d  Plenty %d  Monopoly %d%s"),
-            VisibleLocalPlayer->DevelopmentCards, VisibleLocalPlayer->Knights,
-            VisibleLocalPlayer->RoadBuildingCards, VisibleLocalPlayer->YearOfPlentyCards,
-            VisibleLocalPlayer->MonopolyCards,
-            VisibleLocalPlayer->PendingDevelopmentCards > 0
-                ? *FString::Printf(TEXT("  |  %d ready next turn"), VisibleLocalPlayer->PendingDevelopmentCards)
-                : TEXT(""))));
+        HandTitleText->SetText(FText::FromString(Localize(TEXT("YOUR HAND")) + FString::Printf(
+            TEXT(" — %d "), VisibleLocalPlayer->ResourceCards) + Localize(TEXT("RESOURCE CARDS"))));
+        FString DevelopmentSummary = Localize(TEXT("DEV")) + FString::Printf(TEXT(" %d  |  "),
+            VisibleLocalPlayer->DevelopmentCards)
+            + Localize(TEXT("Knight")) + FString::Printf(TEXT(" %d  "), VisibleLocalPlayer->Knights)
+            + Localize(TEXT("Roads")) + FString::Printf(TEXT(" %d  "), VisibleLocalPlayer->RoadBuildingCards)
+            + Localize(TEXT("Plenty")) + FString::Printf(TEXT(" %d  "), VisibleLocalPlayer->YearOfPlentyCards)
+            + Localize(TEXT("Monopoly")) + FString::Printf(TEXT(" %d"), VisibleLocalPlayer->MonopolyCards);
+        if (VisibleLocalPlayer->PendingDevelopmentCards > 0)
+            DevelopmentSummary += FString::Printf(TEXT("  |  %d "), VisibleLocalPlayer->PendingDevelopmentCards)
+                + Localize(TEXT("ready next turn"));
+        DevelopmentHandText->SetText(FText::FromString(DevelopmentSummary));
         if (bHavePreviousLocalResources)
         {
             const int32 Before[] = {PreviousLocalResources.Wood, PreviousLocalResources.Clay,
@@ -1006,7 +1113,7 @@ void UCatanHUDWidget::Refresh()
             }
             if (!Changes.IsEmpty())
             {
-                ToastText->SetText(FText::FromString(FString::Printf(TEXT("YOUR RESOURCES: %s"), *Changes)));
+                ToastText->SetText(FText::FromString(Localize(TEXT("YOUR RESOURCES:")) + TEXT(" ") + Changes));
                 ToastBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
                 ToastBorder->SetRenderOpacity(1.0f);
                 ToastRemaining = 2.8f;
@@ -1018,15 +1125,18 @@ void UCatanHUDWidget::Refresh()
     for (const FCatanPlayerView& Player : View.Players)
     {
         FString Awards;
-        if (Player.bHasLongestRoad) Awards += TEXT("  ★ LONGEST ROAD");
-        if (Player.bHasLargestArmy) Awards += TEXT("  ★ LARGEST ARMY");
+        if (Player.bHasLongestRoad) Awards += TEXT("  ★ ") + Localize(TEXT("LONGEST ROAD"));
+        if (Player.bHasLargestArmy) Awards += TEXT("  ★ ") + Localize(TEXT("LARGEST ARMY"));
         Players += FString::Printf(TEXT("%s %s  |  VP %d  RES %d  DEV %d%s\n"),
             Player.bIsCurrent ? TEXT("▶") : TEXT(" "),
             *FString::Printf(TEXT("%s%s%s"), *Player.Name,
-                Player.bIsLocalPlayer ? TEXT(" [YOU]") : TEXT(""), Player.bIsBot ? TEXT(" [BOT]") : TEXT("")),
+                Player.bIsLocalPlayer ? *FString::Printf(TEXT(" [%s]"), *Localize(TEXT("YOU"))) : TEXT(""),
+                Player.bIsBot ? *FString::Printf(TEXT(" [%s]"), *Localize(TEXT("BOT"))) : TEXT("")),
             Player.VictoryPoints, Player.ResourceCards, Player.DevelopmentCards, *Awards);
-        Players += FString::Printf(TEXT("Pieces: %d settlements, %d cities, %d roads\n\n"),
-            Player.FreeSettlements, Player.FreeCities, Player.FreeRoads);
+        Players += Localize(TEXT("Pieces:")) + FString::Printf(TEXT(" %d "), Player.FreeSettlements)
+            + Localize(TEXT("settlements")) + FString::Printf(TEXT(", %d "), Player.FreeCities)
+            + Localize(TEXT("cities")) + FString::Printf(TEXT(", %d "), Player.FreeRoads)
+            + Localize(TEXT("roads")) + TEXT("\n\n");
         if (Player.bResourcesVisible)
             ResourceDigest = FString::Printf(TEXT("%d/%d/%d/%d/%d"),
                 Player.Resources.Wood, Player.Resources.Clay, Player.Resources.Hay,
@@ -1071,23 +1181,24 @@ void UCatanHUDWidget::Refresh()
     SetActionVisible(TradeButton, bLocalTurn && bPlay);
     SetActionVisible(PassButton, bLocalTurn && bPlay);
     BuildCostText->SetText(FText::FromString(
-        CostLine(TEXT("ROAD"), Have, 1, 1, 0, 0, 0) + TEXT("\n")
-        + CostLine(TEXT("SETTLEMENT"), Have, 1, 1, 1, 1, 0) + TEXT("\n")
-        + CostLine(TEXT("CITY"), Have, 0, 0, 2, 0, 3) + TEXT("\n")
-        + CostLine(TEXT("DEV CARD"), Have, 0, 0, 1, 1, 1)));
+        CostLine(*Localize(TEXT("ROAD")), Have, 1, 1, 0, 0, 0) + TEXT("\n")
+        + CostLine(*Localize(TEXT("SETTLEMENT")), Have, 1, 1, 1, 1, 0) + TEXT("\n")
+        + CostLine(*Localize(TEXT("CITY")), Have, 0, 0, 2, 0, 3) + TEXT("\n")
+        + CostLine(*Localize(TEXT("DEV CARD")), Have, 0, 0, 1, 1, 1)));
     FString Availability;
-    if (!bPlay && !bRoll) Availability = PhaseHint(View.Phase);
-    else if (bRoll) Availability = TEXT("Roll the dice before building or trading.");
+    if (!bPlay && !bRoll) Availability = PhaseHint(View.Phase, UserPreferences.Language);
+    else if (bRoll) Availability = Localize(TEXT("Roll the dice before building or trading."));
     else
     {
         TArray<FString> Missing;
-        if (!bCanRoad) Missing.Add(TEXT("road"));
-        if (!bCanSettlement) Missing.Add(TEXT("settlement"));
-        if (!bCanCity) Missing.Add(TEXT("city"));
-        if (!bCanCard) Missing.Add(TEXT("development card"));
+        if (!bCanRoad) Missing.Add(Localize(TEXT("road")));
+        if (!bCanSettlement) Missing.Add(Localize(TEXT("settlement")));
+        if (!bCanCity) Missing.Add(Localize(TEXT("city")));
+        if (!bCanCard) Missing.Add(Localize(TEXT("development card")));
         Availability = Missing.IsEmpty()
-            ? TEXT("All purchases are affordable. Choose an action.")
-            : FString::Printf(TEXT("Need more resources for: %s."), *FString::Join(Missing, TEXT(", ")));
+            ? Localize(TEXT("All purchases are affordable. Choose an action."))
+            : Localize(TEXT("Need more resources for:")) + TEXT(" ")
+                + FString::Join(Missing, TEXT(", ")) + TEXT(".");
     }
     AvailabilityText->SetText(FText::FromString(Availability));
     const int32 ReadyCards = LocalPlayer
@@ -1098,8 +1209,8 @@ void UCatanHUDWidget::Refresh()
         && LocalPlayer && LocalPlayer->DevelopmentCards > 0);
     if (UCommonTextBlock* Label = UseCardButton
         ? Cast<UCommonTextBlock>(UseCardButton->GetChildAt(0)) : nullptr)
-        Label->SetText(FText::FromString(bCompactLayout
-            ? TEXT("DEV") : (ReadyCards > 0 ? TEXT("USE DEV") : TEXT("VIEW DEV"))));
+        Label->SetText(FText::FromString(Localize(bCompactLayout
+            ? TEXT("DEV") : (ReadyCards > 0 ? TEXT("USE DEV") : TEXT("VIEW DEV")))));
     auto MarkSelected = [&View](UButton* Button, ECatanBoardAction Action)
     {
         Button->SetBackgroundColor(View.BoardAction == Action
@@ -1119,6 +1230,8 @@ void UCatanHUDWidget::Refresh()
             SetModalSize(760.0f, 590.0f);
         else if (SetupPage == SetupBotsIndex)
             SetModalSize(760.0f, 540.0f);
+        else if (SetupPage == SetupSettingsIndex)
+            SetModalSize(760.0f, 560.0f);
         else
             SetModalSize(900.0f, 650.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
@@ -1148,16 +1261,16 @@ void UCatanHUDWidget::Refresh()
         SetModalSize(680.0f, 420.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(7);
-        ConfirmationText->SetText(FText::FromString(
-            TEXT("Buy a random development card?\nThis costs 1 hay, 1 sheep and 1 ore.")));
+        ConfirmationText->SetText(FText::FromString(Localize(TEXT("Buy a random development card?"))
+            + TEXT("\n") + Localize(TEXT("This costs 1 hay, 1 sheep and 1 ore."))));
     }
     else if (View.Phase == ECatanGamePhase::DropCards && bLocalTurn && LocalPlayer)
     {
         SetModalSize(900.0f, 620.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(0);
-        DropTitle->SetText(FText::FromString(FString::Printf(
-            TEXT("DISCARD %d RESOURCES — %s"), View.RequiredDiscardCount, *View.CurrentPlayer)));
+        DropTitle->SetText(FText::FromString(Localize(TEXT("DISCARD")) + FString::Printf(TEXT(" %d "),
+            View.RequiredDiscardCount) + Localize(TEXT("RESOURCES")) + TEXT(" — ") + View.CurrentPlayer));
         const int32 Holdings[] = {
             LocalPlayer->Resources.Wood, LocalPlayer->Resources.Clay, LocalPlayer->Resources.Hay,
             LocalPlayer->Resources.Sheep, LocalPlayer->Resources.Stone
@@ -1237,14 +1350,17 @@ void UCatanHUDWidget::Refresh()
             - ReadyCount - LocalPlayer->PendingDevelopmentCards);
         FString CardState;
         if (ReadyCount > 0)
-            CardState += FString::Printf(TEXT("Ready to play: %d."), ReadyCount);
+            CardState += Localize(TEXT("Ready to play:")) + FString::Printf(TEXT(" %d."), ReadyCount);
         if (LocalPlayer->PendingDevelopmentCards > 0)
-            CardState += FString::Printf(TEXT("%sBought this turn: %d — available next turn."),
-                CardState.IsEmpty() ? TEXT("") : TEXT("\n"), LocalPlayer->PendingDevelopmentCards);
+            CardState += (CardState.IsEmpty() ? TEXT("") : TEXT("\n"))
+                + Localize(TEXT("Bought this turn:"))
+                + FString::Printf(TEXT(" %d — "), LocalPlayer->PendingDevelopmentCards)
+                + Localize(TEXT("available next turn."));
         if (PassiveVictoryCards > 0)
-            CardState += FString::Printf(TEXT("%sVictory point cards: %d — passive, they are never played."),
-                CardState.IsEmpty() ? TEXT("") : TEXT("\n"), PassiveVictoryCards);
-        if (CardState.IsEmpty()) CardState = TEXT("You have no development cards available to play.");
+            CardState += (CardState.IsEmpty() ? TEXT("") : TEXT("\n"))
+                + Localize(TEXT("Victory point cards:")) + FString::Printf(TEXT(" %d — "), PassiveVictoryCards)
+                + Localize(TEXT("passive, they are never played."));
+        if (CardState.IsEmpty()) CardState = Localize(TEXT("You have no development cards available to play."));
         DevelopmentAvailabilityText->SetText(FText::FromString(CardState));
         DevelopmentResourcePanel->SetVisibility(
             bPlay && (LocalPlayer->YearOfPlentyCards > 0 || LocalPlayer->MonopolyCards > 0)
@@ -1379,6 +1495,14 @@ void UCatanHUDWidget::ApplyUIPreview()
         ModalSwitcher->SetActiveWidgetIndex(6);
         SetupSwitcher->SetActiveWidgetIndex(SetupBotsIndex);
     }
+    else if (Preview.Equals(TEXT("Settings"), ESearchCase::IgnoreCase))
+    {
+        SetModalSize(760.0f, 560.0f);
+        ModalSwitcher->SetActiveWidgetIndex(6);
+        SetupSwitcher->SetActiveWidgetIndex(SetupSettingsIndex);
+        UE_LOG(LogTemp, Display, TEXT("CATAN_SETTINGS_PREVIEW name=%s language=%s"),
+            *UserPreferences.PlayerName, *FCatanTextResources::LanguageCode(UserPreferences.Language));
+    }
     if (!bUIPreviewReported)
     {
         bUIPreviewReported = true;
@@ -1443,9 +1567,40 @@ void UCatanHUDWidget::ShowBotSetup()
     SetModalSize(760.0f, 540.0f);
 }
 
+void UCatanHUDWidget::ShowSettings()
+{
+    if (SettingsNameInput) SettingsNameInput->SetText(FText::FromString(UserPreferences.PlayerName));
+    if (SettingsLanguageInput)
+        SettingsLanguageInput->SetSelectedIndex(
+            UserPreferences.Language == ECatanLanguage::Russian ? 1 : 0);
+    if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(SetupSettingsIndex);
+    SetModalSize(760.0f, 560.0f);
+}
+
+void UCatanHUDWidget::SaveSettings()
+{
+    UserPreferences.PlayerName = FCatanUserSettings::NormalizePlayerName(
+        SettingsNameInput ? SettingsNameInput->GetText().ToString() : UserPreferences.PlayerName);
+    UserPreferences.Language = SettingsLanguageInput && SettingsLanguageInput->GetSelectedIndex() == 1
+        ? ECatanLanguage::Russian : ECatanLanguage::English;
+    FCatanUserSettings::Save(UserPreferences);
+    ApplyLanguage();
+    ToastText->SetText(FText::FromString(Localize(TEXT("Settings saved"))));
+    ToastBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
+    ToastBorder->SetRenderOpacity(1.0f);
+    ToastRemaining = 2.5f;
+    ShowMainSetup();
+    Refresh();
+    UE_LOG(LogTemp, Display, TEXT("CATAN_SETTINGS saved name=%s language=%s"),
+        *UserPreferences.PlayerName, *FCatanTextResources::LanguageCode(UserPreferences.Language));
+}
+
 void UCatanHUDWidget::ShowMainSetup()
 {
     if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(SetupMainIndex);
+    if (MainPlayerNameText)
+        MainPlayerNameText->SetText(FText::FromString(FString::Printf(TEXT("%s: %s"),
+            *Localize(TEXT("PLAYER")), *UserPreferences.PlayerName)));
     SetModalSize(900.0f, 650.0f);
 }
 
@@ -1493,16 +1648,8 @@ void UCatanHUDWidget::CopyDedicatedLobbyToken()
 
 bool UCatanHUDWidget::GetValidatedPlayerName(FString& OutName)
 {
-    OutName = PlayerNameInputs.IsValidIndex(0)
-        ? PlayerNameInputs[0]->GetText().ToString().TrimStartAndEnd().Left(24)
-        : FString();
-    if (!OutName.IsEmpty()) return true;
-    ToastText->SetText(FText::FromString(TEXT("Enter your player name first")));
-    ToastBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
-    ToastBorder->SetRenderOpacity(1.0f);
-    ToastRemaining = 3.0f;
-    if (PlayerNameInputs.IsValidIndex(0)) PlayerNameInputs[0]->SetKeyboardFocus();
-    return false;
+    OutName = FCatanUserSettings::NormalizePlayerName(UserPreferences.PlayerName);
+    return !OutName.IsEmpty();
 }
 
 void UCatanHUDWidget::ToggleLobbyReady()
@@ -1671,7 +1818,8 @@ void UCatanHUDWidget::UpdateBankSelectionStyles()
         BankFromButtons[Index]->SetRenderScale(bSelected ? FVector2D(1.06f) : FVector2D(1.0f));
         BankFromButtons[Index]->SetRenderOpacity(bSelected ? 1.0f : 0.52f);
         if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(BankFromButtons[Index]->GetChildAt(0)))
-            Label->SetText(FText::FromString(FString::Printf(TEXT("%dx %s"), Rates[Index], ResourceNames[Index])));
+            Label->SetText(FText::FromString(FString::Printf(TEXT("%dx %s"), Rates[Index],
+                *Localize(ResourceNames[Index]))));
     }
     for (int32 Index = 0; Index < BankToButtons.Num(); ++Index)
     {
@@ -1771,37 +1919,15 @@ void UCatanHUDWidget::StartNewGame()
 void UCatanHUDWidget::ConfirmNewGame()
 {
     const int32 Count = PlayerCount ? PlayerCount->GetSelectedIndex() + 2 : 2;
-    TArray<FString> Names;
-    TSet<FString> UsedNames;
-    for (int32 Index = 0; Index < Count && Index < PlayerNameInputs.Num(); ++Index)
-    {
-        FString Name = PlayerNameInputs[Index]->GetText().ToString().TrimStartAndEnd();
-        if (Name.IsEmpty()) Name = FString::Printf(TEXT("Player %d"), Index + 1);
-        if (UsedNames.Contains(Name))
-        {
-            ToastText->SetText(FText::FromString(TEXT("Player names must be unique")));
-            ToastBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
-            ToastBorder->SetRenderOpacity(1.0f);
-            ToastRemaining = 3.0f;
-            return;
-        }
-        UsedNames.Add(Name);
-        Names.Add(Name);
-    }
+    TArray<FString> Names{UserPreferences.PlayerName};
+    for (int32 Index = 1; Index < Count; ++Index)
+        Names.Add(FString::Printf(TEXT("Player %d"), Index + 1));
     bSetupPanelOpen = false;
     GameSubsystem->StartLocalGame(Names);
 }
 
 void UCatanHUDWidget::UpdatePlayerCount(FString SelectedItem, ESelectInfo::Type SelectionType)
 {
-    for (int32 Index = 0; Index < PlayerNameInputs.Num(); ++Index)
-    {
-        PlayerNameInputs[Index]->SetVisibility(Index == 0
-            ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-        if (PlayerSlotLabels.IsValidIndex(Index))
-            PlayerSlotLabels[Index]->SetVisibility(Index == 0
-                ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-    }
 }
 
 void UCatanHUDWidget::ConfirmExpensiveAction()

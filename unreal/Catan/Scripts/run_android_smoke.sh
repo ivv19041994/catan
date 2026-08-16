@@ -163,6 +163,29 @@ test_online_page_preview() {
   [[ -s "$output" ]] || fail "$mode page screenshot is empty"
 }
 
+test_settings_preview() {
+  local output="$log_dir/settings-russian-page.png"
+  print "Testing persistent settings page and Cyrillic rendering..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline "'-CatanUIPreview=Settings -CatanLanguage=ru'" >/dev/null \
+    || fail "settings preview launch failed"
+  for attempt in {1..60}; do
+    adb logcat -d >"$log_file"
+    if rg -q "$fatal_pattern" "$log_file"; then
+      rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
+      fail "settings preview crashed during startup"
+    fi
+    rg -q 'CATAN_SETTINGS_PREVIEW name=.* language=ru' "$log_file" && break
+    sleep 1
+  done
+  rg -q 'CATAN_SETTINGS_PREVIEW name=.* language=ru' "$log_file" \
+    || fail "settings persistence marker was not observed"
+  assert_running_without_fatal "settings page failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "settings page screenshot is empty"
+}
+
 test_online_navigation() {
   print "Testing touch navigation between split online pages..."
   adb logcat -c
@@ -229,8 +252,9 @@ test_online_page_preview DedicatedServer
 test_combo_preview LocalNetwork 1200 460
 test_combo_preview Bots 1200 390
 test_bank_preview
+test_settings_preview
 
-print "PASS: Android startup, dynamic trade limits, bank labels and all dropdown families"
+print "PASS: Android startup, settings, dynamic trade limits, bank labels and all dropdown families"
 print "APK: $apk"
 print "Artifacts: $log_dir"
 if (( started_emulator )); then
