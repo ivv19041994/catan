@@ -53,6 +53,12 @@ private:
     TArray<TObjectPtr<UStaticMeshComponent>> BuildingParts;
 
     UPROPERTY(Transient)
+    TArray<TObjectPtr<UProceduralMeshComponent>> BuildingPrismParts;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UProceduralMeshComponent>> ProceduralDecorations;
+
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UStaticMeshComponent>> RoadPavingParts;
 
     UPROPERTY(Transient)
@@ -84,6 +90,10 @@ private:
     TArray<uint8> BuildingPartModes;
     TArray<float> BuildingPartShades;
     TArray<FVector> BuildingPartScaleTargets;
+    TArray<int32> BuildingPrismNodeIds;
+    TArray<uint8> BuildingPrismModes;
+    TArray<float> BuildingPrismShades;
+    TArray<FVector> BuildingPrismScaleTargets;
     TArray<int32> RoadPavingRoadIds;
     TArray<FVector> RoadPavingScaleTargets;
     TArray<FVector> RoadScaleTargets;
@@ -139,6 +149,10 @@ private:
     UStaticMeshComponent* AddDecoration(const FString& Name, UStaticMesh* Mesh,
         const FVector& Location, const FVector& Scale, const FLinearColor& Color,
         const FRotator& Rotation = FRotator::ZeroRotator);
+    UProceduralMeshComponent* AddTriangularPrism(const FString& Name,
+        const FVector& Location, float HalfLength, float HalfBase, float Height,
+        const FLinearColor& Color, const FRotator& Rotation = FRotator::ZeroRotator,
+        bool bHorizontal = false);
 
     UFUNCTION()
     void RefreshPieces();
