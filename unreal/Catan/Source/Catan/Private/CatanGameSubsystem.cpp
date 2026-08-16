@@ -1,6 +1,7 @@
 #include "CatanGameSubsystem.h"
 #include "CatanBotStrategy.h"
 #include "CatanTradePolicy.h"
+#include "CatanInteractionPolicy.h"
 
 #include "CatanGameState.h"
 #include "CatanPlayerController.h"
@@ -1036,6 +1037,8 @@ bool UCatanGameSubsystem::TryCancelTrade(const FString& Player, FString& Error)
 
 void UCatanGameSubsystem::SelectBoardAction(ECatanBoardAction Action)
 {
+    PendingBuildAction = ECatanBoardAction::Automatic;
+    PendingBuildTargetId = INDEX_NONE;
     if (!HasAuthoritativeGame())
     {
         FString Error;
@@ -1047,6 +1050,63 @@ void UCatanGameSubsystem::SelectBoardAction(ECatanBoardAction Action)
     StatusMessage = TEXT("Select a target on the board");
     OnGameStateChanged.Broadcast();
     PublishAuthoritativeState();
+}
+
+bool UCatanGameSubsystem::SelectPendingBuildTarget(ECatanBoardAction Action, int32 TargetId,
+    FString& Error)
+{
+    const FCatanGameView View = GetSnapshot();
+    const bool bValidTarget = CatanInteractionPolicy::CanSelectBuildTarget(View, Action, TargetId);
+    if (!CanLocalPlayerAct(View) || !bValidTarget)
+    {
+        Error = TEXT("The selected build target is no longer available");
+        return false;
+    }
+    PendingBuildAction = Action;
+    PendingBuildTargetId = TargetId;
+    Error.Reset();
+    OnGameStateChanged.Broadcast();
+    return true;
+}
+
+bool UCatanGameSubsystem::ConfirmPendingBuildTarget(FString& Error)
+{
+    if (!HasPendingBuildTarget())
+    {
+        Error = TEXT("No build target is selected");
+        return false;
+    }
+    const ECatanBoardAction Action = PendingBuildAction;
+    const int32 TargetId = PendingBuildTargetId;
+    const FCatanGameView View = GetSnapshot();
+    const bool bStillValid = CatanInteractionPolicy::CanSelectBuildTarget(View, Action, TargetId);
+    if (!CanLocalPlayerAct(View) || !bStillValid)
+    {
+        CancelPendingBuildTarget();
+        Error = TEXT("The selected build target is no longer available");
+        return false;
+    }
+
+    bool bSucceeded = false;
+    switch (Action)
+    {
+    case ECatanBoardAction::BuildSettlement: bSucceeded = TryBuildSettlement(TargetId, Error); break;
+    case ECatanBoardAction::BuildRoad: bSucceeded = TryBuildRoad(TargetId, Error); break;
+    case ECatanBoardAction::BuildCity: bSucceeded = TryBuildCity(TargetId, Error); break;
+    default: Error = TEXT("Unsupported build action"); break;
+    }
+    PendingBuildAction = ECatanBoardAction::Automatic;
+    PendingBuildTargetId = INDEX_NONE;
+    OnGameStateChanged.Broadcast();
+    return bSucceeded;
+}
+
+void UCatanGameSubsystem::CancelPendingBuildTarget()
+{
+    if (!HasPendingBuildTarget()) return;
+    PendingBuildAction = ECatanBoardAction::Automatic;
+    PendingBuildTargetId = INDEX_NONE;
+    OnGameStateChanged.Broadcast();
 }
 
 bool UCatanGameSubsystem::CompleteCommand(bool bSucceeded, const FString& Message, FString& Error)

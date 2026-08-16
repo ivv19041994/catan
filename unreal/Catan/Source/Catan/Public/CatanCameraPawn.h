@@ -18,6 +18,8 @@ public:
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+    void FocusPlacement(const FVector& WorldLocation);
+    void RestorePlacementFocus();
 
 private:
     UPROPERTY(VisibleAnywhere)
@@ -38,6 +40,10 @@ private:
     float PreviousPinchDistance = 0.0f;
     bool bTrackingTouch = false;
     bool bTrackingPinch = false;
+    bool bPlacementFocusActive = false;
+    bool bReturningFromPlacement = false;
+    FVector PlacementReturnLocation = FVector::ZeroVector;
+    FVector PlacementFocusLocation = FVector::ZeroVector;
 
     void MoveForward(float Value) { ForwardInput = Value; }
     void MoveRight(float Value) { RightInput = Value; }

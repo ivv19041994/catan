@@ -7,6 +7,7 @@
 #include "CatanPlayerController.h"
 #include "CatanPlayerState.h"
 #include "CatanTradePolicy.h"
+#include "CatanInteractionPolicy.h"
 #include "CatanTextResources.h"
 #include "CatanUserSettings.h"
 #include "CommonTextBlock.h"
@@ -21,7 +22,6 @@
 #include "Components/Image.h"
 #include "Components/Spacer.h"
 #include "Components/ScrollBox.h"
-#include "Components/SpinBox.h"
 #include "Components/SizeBox.h"
 #include "Components/SafeZone.h"
 #include "Components/VerticalBox.h"
@@ -94,11 +94,6 @@ FString PhaseTitle(ECatanGamePhase Phase, ECatanLanguage Language)
     return FCatanTextResources::Get(Language, Key);
 }
 
-ECatanResource SelectedResource(const UComboBoxString* Combo)
-{
-    return static_cast<ECatanResource>(FMath::Clamp(Combo ? Combo->GetSelectedIndex() : 0, 0, 4));
-}
-
 FString ResourceSummary(const FCatanResourceView& Resources)
 {
     return FString::Printf(TEXT("W %d  C %d  H %d  S %d  O %d"),
@@ -129,18 +124,6 @@ FLinearColor ResourceColor(int32 Index)
     return Colors[FMath::Clamp(Index, 0, 4)];
 }
 
-void ConfigureIntegerInput(USpinBox* Input, int32 MaxValue = 99)
-{
-    Input->SetValue(0.0f);
-    Input->SetMinValue(0.0f);
-    Input->SetMaxValue(static_cast<float>(MaxValue));
-    Input->SetMinSliderValue(0.0f);
-    Input->SetMaxSliderValue(static_cast<float>(MaxValue));
-    Input->SetDelta(1.0f);
-    Input->SetMinFractionalDigits(0);
-    Input->SetMaxFractionalDigits(0);
-    Input->SetAlwaysUsesDeltaSnap(true);
-}
 }
 
 TSharedRef<SWidget> UCatanHUDWidget::RebuildWidget()
@@ -164,7 +147,23 @@ void UCatanHUDWidget::NativeConstruct()
     if (GameSubsystem)
     {
         GameSubsystem->OnGameStateChanged.AddDynamic(this, &UCatanHUDWidget::Refresh);
-        Refresh();
+        if (FParse::Param(FCommandLine::Get(), TEXT("CatanPlacementPreview")))
+        {
+            bSetupPanelOpen = false;
+            if (ACatanGameMode* Mode = GetWorld() ? GetWorld()->GetAuthGameMode<ACatanGameMode>() : nullptr)
+                Mode->StartSinglePlayerGame(TEXT("Player"), 1);
+            else
+                GameSubsystem->StartLocalGame({TEXT("Player"), TEXT("Player 2")});
+            const FCatanGameView View = GameSubsystem->GetSnapshot();
+            FString Error;
+            if (!View.ValidNodeTargets.IsEmpty())
+                GameSubsystem->SelectPendingBuildTarget(
+                    ECatanBoardAction::BuildSettlement, View.ValidNodeTargets[0], Error);
+            UE_LOG(LogTemp, Display, TEXT("CATAN_BUILD_CONFIRM_PREVIEW target=%d pending=%d"),
+                View.ValidNodeTargets.IsEmpty() ? INDEX_NONE : View.ValidNodeTargets[0],
+                GameSubsystem->HasPendingBuildTarget());
+        }
+        else Refresh();
     }
     if (NetworkSubsystem)
         NetworkSubsystem->OnNetworkChanged.AddDynamic(this, &UCatanHUDWidget::Refresh);
@@ -368,20 +367,25 @@ void UCatanHUDWidget::BuildLayout()
         UCommonTextBlock* Label = WidgetTree->ConstructWidget<UCommonTextBlock>();
         Label->SetText(FText::FromString(Localize(ResourceName)));
         RegisterLocalizedText(Label, ResourceName);
-        FSlateFontInfo Font = Label->GetFont(); Font.Size = 18; Label->SetFont(Font);
+        FSlateFontInfo Font = Label->GetFont(); Font.Size = 22; Label->SetFont(Font);
         UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(Label);
         LabelSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-        USpinBox* Input = WidgetTree->ConstructWidget<USpinBox>();
-        ConfigureIntegerInput(Input, 0);
+        UComboBoxString* Input = WidgetTree->ConstructWidget<UComboBoxString>();
+        ConfigureComboBox(Input, 24);
+        Input->AddOption(TEXT("0"));
+        Input->SetSelectedOption(TEXT("0"));
+        Input->SetContentPadding(FMargin(18, 8));
+        Input->SetMaxListHeight(360.0f);
+        Input->OnSelectionChanged.AddDynamic(this, &UCatanHUDWidget::UpdateDropConfirmation);
         USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
-        InputSize->SetMinDesiredWidth(180.0f);
-        InputSize->SetMinDesiredHeight(68.0f);
+        InputSize->SetMinDesiredWidth(150.0f);
+        InputSize->SetMinDesiredHeight(56.0f);
         InputSize->AddChild(Input);
         Row->AddChildToHorizontalBox(InputSize);
         DropInputs.Add(Input);
     }
-    UButton* ConfirmDrop = AddButton(DropPanel, TEXT("CONFIRM DISCARD"));
-    ConfirmDrop->OnClicked.AddDynamic(this, &UCatanHUDWidget::ConfirmDiscard);
+    ConfirmDropButton = AddButton(DropPanel, TEXT("CONFIRM DISCARD"));
+    ConfirmDropButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ConfirmDiscard);
 
     UVerticalBox* VictimPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(VictimPanel);
@@ -397,33 +401,103 @@ void UCatanHUDWidget::BuildLayout()
     UVerticalBox* DevelopmentPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(DevelopmentPanel);
     AddText(DevelopmentPanel, TEXT("DEVELOPMENT CARDS"), 25);
-    DevelopmentAvailabilityText = AddText(DevelopmentPanel, FString(), 15);
-    KnightButton = AddButton(DevelopmentPanel, TEXT("PLAY KNIGHT"));
-    RoadBuildingButton = AddButton(DevelopmentPanel, TEXT("PLAY ROAD BUILDING"));
-    DevelopmentResourcePanel = WidgetTree->ConstructWidget<UVerticalBox>();
-    DevelopmentPanel->AddChildToVerticalBox(DevelopmentResourcePanel);
-    AddText(DevelopmentResourcePanel, TEXT("Resources for Year of Plenty / Monopoly"), 16);
-    FirstResource = WidgetTree->ConstructWidget<UComboBoxString>();
-    SecondResource = WidgetTree->ConstructWidget<UComboBoxString>();
-    ConfigureComboBox(FirstResource, 22);
-    ConfigureComboBox(SecondResource, 22);
-    for (const FString& ResourceName : ResourceNames)
-    {
-        FirstResource->AddOption(Localize(ResourceName));
-        SecondResource->AddOption(Localize(ResourceName));
-    }
-    FirstResource->SetSelectedIndex(0);
-    SecondResource->SetSelectedIndex(1);
-    DevelopmentResourcePanel->AddChildToVerticalBox(FirstResource);
-    DevelopmentResourcePanel->AddChildToVerticalBox(SecondResource);
-    YearOfPlentyButton = AddButton(DevelopmentPanel, TEXT("PLAY YEAR OF PLENTY"));
-    MonopolyButton = AddButton(DevelopmentPanel, TEXT("PLAY MONOPOLY (FIRST RESOURCE)"));
-    UButton* CloseCards = AddButton(DevelopmentPanel, TEXT("CLOSE"));
+    DevelopmentModeSwitcher = WidgetTree->ConstructWidget<UWidgetSwitcher>();
+    DevelopmentPanel->AddChildToVerticalBox(DevelopmentModeSwitcher);
+
+    UVerticalBox* DevelopmentRoot = WidgetTree->ConstructWidget<UVerticalBox>();
+    DevelopmentModeSwitcher->AddChild(DevelopmentRoot);
+    DevelopmentAvailabilityText = AddText(DevelopmentRoot, FString(), 15);
+    KnightButton = AddButton(DevelopmentRoot, TEXT("PLAY KNIGHT"));
+    RoadBuildingButton = AddButton(DevelopmentRoot, TEXT("PLAY ROAD BUILDING"));
+    YearOfPlentyButton = AddButton(DevelopmentRoot, TEXT("PLAY YEAR OF PLENTY"));
+    MonopolyButton = AddButton(DevelopmentRoot, TEXT("PLAY MONOPOLY"));
+    UButton* CloseCards = AddButton(DevelopmentRoot, TEXT("CLOSE"));
     KnightButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PlayKnight);
     RoadBuildingButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PlayRoadBuilding);
-    YearOfPlentyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PlayYearOfPlenty);
-    MonopolyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::PlayMonopoly);
+    YearOfPlentyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowYearOfPlentyParameters);
+    MonopolyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMonopolyParameters);
     CloseCards->OnClicked.AddDynamic(this, &UCatanHUDWidget::CloseDevelopmentCards);
+
+    UVerticalBox* PlentyPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    DevelopmentModeSwitcher->AddChild(PlentyPanel);
+    AddText(PlentyPanel, TEXT("YEAR OF PLENTY"), 24)->SetJustification(ETextJustify::Center);
+    AddText(PlentyPanel, TEXT("Choose exactly two resources"), 18)->SetJustification(ETextJustify::Center);
+    for (int32 Index = 0; Index < ResourceNames.Num(); ++Index)
+    {
+        UBorder* Card = WidgetTree->ConstructWidget<UBorder>();
+        Card->SetBrushColor(ResourceColor(Index));
+        Card->SetPadding(FMargin(6));
+        UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
+        Card->SetContent(Row);
+        UCommonTextBlock* Name = WidgetTree->ConstructWidget<UCommonTextBlock>();
+        Name->SetText(FText::FromString(Localize(ResourceNames[Index])));
+        RegisterLocalizedText(Name, ResourceNames[Index]);
+        FSlateFontInfo Font = Name->GetFont(); Font.Size = 22; Name->SetFont(Font);
+        UHorizontalBoxSlot* NameSlot = Row->AddChildToHorizontalBox(Name);
+        NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        NameSlot->SetVerticalAlignment(VAlign_Center);
+        UComboBoxString* Input = WidgetTree->ConstructWidget<UComboBoxString>();
+        ConfigureComboBox(Input, 24);
+        for (int32 Count = 0; Count <= 2; ++Count) Input->AddOption(FString::FromInt(Count));
+        Input->SetSelectedOption(TEXT("0"));
+        Input->SetContentPadding(FMargin(18, 8));
+        Input->SetMaxListHeight(240.0f);
+        Input->OnSelectionChanged.AddDynamic(this, &UCatanHUDWidget::UpdatePlentySelection);
+        USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
+        InputSize->SetMinDesiredWidth(150.0f);
+        InputSize->SetMinDesiredHeight(56.0f);
+        InputSize->AddChild(Input);
+        Row->AddChildToHorizontalBox(InputSize);
+        PlentyPanel->AddChildToVerticalBox(Card)->SetPadding(FMargin(2));
+        PlentyInputs.Add(Input);
+    }
+    UHorizontalBox* PlentyActions = WidgetTree->ConstructWidget<UHorizontalBox>();
+    PlentyPanel->AddChildToVerticalBox(PlentyActions);
+    UVerticalBox* PlentyConfirmBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    UVerticalBox* PlentyBackBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    PlentyActions->AddChildToHorizontalBox(PlentyConfirmBox)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    PlentyActions->AddChildToHorizontalBox(PlentyBackBox)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    ConfirmPlentyButton = AddButton(PlentyConfirmBox, TEXT("CONFIRM"));
+    UButton* PlentyBack = AddButton(PlentyBackBox, TEXT("BACK"));
+    ConfirmPlentyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ConfirmYearOfPlenty);
+    PlentyBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::CancelDevelopmentParameters);
+
+    UVerticalBox* MonopolyPanel = WidgetTree->ConstructWidget<UVerticalBox>();
+    DevelopmentModeSwitcher->AddChild(MonopolyPanel);
+    AddText(MonopolyPanel, TEXT("MONOPOLY"), 24)->SetJustification(ETextJustify::Center);
+    AddText(MonopolyPanel, TEXT("Choose one resource from every opponent"), 18)
+        ->SetJustification(ETextJustify::Center);
+    for (int32 Index = 0; Index < ResourceNames.Num(); ++Index)
+    {
+        UButton* Button = WidgetTree->ConstructWidget<UButton>();
+        Button->SetBackgroundColor(ResourceColor(Index));
+        UCommonTextBlock* Text = WidgetTree->ConstructWidget<UCommonTextBlock>();
+        Text->SetText(FText::FromString(Localize(ResourceNames[Index])));
+        RegisterLocalizedText(Text, ResourceNames[Index]);
+        Text->SetJustification(ETextJustify::Center);
+        FSlateFontInfo Font = Text->GetFont(); Font.Size = 22; Text->SetFont(Font);
+        Button->AddChild(Text);
+        USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>();
+        Size->SetMinDesiredHeight(58.0f);
+        Size->AddChild(Button);
+        MonopolyPanel->AddChildToVerticalBox(Size)->SetPadding(FMargin(2));
+        MonopolyResourceButtons.Add(Button);
+    }
+    MonopolyResourceButtons[0]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectMonopolyWood);
+    MonopolyResourceButtons[1]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectMonopolyClay);
+    MonopolyResourceButtons[2]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectMonopolyHay);
+    MonopolyResourceButtons[3]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectMonopolySheep);
+    MonopolyResourceButtons[4]->OnClicked.AddDynamic(this, &UCatanHUDWidget::SelectMonopolyStone);
+    UHorizontalBox* MonopolyActions = WidgetTree->ConstructWidget<UHorizontalBox>();
+    MonopolyPanel->AddChildToVerticalBox(MonopolyActions);
+    UVerticalBox* MonopolyConfirmBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    UVerticalBox* MonopolyBackBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    MonopolyActions->AddChildToHorizontalBox(MonopolyConfirmBox)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    MonopolyActions->AddChildToHorizontalBox(MonopolyBackBox)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    UButton* ConfirmMonopolyButton = AddButton(MonopolyConfirmBox, TEXT("CONFIRM"));
+    UButton* MonopolyBack = AddButton(MonopolyBackBox, TEXT("BACK"));
+    ConfirmMonopolyButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ConfirmMonopoly);
+    MonopolyBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::CancelDevelopmentParameters);
 
     UVerticalBox* TradePanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(TradePanel);
@@ -741,7 +815,7 @@ void UCatanHUDWidget::BuildLayout()
     MonopolyButton->SetToolTipText(FText::FromString(TEXT("Take the selected resource from every opponent")));
     ApplyLanguage();
     UE_LOG(LogTemp, Display, TEXT("CATAN_COMBO_STYLE ready widgets=%d popupText=white"),
-        5 + OfferedInputs.Num() + RequestedInputs.Num());
+        8 + DropInputs.Num() + OfferedInputs.Num() + RequestedInputs.Num());
 }
 
 void UCatanHUDWidget::ConfigureComboBox(UComboBoxString* ComboBox, int32 FontSize)
@@ -923,17 +997,6 @@ void UCatanHUDWidget::ApplyLanguage()
             ? TEXT("Русский") : TEXT("Russian"));
         SettingsLanguageInput->SetSelectedIndex(Selected);
     }
-    const int32 FirstIndex = FirstResource ? FMath::Max(0, FirstResource->GetSelectedIndex()) : 0;
-    const int32 SecondIndex = SecondResource ? FMath::Max(0, SecondResource->GetSelectedIndex()) : 1;
-    const TArray<FString> Resources = {TEXT("Wood"), TEXT("Clay"), TEXT("Hay"), TEXT("Sheep"), TEXT("Stone")};
-    for (UComboBoxString* Combo : {FirstResource.Get(), SecondResource.Get()})
-    {
-        if (!Combo) continue;
-        Combo->ClearOptions();
-        for (const FString& Resource : Resources) Combo->AddOption(Localize(Resource));
-    }
-    if (FirstResource) FirstResource->SetSelectedIndex(FirstIndex);
-    if (SecondResource) SecondResource->SetSelectedIndex(SecondIndex);
     if (PlayerCount)
     {
         const int32 Selected = FMath::Max(0, PlayerCount->GetSelectedIndex());
@@ -966,6 +1029,7 @@ void UCatanHUDWidget::Refresh()
 {
     if (!GameSubsystem || !PhaseText) return;
     SetModalSize(680.0f, 650.0f);
+    SetModalPosition(FVector2D::ZeroVector);
     if (NetworkSubsystem)
     {
         for (UCommonTextBlock* NetworkStatusText : NetworkStatusTexts)
@@ -1256,6 +1320,22 @@ void UCatanHUDWidget::Refresh()
         bDevelopmentPanelOpen = false;
         bTradePanelOpen = false;
     }
+    else if (GameSubsystem->HasPendingBuildTarget())
+    {
+        SetModalSize(620.0f, 360.0f);
+        SetModalPosition(FVector2D(bCompactLayout ? 250.0f : 360.0f, 0.0f));
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(7);
+        FString Prompt;
+        switch (GameSubsystem->GetPendingBuildAction())
+        {
+        case ECatanBoardAction::BuildRoad: Prompt = Localize(TEXT("Build this road?")); break;
+        case ECatanBoardAction::BuildCity: Prompt = Localize(TEXT("Upgrade this settlement to a city?")); break;
+        default: Prompt = Localize(TEXT("Build this settlement?")); break;
+        }
+        ConfirmationText->SetText(FText::FromString(Prompt + TEXT("\n")
+            + Localize(TEXT("The selected target is highlighted in red."))));
+    }
     else if (PendingExpensiveAction != 0)
     {
         SetModalSize(680.0f, 420.0f);
@@ -1271,21 +1351,10 @@ void UCatanHUDWidget::Refresh()
         ModalSwitcher->SetActiveWidgetIndex(0);
         DropTitle->SetText(FText::FromString(Localize(TEXT("DISCARD")) + FString::Printf(TEXT(" %d "),
             View.RequiredDiscardCount) + Localize(TEXT("RESOURCES")) + TEXT(" — ") + View.CurrentPlayer));
-        const int32 Holdings[] = {
-            LocalPlayer->Resources.Wood, LocalPlayer->Resources.Clay, LocalPlayer->Resources.Hay,
-            LocalPlayer->Resources.Sheep, LocalPlayer->Resources.Stone
-        };
-        if (LastDropPlayer != View.CurrentPlayer)
-        {
-            FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
-            for (USpinBox* Input : DropInputs) Input->SetValue(0.0f);
-            LastDropPlayer = View.CurrentPlayer;
-        }
-        for (int32 Index = 0; Index < DropInputs.Num(); ++Index)
-        {
-            DropInputs[Index]->SetMaxValue(Holdings[Index]);
-            DropInputs[Index]->SetMaxSliderValue(Holdings[Index]);
-        }
+        const bool bResetDrop = LastDropPlayer != View.CurrentPlayer;
+        UpdateDropLimits(LocalPlayer->Resources, bResetDrop);
+        if (bResetDrop) LastDropPlayer = View.CurrentPlayer;
+        UpdateDropConfirmation(FString(), ESelectInfo::Direct);
     }
     else if (bLocalTurn && View.PendingRobberHex != INDEX_NONE && !View.RobberVictims.IsEmpty())
     {
@@ -1344,6 +1413,12 @@ void UCatanHUDWidget::Refresh()
         ShowCard(RoadBuildingButton, bPlay && LocalPlayer->RoadBuildingCards > 0);
         ShowCard(YearOfPlentyButton, bPlay && LocalPlayer->YearOfPlentyCards > 0);
         ShowCard(MonopolyButton, bPlay && LocalPlayer->MonopolyCards > 0);
+        if (DevelopmentModeSwitcher && DevelopmentModeSwitcher->GetActiveWidgetIndex() == 1
+            && (!bPlay || LocalPlayer->YearOfPlentyCards <= 0))
+            DevelopmentModeSwitcher->SetActiveWidgetIndex(0);
+        if (DevelopmentModeSwitcher && DevelopmentModeSwitcher->GetActiveWidgetIndex() == 2
+            && (!bPlay || LocalPlayer->MonopolyCards <= 0))
+            DevelopmentModeSwitcher->SetActiveWidgetIndex(0);
         const int32 ReadyCount = LocalPlayer->Knights + LocalPlayer->RoadBuildingCards
             + LocalPlayer->YearOfPlentyCards + LocalPlayer->MonopolyCards;
         const int32 PassiveVictoryCards = FMath::Max(0, LocalPlayer->DevelopmentCards
@@ -1362,9 +1437,6 @@ void UCatanHUDWidget::Refresh()
                 + Localize(TEXT("passive, they are never played."));
         if (CardState.IsEmpty()) CardState = Localize(TEXT("You have no development cards available to play."));
         DevelopmentAvailabilityText->SetText(FText::FromString(CardState));
-        DevelopmentResourcePanel->SetVisibility(
-            bPlay && (LocalPlayer->YearOfPlentyCards > 0 || LocalPlayer->MonopolyCards > 0)
-                ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     }
     else if (bTradePanelOpen && LocalPlayer && bLocalTurn && bPlay)
     {
@@ -1445,11 +1517,12 @@ void UCatanHUDWidget::ApplyUIPreview()
         SetModalSize(900.0f, 620.0f);
         ModalSwitcher->SetActiveWidgetIndex(0);
         DropTitle->SetText(FText::FromString(TEXT("DISCARD 4 RESOURCES — PLAYER")));
-        for (USpinBox* Input : DropInputs)
-        {
-            Input->SetMaxValue(8.0f);
-            Input->SetMaxSliderValue(8.0f);
-        }
+        FCatanResourceView PreviewResources;
+        PreviewResources.Wood = PreviewResources.Clay = PreviewResources.Hay
+            = PreviewResources.Sheep = PreviewResources.Stone = 8;
+        UpdateDropLimits(PreviewResources, true);
+        if (!bUIPreviewReported)
+            UE_LOG(LogTemp, Display, TEXT("CATAN_DISCARD_LIMITS max=8,8,8,8,8 integerDropdowns=1"));
     }
     else if (Preview.Equals(TEXT("IncomingTrade"), ESearchCase::IgnoreCase))
     {
@@ -1469,7 +1542,25 @@ void UCatanHUDWidget::ApplyUIPreview()
     {
         SetModalSize(760.0f, 650.0f);
         ModalSwitcher->SetActiveWidgetIndex(2);
-        DevelopmentResourcePanel->SetVisibility(ESlateVisibility::Visible);
+        DevelopmentModeSwitcher->SetActiveWidgetIndex(0);
+    }
+    else if (Preview.Equals(TEXT("DevelopmentPlenty"), ESearchCase::IgnoreCase))
+    {
+        SetModalSize(760.0f, 650.0f);
+        ModalSwitcher->SetActiveWidgetIndex(2);
+        DevelopmentModeSwitcher->SetActiveWidgetIndex(1);
+        ResetPlentyInputs();
+        if (!bUIPreviewReported)
+            UE_LOG(LogTemp, Display, TEXT("CATAN_DEVELOPMENT_MENU mode=plenty totalLimit=2"));
+    }
+    else if (Preview.Equals(TEXT("DevelopmentMonopoly"), ESearchCase::IgnoreCase))
+    {
+        SetModalSize(760.0f, 650.0f);
+        ModalSwitcher->SetActiveWidgetIndex(2);
+        DevelopmentModeSwitcher->SetActiveWidgetIndex(2);
+        UpdateMonopolySelectionStyles();
+        if (!bUIPreviewReported)
+            UE_LOG(LogTemp, Display, TEXT("CATAN_DEVELOPMENT_MENU mode=monopoly singleSelection=1"));
     }
     else if (Preview.Equals(TEXT("Online"), ESearchCase::IgnoreCase))
     {
@@ -1514,6 +1605,12 @@ void UCatanHUDWidget::SetModalSize(float Width, float Height)
 {
     if (UCanvasPanelSlot* Slot = ModalBorder ? Cast<UCanvasPanelSlot>(ModalBorder->Slot) : nullptr)
         Slot->SetSize(FVector2D(Width, Height));
+}
+
+void UCatanHUDWidget::SetModalPosition(const FVector2D& Position)
+{
+    if (UCanvasPanelSlot* Slot = ModalBorder ? Cast<UCanvasPanelSlot>(ModalBorder->Slot) : nullptr)
+        Slot->SetPosition(Position);
 }
 
 void UCatanHUDWidget::ReportComboOpening()
@@ -1715,6 +1812,7 @@ void UCatanHUDWidget::ShowDevelopmentCards()
 {
     bDevelopmentPanelOpen = true;
     bTradePanelOpen = false;
+    if (DevelopmentModeSwitcher) DevelopmentModeSwitcher->SetActiveWidgetIndex(0);
     Refresh();
 }
 
@@ -1737,13 +1835,30 @@ void UCatanHUDWidget::ConfirmDiscard()
 {
     if (DropInputs.Num() != 5) return;
     FCatanResourceView Resources;
-    Resources.Wood = FMath::RoundToInt(DropInputs[0]->GetValue());
-    Resources.Clay = FMath::RoundToInt(DropInputs[1]->GetValue());
-    Resources.Hay = FMath::RoundToInt(DropInputs[2]->GetValue());
-    Resources.Sheep = FMath::RoundToInt(DropInputs[3]->GetValue());
-    Resources.Stone = FMath::RoundToInt(DropInputs[4]->GetValue());
+    Resources.Wood = FCString::Atoi(*DropInputs[0]->GetSelectedOption());
+    Resources.Clay = FCString::Atoi(*DropInputs[1]->GetSelectedOption());
+    Resources.Hay = FCString::Atoi(*DropInputs[2]->GetSelectedOption());
+    Resources.Sheep = FCString::Atoi(*DropInputs[3]->GetSelectedOption());
+    Resources.Stone = FCString::Atoi(*DropInputs[4]->GetSelectedOption());
     FString Error;
     GameSubsystem->TryDropResources(Resources, Error);
+}
+
+void UCatanHUDWidget::UpdateDropConfirmation(FString SelectedItem, ESelectInfo::Type SelectionType)
+{
+    if (!ConfirmDropButton || !GameSubsystem || DropInputs.Num() != 5) return;
+    FCatanResourceView Selected;
+    Selected.Wood = FCString::Atoi(*DropInputs[0]->GetSelectedOption());
+    Selected.Clay = FCString::Atoi(*DropInputs[1]->GetSelectedOption());
+    Selected.Hay = FCString::Atoi(*DropInputs[2]->GetSelectedOption());
+    Selected.Sheep = FCString::Atoi(*DropInputs[3]->GetSelectedOption());
+    Selected.Stone = FCString::Atoi(*DropInputs[4]->GetSelectedOption());
+    const FCatanGameView View = GameSubsystem->GetSnapshot();
+    const FCatanPlayerView* LocalPlayer = View.Players.FindByPredicate(
+        [](const FCatanPlayerView& Player) { return Player.bIsLocalPlayer && Player.bResourcesVisible; });
+    ConfirmDropButton->SetIsEnabled(LocalPlayer &&
+        CatanInteractionPolicy::IsDiscardSelectionValid(
+            Selected, LocalPlayer->Resources, View.RequiredDiscardCount));
 }
 
 void UCatanHUDWidget::ChooseVictim0() { ChooseVictim(0); }
@@ -1760,17 +1875,124 @@ void UCatanHUDWidget::ChooseVictim(int32 Index)
 
 void UCatanHUDWidget::PlayKnight() { PlayDevelopmentCard(ECatanDevelopmentCard::Knight); }
 void UCatanHUDWidget::PlayRoadBuilding() { PlayDevelopmentCard(ECatanDevelopmentCard::RoadBuilding); }
-void UCatanHUDWidget::PlayYearOfPlenty() { PlayDevelopmentCard(ECatanDevelopmentCard::YearOfPlenty); }
-void UCatanHUDWidget::PlayMonopoly() { PlayDevelopmentCard(ECatanDevelopmentCard::Monopoly); }
 
 void UCatanHUDWidget::PlayDevelopmentCard(ECatanDevelopmentCard Card)
 {
     FString Error;
     const bool bSucceeded = GameSubsystem->TryUseDevelopmentCard(
-        Card, SelectedResource(FirstResource), SelectedResource(SecondResource), Error);
+        Card, ECatanResource::Wood, ECatanResource::Wood, Error);
     if (bSucceeded) bDevelopmentPanelOpen = false;
     Refresh();
 }
+
+void UCatanHUDWidget::ShowYearOfPlentyParameters()
+{
+    ResetPlentyInputs();
+    if (DevelopmentModeSwitcher) DevelopmentModeSwitcher->SetActiveWidgetIndex(1);
+    SetModalSize(760.0f, 650.0f);
+}
+
+void UCatanHUDWidget::ShowMonopolyParameters()
+{
+    MonopolySelection = ECatanResource::Wood;
+    UpdateMonopolySelectionStyles();
+    if (DevelopmentModeSwitcher) DevelopmentModeSwitcher->SetActiveWidgetIndex(2);
+}
+
+void UCatanHUDWidget::ConfirmYearOfPlenty()
+{
+    TArray<ECatanResource> Selected;
+    for (int32 Resource = 0; Resource < PlentyInputs.Num(); ++Resource)
+        for (int32 Count = 0; Count < FCString::Atoi(*PlentyInputs[Resource]->GetSelectedOption()); ++Count)
+            Selected.Add(static_cast<ECatanResource>(Resource));
+    if (Selected.Num() != 2) return;
+    FString Error;
+    if (GameSubsystem->TryUseDevelopmentCard(ECatanDevelopmentCard::YearOfPlenty,
+        Selected[0], Selected[1], Error))
+        bDevelopmentPanelOpen = false;
+    Refresh();
+}
+
+void UCatanHUDWidget::ConfirmMonopoly()
+{
+    FString Error;
+    if (GameSubsystem->TryUseDevelopmentCard(ECatanDevelopmentCard::Monopoly,
+        MonopolySelection, MonopolySelection, Error))
+        bDevelopmentPanelOpen = false;
+    Refresh();
+}
+
+void UCatanHUDWidget::CancelDevelopmentParameters()
+{
+    if (DevelopmentModeSwitcher) DevelopmentModeSwitcher->SetActiveWidgetIndex(0);
+    Refresh();
+}
+
+void UCatanHUDWidget::ResetPlentyInputs()
+{
+    bUpdatingPlentyInputs = true;
+    for (UComboBoxString* Input : PlentyInputs)
+    {
+        Input->ClearOptions();
+        for (int32 Count = 0; Count <= 2; ++Count) Input->AddOption(FString::FromInt(Count));
+        Input->SetSelectedOption(TEXT("0"));
+    }
+    bUpdatingPlentyInputs = false;
+    UpdatePlentySelection(FString(), ESelectInfo::Direct);
+}
+
+void UCatanHUDWidget::UpdatePlentySelection(FString SelectedItem, ESelectInfo::Type SelectionType)
+{
+    if (bUpdatingPlentyInputs || PlentyInputs.Num() != 5) return;
+    int32 Values[5]{};
+    int32 Total = 0;
+    for (int32 Index = 0; Index < 5; ++Index)
+    {
+        Values[Index] = FMath::Clamp(FCString::Atoi(*PlentyInputs[Index]->GetSelectedOption()), 0, 2);
+        Total += Values[Index];
+    }
+    bUpdatingPlentyInputs = true;
+    for (int32 Index = 0; Index < 5; ++Index)
+    {
+        UComboBoxString* Input = PlentyInputs[Index];
+        const int32 MaxValue = CatanInteractionPolicy::YearOfPlentyMaxForResource(
+            Total - Values[Index]);
+        const int32 Value = FMath::Min(Values[Index], MaxValue);
+        if (Input->GetOptionCount() != MaxValue + 1)
+        {
+            Input->ClearOptions();
+            for (int32 Count = 0; Count <= MaxValue; ++Count)
+                Input->AddOption(FString::FromInt(Count));
+        }
+        Input->SetSelectedOption(FString::FromInt(Value));
+        Values[Index] = Value;
+    }
+    bUpdatingPlentyInputs = false;
+    FCatanResourceView Selection;
+    Selection.Wood = Values[0];
+    Selection.Clay = Values[1];
+    Selection.Hay = Values[2];
+    Selection.Sheep = Values[3];
+    Selection.Stone = Values[4];
+    if (ConfirmPlentyButton) ConfirmPlentyButton->SetIsEnabled(
+        CatanInteractionPolicy::IsYearOfPlentySelectionComplete(Selection));
+}
+
+void UCatanHUDWidget::UpdateMonopolySelectionStyles()
+{
+    for (int32 Index = 0; Index < MonopolyResourceButtons.Num(); ++Index)
+    {
+        const bool bSelected = Index == static_cast<int32>(MonopolySelection);
+        MonopolyResourceButtons[Index]->SetRenderScale(bSelected ? FVector2D(1.06f) : FVector2D(1.0f));
+        MonopolyResourceButtons[Index]->SetRenderOpacity(bSelected ? 1.0f : 0.52f);
+    }
+}
+
+void UCatanHUDWidget::SelectMonopolyWood() { MonopolySelection = ECatanResource::Wood; UpdateMonopolySelectionStyles(); }
+void UCatanHUDWidget::SelectMonopolyClay() { MonopolySelection = ECatanResource::Clay; UpdateMonopolySelectionStyles(); }
+void UCatanHUDWidget::SelectMonopolyHay() { MonopolySelection = ECatanResource::Hay; UpdateMonopolySelectionStyles(); }
+void UCatanHUDWidget::SelectMonopolySheep() { MonopolySelection = ECatanResource::Sheep; UpdateMonopolySelectionStyles(); }
+void UCatanHUDWidget::SelectMonopolyStone() { MonopolySelection = ECatanResource::Stone; UpdateMonopolySelectionStyles(); }
 
 void UCatanHUDWidget::CloseDevelopmentCards()
 {
@@ -1846,6 +2068,29 @@ void UCatanHUDWidget::UpdatePlayerTradeLimits(const FCatanResourceView& Resource
         Input->ClearOptions();
         for (int32 Count = 0; Count <= MaxValue; ++Count)
             Input->AddOption(FString::FromInt(Count));
+        Input->SetSelectedOption(FString::FromInt(PreviousValue));
+    }
+}
+
+void UCatanHUDWidget::UpdateDropLimits(const FCatanResourceView& Resources, bool bReset)
+{
+    const int32 Limits[] = {
+        Resources.Wood, Resources.Clay, Resources.Hay, Resources.Sheep, Resources.Stone
+    };
+    if (bReset) FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
+    for (int32 Index = 0; Index < DropInputs.Num() && Index < UE_ARRAY_COUNT(Limits); ++Index)
+    {
+        UComboBoxString* Input = DropInputs[Index];
+        const int32 MaxValue = FMath::Max(0, Limits[Index]);
+        const int32 PreviousValue = bReset ? 0 : FMath::Clamp(
+            FCString::Atoi(*Input->GetSelectedOption()), 0, MaxValue);
+        if (Input->GetOptionCount() != MaxValue + 1
+            || Input->GetOptionAtIndex(MaxValue) != FString::FromInt(MaxValue))
+        {
+            Input->ClearOptions();
+            for (int32 Count = 0; Count <= MaxValue; ++Count)
+                Input->AddOption(FString::FromInt(Count));
+        }
         Input->SetSelectedOption(FString::FromInt(PreviousValue));
     }
 }
@@ -1932,6 +2177,12 @@ void UCatanHUDWidget::UpdatePlayerCount(FString SelectedItem, ESelectInfo::Type 
 
 void UCatanHUDWidget::ConfirmExpensiveAction()
 {
+    if (GameSubsystem && GameSubsystem->HasPendingBuildTarget())
+    {
+        FString Error;
+        GameSubsystem->ConfirmPendingBuildTarget(Error);
+        return;
+    }
     const int32 Action = PendingExpensiveAction;
     PendingExpensiveAction = 0;
     if (Action == 2)
@@ -1944,6 +2195,11 @@ void UCatanHUDWidget::ConfirmExpensiveAction()
 
 void UCatanHUDWidget::CancelExpensiveAction()
 {
+    if (GameSubsystem && GameSubsystem->HasPendingBuildTarget())
+    {
+        GameSubsystem->CancelPendingBuildTarget();
+        return;
+    }
     PendingExpensiveAction = 0;
     Refresh();
 }

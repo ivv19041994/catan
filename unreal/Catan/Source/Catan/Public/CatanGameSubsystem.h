@@ -85,6 +85,13 @@ public:
     UFUNCTION(BlueprintCallable, Category="Catan")
     void SelectBoardAction(ECatanBoardAction Action);
 
+    bool SelectPendingBuildTarget(ECatanBoardAction Action, int32 TargetId, FString& Error);
+    bool ConfirmPendingBuildTarget(FString& Error);
+    void CancelPendingBuildTarget();
+    bool HasPendingBuildTarget() const { return PendingBuildTargetId != INDEX_NONE; }
+    ECatanBoardAction GetPendingBuildAction() const { return PendingBuildAction; }
+    int32 GetPendingBuildTargetId() const { return PendingBuildTargetId; }
+
     UPROPERTY(BlueprintAssignable, Category="Catan")
     FOnCatanGameStateChanged OnGameStateChanged;
 
@@ -94,6 +101,8 @@ private:
     FString LocalPlayerName;
     FString ActiveTradeTarget;
     ECatanBoardAction BoardAction = ECatanBoardAction::Automatic;
+    ECatanBoardAction PendingBuildAction = ECatanBoardAction::Automatic;
+    int32 PendingBuildTargetId = INDEX_NONE;
     FString StatusMessage;
     int32 PendingRobberHex = INDEX_NONE;
     TArray<FString> RobberVictims;
