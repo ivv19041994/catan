@@ -315,22 +315,26 @@ void ACatanPlayerController::BeginPlay()
     SetInputMode(InputMode);
     if (IsLocalController())
     {
+        TWeakObjectPtr<ACatanPlayerController> WeakThis(this);
         FTimerHandle IdentityHandle;
-        GetWorldTimerManager().SetTimer(IdentityHandle, [this]
+        GetWorldTimerManager().SetTimer(IdentityHandle, [WeakThis]
         {
-            if (const UCatanNetworkSubsystem* Network = GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>())
+            if (!WeakThis.IsValid()) return;
+            if (const UCatanNetworkSubsystem* Network = WeakThis->GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>())
                 if (!Network->GetPendingPlayerName().IsEmpty())
-                    ServerSetDisplayName(Network->GetPendingPlayerName());
+                    WeakThis->ServerSetDisplayName(Network->GetPendingPlayerName());
         }, 1.0f, false);
     }
     if (FParse::Param(FCommandLine::Get(), TEXT("CatanAutoReady")))
     {
+        TWeakObjectPtr<ACatanPlayerController> WeakThis(this);
         FTimerHandle Handle;
-        GetWorldTimerManager().SetTimer(Handle, [this]
+        GetWorldTimerManager().SetTimer(Handle, [WeakThis]
         {
+            if (!WeakThis.IsValid()) return;
             UE_LOG(LogCatanNetworkController, Display, TEXT("CATAN_SMOKE ready rpc: %s"),
-                PlayerState ? *PlayerState->GetPlayerName() : TEXT("unknown"));
-            ServerSetLobbyReady(true);
+                WeakThis->PlayerState ? *WeakThis->PlayerState->GetPlayerName() : TEXT("unknown"));
+            WeakThis->ServerSetLobbyReady(true);
         }, 2.0f, false);
     }
     if (FParse::Param(FCommandLine::Get(), TEXT("CatanAutoSetup")))

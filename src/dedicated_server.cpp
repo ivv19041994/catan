@@ -279,6 +279,30 @@ IdentityResult Service::JoinLobby(std::string_view lobby_token, std::string play
     return result;
 }
 
+Result Service::LeaveLobby(std::string_view lobby_token, std::string_view player_token)
+{
+    std::lock_guard lock(mutex_);
+    const auto found = lobbies_.find(std::string(lobby_token));
+    if (found == lobbies_.end()) return {false, "Lobby token is invalid"};
+    Lobby& lobby = *found->second;
+    const AuthPlayer* authenticated = lobby.Authenticate(player_token);
+    if (!authenticated) return {false, "Player token is invalid"};
+    if (lobby.game) return {false, "The game has already started"};
+    if (authenticated->host) {
+        lobbies_.erase(found);
+        return {true, "Lobby closed"};
+    }
+    const std::string player_name = authenticated->name;
+    lobby.players.erase(std::remove_if(lobby.players.begin(), lobby.players.end(),
+        [player_token](const AuthPlayer& player) { return player.token == player_token; }), lobby.players.end());
+    for (std::size_t index = 0; index < lobby.players.size(); ++index)
+        lobby.players[index].id = static_cast<int>(index);
+    lobby.status = player_name + " left the lobby";
+    lobby.events.push_back(lobby.status);
+    ++lobby.revision;
+    return {true, lobby.status};
+}
+
 Result Service::SetReady(std::string_view lobby_token, std::string_view player_token, bool ready)
 {
     std::lock_guard lock(mutex_);

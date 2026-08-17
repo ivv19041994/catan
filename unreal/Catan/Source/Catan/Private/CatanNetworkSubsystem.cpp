@@ -7,6 +7,7 @@
 #include "IPAddress.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Kismet/GameplayStatics.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Containers/Ticker.h"
@@ -53,6 +54,13 @@ void UCatanNetworkSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     Super::Initialize(Collection);
     ConfigureLanAdapter();
     Status = TEXT("Ready to host or join a game");
+    if (GEngine)
+    {
+        NetworkFailureHandle = GEngine->OnNetworkFailure().AddUObject(
+            this, &UCatanNetworkSubsystem::HandleNetworkFailure);
+        TravelFailureHandle = GEngine->OnTravelFailure().AddUObject(
+            this, &UCatanNetworkSubsystem::HandleTravelFailure);
+    }
 
     FString AutoName = TEXT("Automation");
     FParse::Value(FCommandLine::Get(), TEXT("CatanAutoName="), AutoName);
@@ -81,6 +89,10 @@ void UCatanNetworkSubsystem::Initialize(FSubsystemCollectionBase& Collection)
         FString AutoAddress;
         if (FParse::Value(FCommandLine::Get(), TEXT("CatanAutoManualJoin="), AutoAddress))
         {
+            // Keep the requested identity available while ClientTravel replaces the
+            // world. The new local controller can begin play before the delayed
+            // auto-join callback runs again on some platforms.
+            PendingPlayerName = AutoName;
             TWeakObjectPtr<UCatanNetworkSubsystem> WeakThis(this);
             FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakThis, AutoAddress, AutoName](float)
             {
@@ -116,6 +128,11 @@ void UCatanNetworkSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UCatanNetworkSubsystem::Deinitialize()
 {
+    if (GEngine)
+    {
+        GEngine->OnNetworkFailure().Remove(NetworkFailureHandle);
+        GEngine->OnTravelFailure().Remove(TravelFailureHandle);
+    }
     ResetDedicatedConnection();
     StopDiscoverySockets();
     if (IOnlineSubsystem* Online = IOnlineSubsystem::Get())
@@ -124,6 +141,7 @@ void UCatanNetworkSubsystem::Deinitialize()
             Sessions->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionHandle);
             Sessions->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsHandle);
             Sessions->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionHandle);
+            Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionHandle);
         }
     Search.Reset();
     Super::Deinitialize();
@@ -207,6 +225,26 @@ void UCatanNetworkSubsystem::SendDedicatedRequest(const FString& Request,
             WeakThis->bDedicatedRequestInFlight = false;
             auto ReportFailure = [WeakThis](const FString& Message)
             {
+                UE_LOG(LogCatanLan, Warning,
+                    TEXT("CATAN_HUD_GRAPH request-failure dedicatedActive=%d leaving=%d error=%s"),
+                    WeakThis->bDedicatedActive, WeakThis->bLeaveInProgress, *Message);
+                if (WeakThis->bLeaveInProgress)
+                {
+                    WeakThis->ReturnToMenuStatus = FString::Printf(
+                        TEXT("Left locally; server leave failed: %s"), *Message);
+                    WeakThis->CompleteReturnToMenu();
+                    return;
+                }
+                if (WeakThis->bDedicatedActive
+                    && (Message.Contains(TEXT("Lobby token is invalid"))
+                        || Message.Contains(TEXT("Player token is invalid"))))
+                {
+                    WeakThis->bLeaveInProgress = true;
+                    WeakThis->ReturnToMenuStatus = FString::Printf(
+                        TEXT("Dedicated lobby closed: %s"), *Message);
+                    WeakThis->CompleteReturnToMenu();
+                    return;
+                }
                 WeakThis->Status = Message;
                 if (WeakThis->bDedicatedPlaying) WeakThis->DedicatedView.StatusMessage = Message;
                 WeakThis->OnNetworkChanged.Broadcast();
@@ -412,6 +450,9 @@ void UCatanNetworkSubsystem::ApplyDedicatedSnapshot(const FString& EncodedPayloa
     }
     else Status = FString::Printf(TEXT("Dedicated lobby %s — share token %s"),
         *ToFString(Snapshot->lobby_name), *DedicatedLobbyToken);
+    if (!Snapshot->playing)
+        UE_LOG(LogCatanLan, Display, TEXT("CATAN_HUD_GRAPH dedicated-lobby players=%d"),
+            DedicatedLobbyPlayers.Num());
     OnNetworkChanged.Broadcast();
     if (UCatanGameSubsystem* GameSubsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>())
         GameSubsystem->NotifyNetworkStateChanged();
@@ -762,6 +803,12 @@ void UCatanNetworkSubsystem::OnJoinSessionComplete(FName SessionName, EOnJoinSes
     IOnlineSubsystem* Online = IOnlineSubsystem::Get();
     IOnlineSessionPtr Sessions = Online ? Online->GetSessionInterface() : nullptr;
     if (Sessions.IsValid()) Sessions->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionHandle);
+    if (Result != EOnJoinSessionCompleteResult::Success)
+    {
+        Status = TEXT("Could not join the selected lobby");
+        OnNetworkChanged.Broadcast();
+        return;
+    }
     FString Address;
     if (Sessions.IsValid() && Sessions->GetResolvedConnectString(SessionName, Address))
     {
@@ -792,9 +839,92 @@ void UCatanNetworkSubsystem::JoinManual(const FString& Address, const FString& P
 
 void UCatanNetworkSubsystem::LeaveToMenu()
 {
+    if (bLeaveInProgress) return;
+    bLeaveInProgress = true;
+    ReturnToMenuStatus = TEXT("Returned to main menu");
+    StopDiscoverySockets();
+    if (bDedicatedActive)
+    {
+        ++DedicatedGeneration;
+        FTSTicker::GetCoreTicker().RemoveTicker(DedicatedPollTicker);
+        DedicatedPollTicker.Reset();
+        bDedicatedRequestInFlight = false;
+        SendDedicatedRequest(FString::Printf(TEXT("LEAVE\t%s\t%s"),
+            *DedicatedLobbyToken, *DedicatedPlayerToken),
+            [this](const TArray<FString>&) { CompleteReturnToMenu(); });
+        return;
+    }
+    IOnlineSubsystem* Online = IOnlineSubsystem::Get();
+    IOnlineSessionPtr Sessions = Online ? Online->GetSessionInterface() : nullptr;
+    if (Sessions.IsValid() && Sessions->GetNamedSession(NAME_GameSession))
+    {
+        Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionHandle);
+        DestroySessionHandle = Sessions->AddOnDestroySessionCompleteDelegate_Handle(
+            FOnDestroySessionCompleteDelegate::CreateUObject(
+                this, &UCatanNetworkSubsystem::OnDestroySessionComplete));
+        if (Sessions->DestroySession(NAME_GameSession)) return;
+        Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionHandle);
+    }
+    CompleteReturnToMenu();
+}
+
+void UCatanNetworkSubsystem::OnDestroySessionComplete(FName, bool)
+{
+    if (IOnlineSubsystem* Online = IOnlineSubsystem::Get())
+        if (IOnlineSessionPtr Sessions = Online->GetSessionInterface(); Sessions.IsValid())
+            Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionHandle);
+    CompleteReturnToMenu();
+}
+
+void UCatanNetworkSubsystem::HandleNetworkFailure(UWorld* World, UNetDriver*,
+    ENetworkFailure::Type, const FString& Error)
+{
+    // PendingNetDriver failures (the common invalid-address case) are
+    // broadcast without a world, but still belong to this game instance.
+    if ((World && World->GetGameInstance() != GetGameInstance()) || bLeaveInProgress) return;
+    bLeaveInProgress = true;
+    ReturnToMenuStatus = FString::Printf(TEXT("Connection failed: %s"), *Error);
+    UE_LOG(LogCatanLan, Warning, TEXT("CATAN_HUD_GRAPH connection-failure error=%s"), *Error);
+    OnNetworkChanged.Broadcast();
+    TWeakObjectPtr<UCatanNetworkSubsystem> WeakThis(this);
+    FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakThis](float)
+    {
+        if (WeakThis.IsValid()) WeakThis->CompleteReturnToMenu();
+        return false;
+    }), 0.1f);
+}
+
+void UCatanNetworkSubsystem::HandleTravelFailure(UWorld* World,
+    ETravelFailure::Type, const FString& Error)
+{
+    HandleNetworkFailure(World, nullptr, ENetworkFailure::FailureReceived, Error);
+}
+
+void UCatanNetworkSubsystem::CompleteReturnToMenu()
+{
+    const FString CompletionStatus = ReturnToMenuStatus.IsEmpty()
+        ? TEXT("Returned to main menu") : ReturnToMenuStatus;
     ResetDedicatedConnection();
-    if (APlayerController* Controller = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
-        Controller->ClientTravel(TEXT("/Engine/Maps/Templates/Template_Default"), TRAVEL_Absolute);
+    StopDiscoverySockets();
+    DiscoveredLobbies.Reset();
+    Search.Reset();
+    PendingPlayerName.Reset();
+    PendingLobbyName.Reset();
+    Status = CompletionStatus;
+    ReturnToMenuStatus.Reset();
+    bLeaveInProgress = false;
+    OnNetworkChanged.Broadcast();
+    UE_LOG(LogCatanLan, Display, TEXT("CATAN_HUD_GRAPH returned-main status=%s"), *Status);
+    if (UWorld* World = GetWorld())
+    {
+        static const FName MainMap(TEXT("/Engine/Maps/Templates/Template_Default"));
+        if (World->GetNetMode() == NM_Client)
+        {
+            if (APlayerController* Controller = World->GetFirstPlayerController())
+                Controller->ClientTravel(MainMap.ToString(), TRAVEL_Absolute);
+        }
+        else UGameplayStatics::OpenLevel(World, MainMap, true);
+    }
 }
 
 FString UCatanNetworkSubsystem::GetLocalAddress() const

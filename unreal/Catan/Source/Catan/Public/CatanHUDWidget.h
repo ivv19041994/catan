@@ -26,6 +26,7 @@ class CATAN_API UCatanHUDWidget final : public UCommonActivatableWidget
 
 public:
     bool IsModalOpen() const;
+    void RunHUDGraphSmoke();
 
 protected:
     virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -128,6 +129,7 @@ private:
     bool bRightDetailsOpen = false;
     bool bTradeInputsNeedReset = true;
     bool bUIPreviewReported = false;
+    bool bAutoLeaveScheduled = false;
     ECatanResource BankFromSelection = ECatanResource::Wood;
     ECatanResource BankToSelection = ECatanResource::Clay;
     ECatanResource MonopolySelection = ECatanResource::Wood;
@@ -229,6 +231,7 @@ private:
     void UpdateDropLimits(const FCatanResourceView& Resources, bool bReset);
     void ResetTradeInputs();
     void ApplyUIPreview();
+    void ScheduleAutomatedLobbyLeave(int32 LobbyPlayerCount, bool bLocalHost);
     void SetModalSize(float Width, float Height);
     void SetModalPosition(const FVector2D& Position);
 };

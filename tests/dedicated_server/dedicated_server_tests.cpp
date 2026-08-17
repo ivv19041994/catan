@@ -77,6 +77,36 @@ int main() { return test::Run({
         std::string error;
         test::Check(!service.GetSnapshot(host.lobby_token, "wrong-player", error), "private snapshot denied");
     }},
+    {"guest leave removes only that player and invalidates the token", [] {
+        auto service = DeterministicService();
+        const auto host = service.CreateLobby("Alice", "Room");
+        const auto guest = service.JoinLobby(host.lobby_token, "Bob");
+        test::Check(service.LeaveLobby(host.lobby_token, guest.player_token).ok, "guest can leave lobby");
+        test::Equal(service.LobbyCount(), std::size_t{1}, "guest leave keeps lobby alive");
+        std::string error;
+        const auto host_view = service.GetSnapshot(host.lobby_token, host.player_token, error);
+        test::Check(host_view && host_view->lobby_players.size() == 1, "host sees guest removed");
+        test::Check(!service.GetSnapshot(host.lobby_token, guest.player_token, error), "departed token is invalid");
+        test::Check(!service.LeaveLobby(host.lobby_token, guest.player_token).ok, "repeated leave is rejected");
+    }},
+    {"host leave closes lobby for every client", [] {
+        auto service = DeterministicService();
+        const auto host = service.CreateLobby("Alice", "Room");
+        const auto guest = service.JoinLobby(host.lobby_token, "Bob");
+        test::Check(service.LeaveLobby(host.lobby_token, host.player_token).ok, "host can close lobby");
+        test::Equal(service.LobbyCount(), std::size_t{0}, "host leave deletes lobby");
+        std::string error;
+        test::Check(!service.GetSnapshot(host.lobby_token, guest.player_token, error),
+            "guest cannot access closed lobby");
+    }},
+    {"leave is authenticated and limited to pre-game lobby", [] {
+        auto service = DeterministicService();
+        const auto room = CreateStartedRoom(service);
+        test::Check(!service.LeaveLobby(room.host.lobby_token, "forged").ok, "forged leave denied");
+        test::Check(!service.LeaveLobby(room.host.lobby_token, room.guest.player_token).ok,
+            "playing client cannot use lobby leave");
+        test::Equal(service.LobbyCount(), std::size_t{1}, "started game remains alive");
+    }},
     {"duplicate names are made unique and lobby has four-player limit", [] {
         auto service = DeterministicService();
         const auto host = service.CreateLobby("Player", "Room");
@@ -166,5 +196,21 @@ int main() { return test::Run({
         test::Equal(decoded->local_player, std::string("Игрок A"), "control characters sanitized after unicode transport");
         test::Check(response.find(fields[3]) != std::string::npos, "creator receives its own token once");
         test::Check(snapshot_response.find(fields[3]) == std::string::npos, "later response does not leak token in payload");
+    }},
+    {"leave request removes guest and host closes lobby", [] {
+        auto service = DeterministicService();
+        const auto host = service.CreateLobby("Alice", "Room");
+        const auto guest = service.JoinLobby(host.lobby_token, "Bob");
+        const auto guest_leave = protocol::Split(protocol::HandleRequest(service,
+            "LEAVE\t" + host.lobby_token + "\t" + guest.player_token), '\t');
+        test::Check(guest_leave.size() == 3 && guest_leave[0] == "OK" && guest_leave[1] == "LEFT",
+            "guest leave protocol succeeds");
+        const auto forged_leave = protocol::Split(protocol::HandleRequest(service,
+            "LEAVE\t" + host.lobby_token + "\tforged"), '\t');
+        test::Check(forged_leave.size() >= 2 && forged_leave[0] == "ERR", "forged leave protocol denied");
+        const auto host_leave = protocol::Split(protocol::HandleRequest(service,
+            "LEAVE\t" + host.lobby_token + "\t" + host.player_token), '\t');
+        test::Check(host_leave.size() == 3 && host_leave[0] == "OK", "host close protocol succeeds");
+        test::Equal(service.LobbyCount(), std::size_t{0}, "protocol host leave closes lobby");
     }},
 }); }

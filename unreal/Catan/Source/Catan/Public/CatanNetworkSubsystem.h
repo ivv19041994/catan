@@ -5,12 +5,16 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "Containers/Ticker.h"
+#include "Engine/EngineBaseTypes.h"
+#include "Net/Core/Connection/NetEnums.h"
 
 #include "CatanNetworkSubsystem.generated.h"
 
 class FOnlineSessionSearch;
 class FOnlineSessionSearchResult;
 class FSocket;
+class UNetDriver;
+class UWorld;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCatanNetworkChanged);
 
@@ -62,6 +66,9 @@ private:
     FDelegateHandle CreateSessionHandle;
     FDelegateHandle FindSessionsHandle;
     FDelegateHandle JoinSessionHandle;
+    FDelegateHandle DestroySessionHandle;
+    FDelegateHandle NetworkFailureHandle;
+    FDelegateHandle TravelFailureHandle;
     FTSTicker::FDelegateHandle DiscoveryHostTicker;
     FTSTicker::FDelegateHandle DiscoveryClientTicker;
     FSocket* DiscoveryHostSocket = nullptr;
@@ -87,6 +94,8 @@ private:
     bool bDedicatedE2EFinished = false;
     int32 DedicatedAutoStartPlayers = 0;
     uint64 DedicatedGeneration = 0;
+    bool bLeaveInProgress = false;
+    FString ReturnToMenuStatus;
 
     void ConfigureLanAdapter();
     void StartDiscoveryHost();
@@ -97,6 +106,11 @@ private:
     void OnCreateSessionComplete(FName SessionName, bool bSuccess);
     void OnFindSessionsComplete(bool bSuccess);
     void OnJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result);
+    void OnDestroySessionComplete(FName SessionName, bool bSuccess);
+    void HandleNetworkFailure(UWorld* World, UNetDriver* NetDriver,
+        ENetworkFailure::Type FailureType, const FString& Error);
+    void HandleTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error);
+    void CompleteReturnToMenu();
     FString PlayerOption(const FString& PlayerName) const;
     bool ParseDedicatedAddress(const FString& Address);
     void SendDedicatedRequest(const FString& Request, TFunction<void(const TArray<FString>&)> OnSuccess);

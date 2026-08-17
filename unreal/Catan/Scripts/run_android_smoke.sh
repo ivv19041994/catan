@@ -3,7 +3,9 @@
 set -euo pipefail
 
 project_dir="${0:A:h:h}"
-apk="${1:-$project_dir/Builds/AndroidLatest/Catan-arm64.apk}"
+default_apk="$project_dir/Builds/Android/Catan-arm64.apk"
+[[ -f "$default_apk" ]] || default_apk="$project_dir/Builds/AndroidLatest/Catan-arm64.apk"
+apk="${1:-$default_apk}"
 package_name="${CATAN_ANDROID_PACKAGE:-com.ivv.catan}"
 activity="$package_name/com.epicgames.unreal.SplashActivity"
 avd="${CATAN_ANDROID_AVD:-UE_pixel_6_API_35}"
@@ -46,7 +48,7 @@ done
 renderer="$(adb shell dumpsys SurfaceFlinger 2>/dev/null | rg -m1 'GLES:' || true)"
 print "Renderer: ${renderer:-unknown}"
 adb install -r "$apk" >/dev/null || fail "APK installation failed"
-fatal_pattern='No Vulkan driver found|Unable to run on this device|Assertion failed|Fatal error|FATAL EXCEPTION|Fatal signal|Lock at Offset|RequestExit\(1'
+fatal_pattern='No Vulkan driver found|Unable to run on this device|Assertion failed|Ensure condition failed|Handled ensure|Fatal error|FATAL EXCEPTION|Fatal signal|Lock at Offset|RequestExit\(1'
 
 assert_running_without_fatal() {
   local context="$1"
@@ -252,6 +254,62 @@ test_online_navigation() {
   assert_running_without_fatal "split online touch navigation failed"
 }
 
+test_hud_graph() {
+  local output="$log_dir/hud-graph.png"
+  print "Testing complete HUD state graph..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline '-CatanHUDGraphSmoke' >/dev/null \
+    || fail "HUD graph launch failed"
+  for attempt in {1..60}; do
+    adb logcat -d >"$log_file"
+    if rg -q "$fatal_pattern" "$log_file"; then
+      fail "HUD graph crashed"
+    fi
+    rg -q 'CATAN_HUD_GRAPH PASS edges=33 failures=0' "$log_file" && break
+    sleep 1
+  done
+  rg -q 'CATAN_HUD_GRAPH PASS edges=33 failures=0' "$log_file" \
+    || fail "complete HUD graph did not pass"
+  assert_running_without_fatal "HUD graph failed after traversal"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "HUD graph screenshot is empty"
+}
+
+test_failed_connections() {
+  print "Testing failed LAN join returns to main menu..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline \
+    "'-CatanAutoManualJoin=10.0.2.2:1 -CatanAutoName=InvalidAndroidJoin'" >/dev/null \
+    || fail "invalid LAN join launch failed"
+  for attempt in {1..50}; do
+    adb logcat -d >"$log_file"
+    rg -q 'CATAN_HUD_GRAPH returned-main status=Connection failed:' "$log_file" && break
+    sleep 1
+  done
+  rg -q 'CATAN_HUD_GRAPH returned-main status=Connection failed:' "$log_file" \
+    || fail "failed LAN join did not return to main menu"
+  ! rg -q 'CATAN_HUD_GRAPH leave-scheduled' "$log_file" \
+    || fail "failed LAN join incorrectly entered a lobby"
+
+  print "Testing unavailable dedicated server stays outside lobby..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline \
+    "'-CatanDedicatedAddress=10.0.2.2:1 -CatanDedicatedJoin=INVALID -CatanAutoName=InvalidDedicated'" >/dev/null \
+    || fail "unavailable dedicated launch failed"
+  for attempt in {1..30}; do
+    adb logcat -d >"$log_file"
+    rg -q 'CATAN_HUD_GRAPH request-failure dedicatedActive=0 leaving=0' "$log_file" && break
+    sleep 1
+  done
+  rg -q 'CATAN_HUD_GRAPH request-failure dedicatedActive=0 leaving=0' "$log_file" \
+    || fail "unavailable dedicated server failure was not reported"
+  ! rg -q 'CATAN_HUD_GRAPH leave-scheduled' "$log_file" \
+    || fail "unavailable dedicated server incorrectly entered a lobby"
+}
+
 adb logcat -c
 adb shell am force-stop "$package_name"
 adb shell am start -n "$activity" >/dev/null || fail "activity launch failed"
@@ -290,8 +348,10 @@ test_combo_preview LocalNetwork 1200 460
 test_combo_preview Bots 1200 390
 test_bank_preview
 test_settings_preview
+test_hud_graph
+test_failed_connections
 
-print "PASS: Android startup, settings, development menus, dynamic trade limits, bank labels and all dropdown families"
+print "PASS: Android startup, full HUD graph, failed joins, settings, development menus, trade and dropdown families"
 print "APK: $apk"
 print "Artifacts: $log_dir"
 if (( started_emulator )); then
