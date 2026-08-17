@@ -10,7 +10,12 @@
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/CommandLine.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
+#include "Misc/Paths.h"
+#include "HAL/FileManager.h"
+#include "Serialization/BufferArchive.h"
+#include "Serialization/MemoryReader.h"
 #include "Containers/Ticker.h"
 #include "HAL/PlatformMisc.h"
 #include "game_controller.hpp"
@@ -19,6 +24,64 @@
 
 namespace
 {
+constexpr uint32 CatanLanSaveMagic = 0x43544e53; // CTNS
+constexpr uint32 CatanLanSaveVersion = 1;
+
+struct FCatanLanSaveEnvelope
+{
+    TArray<FString> PlayerNames;
+    FString ActiveTradeTarget;
+    FString StatusMessage;
+    int32 PendingRobberHex = INDEX_NONE;
+    TArray<FString> RobberVictims;
+    TArray<FString> EventLog;
+    TArray<uint8> CoreState;
+};
+
+bool ReadLanSaveEnvelope(const FString& Path, FCatanLanSaveEnvelope& Out, FString& Error)
+{
+    TArray<uint8> Bytes;
+    if (!FFileHelper::LoadFileToArray(Bytes, *Path))
+    {
+        Error = TEXT("No saved LAN game was found on this host");
+        return false;
+    }
+    if (Bytes.Num() > 32 * 1024 * 1024)
+    {
+        Error = TEXT("Saved LAN game is too large");
+        return false;
+    }
+    FMemoryReader Reader(Bytes, true);
+    uint32 Magic = 0;
+    uint32 Version = 0;
+    Reader << Magic << Version;
+    if (Magic != CatanLanSaveMagic || Version != CatanLanSaveVersion)
+    {
+        Error = TEXT("Saved LAN game has an unsupported format");
+        return false;
+    }
+    Reader << Out.PlayerNames << Out.ActiveTradeTarget << Out.StatusMessage
+        << Out.PendingRobberHex << Out.RobberVictims << Out.EventLog << Out.CoreState;
+    if (Reader.IsError() || !Reader.AtEnd() || Out.PlayerNames.Num() < 2
+        || Out.PlayerNames.Num() > 4 || Out.CoreState.IsEmpty())
+    {
+        Error = TEXT("Saved LAN game is damaged");
+        return false;
+    }
+    TSet<FString> UniqueNames;
+    for (const FString& Name : Out.PlayerNames)
+    {
+        const FString Key = Name.ToLower();
+        if (Name.TrimStartAndEnd().IsEmpty() || UniqueNames.Contains(Key))
+        {
+            Error = TEXT("Saved LAN game has invalid player names");
+            return false;
+        }
+        UniqueNames.Add(Key);
+    }
+    return true;
+}
+
 ECatanResource ToViewResource(ivv::catan::Resurse Resource)
 {
     using ivv::catan::Resurse;
@@ -385,6 +448,131 @@ bool UCatanGameSubsystem::HasAuthoritativeGame() const
         Network && Network->IsDedicatedActive()) return false;
     const UWorld* World = GetWorld();
     return Game != nullptr && (!World || World->GetNetMode() != NM_Client);
+}
+
+FString UCatanGameSubsystem::LanSavePath() const
+{
+    FString Override;
+    if (FParse::Value(FCommandLine::Get(), TEXT("CatanSaveFile="), Override)
+        && !Override.TrimStartAndEnd().IsEmpty())
+        return FPaths::ConvertRelativePathToFull(Override);
+    return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("SaveGames"), TEXT("lan-host.catan"));
+}
+
+bool UCatanGameSubsystem::HasLanSavedGame() const
+{
+    return IFileManager::Get().FileExists(*LanSavePath());
+}
+
+bool UCatanGameSubsystem::GetLanSavedPlayerNames(TArray<FString>& Names, FString& Error) const
+{
+    FCatanLanSaveEnvelope Envelope;
+    if (!ReadLanSaveEnvelope(LanSavePath(), Envelope, Error)) return false;
+    Names = MoveTemp(Envelope.PlayerNames);
+    Error.Reset();
+    return true;
+}
+
+bool UCatanGameSubsystem::SaveLanGame(FString& Error) const
+{
+    if (!Game || PlayerNames.Num() < 2)
+    {
+        Error = TEXT("There is no LAN game to save");
+        return false;
+    }
+    try
+    {
+        const std::string Core = Game->SerializeState();
+        FCatanLanSaveEnvelope Envelope;
+        Envelope.PlayerNames = PlayerNames;
+        Envelope.ActiveTradeTarget = ActiveTradeTarget;
+        Envelope.StatusMessage = StatusMessage;
+        Envelope.PendingRobberHex = PendingRobberHex;
+        Envelope.RobberVictims = RobberVictims;
+        Envelope.EventLog = EventLog;
+        Envelope.CoreState.Append(reinterpret_cast<const uint8*>(Core.data()),
+            static_cast<int32>(Core.size()));
+
+        FBufferArchive Writer;
+        uint32 Magic = CatanLanSaveMagic;
+        uint32 Version = CatanLanSaveVersion;
+        Writer << Magic << Version << Envelope.PlayerNames << Envelope.ActiveTradeTarget
+            << Envelope.StatusMessage << Envelope.PendingRobberHex << Envelope.RobberVictims
+            << Envelope.EventLog << Envelope.CoreState;
+
+        const FString Path = LanSavePath();
+        const FString Directory = FPaths::GetPath(Path);
+        IFileManager::Get().MakeDirectory(*Directory, true);
+        const FString Temporary = Path + TEXT(".tmp");
+        if (!FFileHelper::SaveArrayToFile(Writer, *Temporary)
+            || !IFileManager::Get().Move(*Path, *Temporary, true, true, false, true))
+        {
+            IFileManager::Get().Delete(*Temporary, false, true);
+            Error = TEXT("Could not write the LAN saved game");
+            return false;
+        }
+        UE_LOG(LogTemp, Display, TEXT("CATAN_SAVE wrote path=%s bytes=%d players=%d"),
+            *Path, Writer.Num(), PlayerNames.Num());
+        Error.Reset();
+        return true;
+    }
+    catch (const std::exception& Exception)
+    {
+        Error = UTF8_TO_TCHAR(Exception.what());
+        return false;
+    }
+}
+
+bool UCatanGameSubsystem::LoadLanSavedGame(FString& Error)
+{
+    FCatanLanSaveEnvelope Envelope;
+    if (!ReadLanSaveEnvelope(LanSavePath(), Envelope, Error)) return false;
+    try
+    {
+        const std::string Core(reinterpret_cast<const char*>(Envelope.CoreState.GetData()),
+            static_cast<size_t>(Envelope.CoreState.Num()));
+        std::unique_ptr<ivv::catan::GameController> Restored =
+            ivv::catan::GameController::DeserializeState(Core);
+        TSet<FString> SavedNames;
+        for (const FString& Name : Envelope.PlayerNames) SavedNames.Add(Name.ToLower());
+        TSet<FString> CoreNames;
+        for (const std::string& Name : Restored->GetPlayerNames())
+            CoreNames.Add(FString(UTF8_TO_TCHAR(Name.c_str())).ToLower());
+        bool bNamesMatch = SavedNames.Num() == CoreNames.Num();
+        for (const FString& Name : SavedNames) bNamesMatch = bNamesMatch && CoreNames.Contains(Name);
+        if (!bNamesMatch)
+            throw std::invalid_argument("Saved lobby names do not match the game state");
+
+        Game = std::move(Restored);
+        PlayerNames = MoveTemp(Envelope.PlayerNames);
+        ActiveTradeTarget = MoveTemp(Envelope.ActiveTradeTarget);
+        StatusMessage = Envelope.StatusMessage.IsEmpty()
+            ? TEXT("Saved LAN game restored") : MoveTemp(Envelope.StatusMessage);
+        PendingRobberHex = Envelope.PendingRobberHex;
+        RobberVictims = MoveTemp(Envelope.RobberVictims);
+        EventLog = MoveTemp(Envelope.EventLog);
+        BoardAction = ECatanBoardAction::Automatic;
+        PendingBuildAction = ECatanBoardAction::Automatic;
+        PendingBuildTargetId = INDEX_NONE;
+        BotPlayers.Reset();
+        LastResources.Reset();
+        LastLargestArmy.Reset();
+        LastLongestRoad.Reset();
+        CaptureResourceChanges();
+        AppendEvent(TEXT("Saved LAN game restored"));
+        const FString CurrentPlayer = UTF8_TO_TCHAR(Game->GetCurrentPlayer().c_str());
+        UE_LOG(LogTemp, Display, TEXT("CATAN_SAVE restored path=%s players=%d current=%s phase=%d"),
+            *LanSavePath(), PlayerNames.Num(), *CurrentPlayer, static_cast<int32>(Game->GetStep()));
+        Error.Reset();
+        OnGameStateChanged.Broadcast();
+        return true;
+    }
+    catch (const std::exception& Exception)
+    {
+        Error = FString::Printf(TEXT("Could not restore saved LAN game: %s"),
+            UTF8_TO_TCHAR(Exception.what()));
+        return false;
+    }
 }
 
 bool UCatanGameSubsystem::CanLocalPlayerAct(const FCatanGameView& View) const
@@ -1185,6 +1373,13 @@ void UCatanGameSubsystem::PublishAuthoritativeState()
     State->PublicView = MoveTemp(Public);
     State->ForceNetUpdate();
     State->NotifyLocalProxy();
+    if (GetWorld()->GetNetMode() == NM_ListenServer
+        && State->NetworkMode == ECatanNetworkMode::Playing)
+    {
+        FString SaveError;
+        if (!SaveLanGame(SaveError))
+            UE_LOG(LogTemp, Error, TEXT("CATAN_SAVE failed: %s"), *SaveError);
+    }
 }
 
 void UCatanGameSubsystem::AppendEvent(const FString& Message)

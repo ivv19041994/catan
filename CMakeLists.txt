@@ -15,6 +15,7 @@ add_library(catan_engine
     src/exception.cpp
     src/facet.cpp
     src/game_controller.cpp
+    src/game_persistence.cpp
     src/gex.cpp
     src/map.cpp
     src/node.cpp
@@ -81,6 +82,7 @@ if(CATAN_BUILD_TESTS)
         add_catan_domain_test(awards_victory)
         add_catan_domain_test(map)
         add_catan_domain_test(player_deck)
+        add_catan_domain_test(persistence)
 
         if(CATAN_BUILD_DEDICATED_SERVER)
             add_executable(catan_dedicated_server_tests

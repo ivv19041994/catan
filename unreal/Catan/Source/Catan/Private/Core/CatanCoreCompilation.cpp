@@ -7,6 +7,7 @@
 #include "exception.cpp"
 #include "facet.cpp"
 #include "game_controller.cpp"
+#include "game_persistence.cpp"
 #include "gex.cpp"
 #include "map.cpp"
 #include "node.cpp"

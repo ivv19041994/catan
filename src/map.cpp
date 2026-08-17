@@ -637,6 +637,45 @@ const std::array<Facet, 72> Map::GetFacets() const {
 	return facets;
 }
 
+void Map::RestoreHexConfiguration(
+	const std::array<std::pair<Resurse, int>, gexs_count>& configuration) {
+	dices.clear();
+	for (size_t i = 0; i < configuration.size(); ++i) {
+		gexs[i].setType(configuration[i].first);
+		gexs[i].setDice(configuration[i].second);
+		if (configuration[i].second != 0 && configuration[i].second != 7) {
+			dices[static_cast<size_t>(configuration[i].second)].insert(&gexs[i]);
+		}
+	}
+}
+
+void Map::RestoreBuilding(size_t node_id, Player& player, bool city) {
+	if (node_id >= nodes.size())
+		throw out_of_range("Node id is out of range");
+	if (!nodes[node_id].isFree())
+		throw logic_error("Node is already occupied");
+
+	Building* building = city
+		? static_cast<Building*>(player.getFreeCastle())
+		: static_cast<Building*>(player.getFreeSettlement());
+	if (!building)
+		throw logic_error("Player has no free building for restored state");
+	nodes[node_id].setBuilding(building);
+}
+
+void Map::RestoreRoad(size_t facet_id, Player& player) {
+	if (facet_id >= facets.size())
+		throw out_of_range("Facet id is out of range");
+	if (!facets[facet_id].isFree())
+		throw logic_error("Facet is already occupied");
+
+	Road* road = player.getFreeRoad();
+	if (!road)
+		throw logic_error("Player has no free road for restored state");
+	facets[facet_id].setRoad(road);
+	road->SetFacet(&facets[facet_id]);
+}
+
 //std::set<const Facet*> Map::GetLongWay(const Facet* from, const Player* player, std::set<const Node*> ban_node, std::set<const Facet*> already, size_t deep)  const {
 
 //	std::vector<const Node*> nodes{};

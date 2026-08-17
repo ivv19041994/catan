@@ -64,7 +64,16 @@ void UCatanNetworkSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
     FString AutoName = TEXT("Automation");
     FParse::Value(FCommandLine::Get(), TEXT("CatanAutoName="), AutoName);
-    if (FParse::Param(FCommandLine::Get(), TEXT("CatanAutoHostLobby")))
+    if (FParse::Param(FCommandLine::Get(), TEXT("CatanAutoHostSavedLobby")))
+    {
+        TWeakObjectPtr<UCatanNetworkSubsystem> WeakThis(this);
+        FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakThis, AutoName](float)
+        {
+            if (WeakThis.IsValid()) WeakThis->HostSavedLobby(AutoName);
+            return false;
+        }), 2.0f);
+    }
+    else if (FParse::Param(FCommandLine::Get(), TEXT("CatanAutoHostLobby")))
     {
         TWeakObjectPtr<UCatanNetworkSubsystem> WeakThis(this);
         FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakThis, AutoName](float)
@@ -602,10 +611,48 @@ FString UCatanNetworkSubsystem::PlayerOption(const FString& PlayerName) const
     FString Safe = PlayerName.TrimStartAndEnd().Left(24);
     Safe.ReplaceInline(TEXT("?"), TEXT("_"));
     Safe.ReplaceInline(TEXT("&"), TEXT("_"));
-    return FString::Printf(TEXT("?Name=%s"), *Safe);
+    // "Name" is consumed/replaced by some OnlineSubsystem paths. Keep our
+    // public identity in a game-owned travel option so PreLogin/InitNewPlayer
+    // can validate a restored player before admitting it to the lobby.
+    return FString::Printf(TEXT("?CatanName=%s"), *Safe);
 }
 
 void UCatanNetworkSubsystem::HostLobby(const FString& PlayerName, const FString& LobbyName)
+{
+    bHostingSavedLobby = false;
+    SavedExpectedPlayerNames.Reset();
+    BeginHostLobby(PlayerName, LobbyName);
+}
+
+void UCatanNetworkSubsystem::HostSavedLobby(const FString& PlayerName)
+{
+    UCatanGameSubsystem* Games = GetGameInstance()
+        ? GetGameInstance()->GetSubsystem<UCatanGameSubsystem>() : nullptr;
+    FString Error;
+    TArray<FString> Expected;
+    if (!Games || !Games->GetLanSavedPlayerNames(Expected, Error))
+    {
+        Status = Error.IsEmpty() ? TEXT("Could not read the saved LAN game") : Error;
+        OnNetworkChanged.Broadcast();
+        return;
+    }
+    const FString* CanonicalName = Expected.FindByPredicate([&PlayerName](const FString& Candidate)
+    {
+        return Candidate.Equals(PlayerName.TrimStartAndEnd(), ESearchCase::IgnoreCase);
+    });
+    if (!CanonicalName)
+    {
+        Status = TEXT("Your public name is not part of this saved game");
+        OnNetworkChanged.Broadcast();
+        return;
+    }
+    const FString HostName = *CanonicalName;
+    bHostingSavedLobby = true;
+    SavedExpectedPlayerNames = MoveTemp(Expected);
+    BeginHostLobby(HostName, TEXT("Restored LAN game"));
+}
+
+void UCatanNetworkSubsystem::BeginHostLobby(const FString& PlayerName, const FString& LobbyName)
 {
     IOnlineSubsystem* Online = IOnlineSubsystem::Get();
     IOnlineSessionPtr Sessions = Online ? Online->GetSessionInterface() : nullptr;
@@ -910,6 +957,8 @@ void UCatanNetworkSubsystem::CompleteReturnToMenu()
     Search.Reset();
     PendingPlayerName.Reset();
     PendingLobbyName.Reset();
+    bHostingSavedLobby = false;
+    SavedExpectedPlayerNames.Reset();
     Status = CompletionStatus;
     ReturnToMenuStatus.Reset();
     bLeaveInProgress = false;

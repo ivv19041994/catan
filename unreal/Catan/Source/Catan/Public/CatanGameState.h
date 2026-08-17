@@ -22,6 +22,9 @@ public:
     TArray<FCatanLobbyPlayerView> LobbyPlayers;
 
     UPROPERTY(ReplicatedUsing=OnRep_NetworkState, BlueprintReadOnly)
+    TArray<FString> ExpectedPlayerNames;
+
+    UPROPERTY(ReplicatedUsing=OnRep_NetworkState, BlueprintReadOnly)
     FCatanGameView PublicView;
 
     UPROPERTY(ReplicatedUsing=OnRep_NetworkState, BlueprintReadOnly)

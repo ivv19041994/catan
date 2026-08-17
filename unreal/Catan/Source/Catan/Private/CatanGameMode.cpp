@@ -7,6 +7,7 @@
 #include "CatanGameState.h"
 #include "CatanPlayerState.h"
 #include "CatanGameSubsystem.h"
+#include "CatanNetworkSubsystem.h"
 #include "CatanPlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/GameSession.h"
@@ -25,14 +26,66 @@ ACatanGameMode::ACatanGameMode()
     GameSessionClass = AGameSession::StaticClass();
 }
 
+const FString* ACatanGameMode::FindExpectedPlayerName(const FString& Name) const
+{
+    return ExpectedPlayerNames.FindByPredicate([&Name](const FString& Expected)
+    {
+        return Expected.Equals(Name.TrimStartAndEnd(), ESearchCase::IgnoreCase);
+    });
+}
+
+bool ACatanGameMode::AreAllExpectedPlayersConnected() const
+{
+    if (!bRestoredLobby || ExpectedPlayerNames.IsEmpty() || !GameState) return false;
+    if (GameState->PlayerArray.Num() != ExpectedPlayerNames.Num()) return false;
+    for (const FString& Expected : ExpectedPlayerNames)
+        if (!GameState->PlayerArray.ContainsByPredicate([&Expected](const APlayerState* State)
+            { return State && State->GetPlayerName().Equals(Expected, ESearchCase::IgnoreCase); }))
+            return false;
+    return true;
+}
+
+void ACatanGameMode::PreLogin(const FString& Options, const FString& Address,
+    const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
+{
+    Super::PreLogin(Options, Address, UniqueId, ErrorMessage);
+    if (!ErrorMessage.IsEmpty() || !bRestoredLobby) return;
+    FString Requested = UGameplayStatics::ParseOption(Options, TEXT("CatanName")).TrimStartAndEnd();
+    if (Requested.IsEmpty()) Requested = UGameplayStatics::ParseOption(Options, TEXT("Name")).TrimStartAndEnd();
+    const FString* Expected = FindExpectedPlayerName(Requested);
+    if (!Expected)
+    {
+        ErrorMessage = TEXT("This player name is not part of the saved game");
+        return;
+    }
+    if (GameState && GameState->PlayerArray.ContainsByPredicate([Expected](const APlayerState* State)
+        { return State && State->GetPlayerName().Equals(*Expected, ESearchCase::IgnoreCase); }))
+        ErrorMessage = TEXT("This saved player is already connected");
+}
+
 FString ACatanGameMode::InitNewPlayer(APlayerController* NewPlayerController,
     const FUniqueNetIdRepl& UniqueId, const FString& Options, const FString& Portal)
 {
     const FString Error = Super::InitNewPlayer(NewPlayerController, UniqueId, Options, Portal);
     if (!Error.IsEmpty()) return Error;
-    FString Requested = UGameplayStatics::ParseOption(Options, TEXT("Name")).TrimStartAndEnd();
+    FString Requested = UGameplayStatics::ParseOption(Options, TEXT("CatanName")).TrimStartAndEnd();
+    if (Requested.IsEmpty())
+        Requested = UGameplayStatics::ParseOption(Options, TEXT("Name")).TrimStartAndEnd();
     if (Requested.IsEmpty()) Requested = FString::Printf(TEXT("Player %d"), GameState->PlayerArray.Num());
     Requested = Requested.Left(24);
+    if (bRestoredLobby)
+    {
+        const FString* Expected = FindExpectedPlayerName(Requested);
+        if (!Expected) return TEXT("This player name is not part of the saved game");
+        const bool bAlreadyConnected = GameState->PlayerArray.ContainsByPredicate(
+            [NewPlayerController, Expected](const APlayerState* State)
+            {
+                return State != NewPlayerController->PlayerState
+                    && State->GetPlayerName().Equals(*Expected, ESearchCase::IgnoreCase);
+            });
+        if (bAlreadyConnected) return TEXT("This saved player is already connected");
+        Requested = *Expected;
+    }
     FString Unique = Requested;
     int32 Suffix = 2;
     auto Exists = [this, NewPlayerController](const FString& Candidate)
@@ -102,6 +155,19 @@ void ACatanGameMode::SetPlayerDisplayName(APlayerController* Player, const FStri
     Base.ReplaceInline(TEXT("\t"), TEXT(" "));
     Base.ReplaceInline(TEXT("\n"), TEXT(" "));
     if (Base.IsEmpty()) Base = TEXT("Player");
+    if (bRestoredLobby && !bLobbyGameStarted)
+    {
+        const FString* Expected = FindExpectedPlayerName(Base);
+        if (!Expected) return;
+        const bool bAlreadyConnected = GameState->PlayerArray.ContainsByPredicate(
+            [Player, Expected](const APlayerState* State)
+            {
+                return State != Player->PlayerState
+                    && State->GetPlayerName().Equals(*Expected, ESearchCase::IgnoreCase);
+            });
+        if (bAlreadyConnected) return;
+        Base = *Expected;
+    }
     if (bLobbyGameStarted)
     {
         const FCatanGameView View = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->GetSnapshot();
@@ -145,6 +211,7 @@ void ACatanGameMode::StartLobbyGame(APlayerController* Requester)
     const ACatanPlayerState* RequesterState = Requester->GetPlayerState<ACatanPlayerState>();
     if (!RequesterState || !RequesterState->bLobbyHost) return;
     if (GameState->PlayerArray.Num() < 2 || GameState->PlayerArray.Num() > 4) return;
+    if (bRestoredLobby && !AreAllExpectedPlayersConnected()) return;
     TArray<FString> Names;
     for (APlayerState* State : GameState->PlayerArray)
     {
@@ -152,13 +219,24 @@ void ACatanGameMode::StartLobbyGame(APlayerController* Requester)
         if (!CatanState || !CatanState->bLobbyReady) return;
         Names.Add(State->GetPlayerName());
     }
+    UCatanGameSubsystem* Games = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
+    if (bRestoredLobby)
+    {
+        FString Error;
+        if (!Games->LoadLanSavedGame(Error))
+        {
+            UE_LOG(LogCatanNetworkMode, Error, TEXT("CATAN_SAVE lobby restore failed: %s"), *Error);
+            return;
+        }
+    }
+    else Games->StartLocalGame(Names);
     bLobbyGameStarted = true;
     ShowGameBoard();
-    GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->StartLocalGame(Names);
     if (ACatanGameState* State = GetGameState<ACatanGameState>()) State->NetworkMode = ECatanNetworkMode::Playing;
     PublishLobby();
-    GetGameInstance()->GetSubsystem<UCatanGameSubsystem>()->PublishAuthoritativeState();
-    UE_LOG(LogCatanNetworkMode, Display, TEXT("CATAN_SMOKE match started players=%d"), Names.Num());
+    Games->PublishAuthoritativeState();
+    UE_LOG(LogCatanNetworkMode, Display, TEXT("CATAN_SMOKE match started players=%d restored=%d"),
+        Names.Num(), bRestoredLobby);
 }
 
 void ACatanGameMode::StartSinglePlayerGame(const FString& HumanName, int32 BotCount)
@@ -195,6 +273,7 @@ void ACatanGameMode::PublishLobby()
     ACatanGameState* State = GetGameState<ACatanGameState>();
     if (!State) return;
     if (!bLobbyGameStarted) State->NetworkMode = ECatanNetworkMode::Lobby;
+    State->ExpectedPlayerNames = ExpectedPlayerNames;
     State->LobbyPlayers.Reset();
     for (APlayerState* PlayerState : GameState->PlayerArray)
     {
@@ -207,6 +286,17 @@ void ACatanGameMode::PublishLobby()
     }
     State->NotifyLocalProxy();
     State->ForceNetUpdate();
+    if (bRestoredLobby && !bLobbyGameStarted)
+    {
+        TArray<FString> Waiting;
+        for (const FString& Expected : ExpectedPlayerNames)
+            if (!GameState->PlayerArray.ContainsByPredicate([&Expected](const APlayerState* PlayerState)
+                { return PlayerState && PlayerState->GetPlayerName().Equals(Expected, ESearchCase::IgnoreCase); }))
+                Waiting.Add(Expected);
+        UE_LOG(LogCatanNetworkMode, Display,
+            TEXT("CATAN_SAVE lobby expected=%d connected=%d waiting=%s"),
+            ExpectedPlayerNames.Num(), State->LobbyPlayers.Num(), *FString::Join(Waiting, TEXT(",")));
+    }
     int32 ExpectedPlayers = 0;
     if (!bLobbyGameStarted && FParse::Value(FCommandLine::Get(), TEXT("CatanAutoStart="), ExpectedPlayers)
         && ExpectedPlayers == State->LobbyPlayers.Num())
@@ -227,8 +317,17 @@ void ACatanGameMode::PublishLobby()
 void ACatanGameMode::BeginPlay()
 {
     Super::BeginPlay();
+    if (UCatanNetworkSubsystem* Network = GetGameInstance()
+        ? GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>() : nullptr)
+    {
+        bRestoredLobby = GetNetMode() == NM_ListenServer && Network->IsHostingSavedLobby();
+        if (bRestoredLobby) ExpectedPlayerNames = Network->GetSavedExpectedPlayerNames();
+    }
     if (ACatanGameState* State = GetGameState<ACatanGameState>())
+    {
         State->NetworkMode = GetNetMode() == NM_Standalone ? ECatanNetworkMode::MainMenu : ECatanNetworkMode::Lobby;
+        State->ExpectedPlayerNames = ExpectedPlayerNames;
+    }
     MenuBackdrop = GetWorld()->SpawnActor<ACatanMenuBackdropActor>(
         ACatanMenuBackdropActor::StaticClass(), FVector(0.0f, 0.0f, 0.0f), FRotator::ZeroRotator);
     if (GetNetMode() == NM_Standalone)

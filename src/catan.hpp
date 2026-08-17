@@ -82,6 +82,7 @@ class Building: public Construction
 public:
 	virtual void diceEvent(Resurse r) = 0;
 	virtual bool canUpgrade() const = 0;
+	virtual bool isCity() const = 0;
 	void setFree();
 };
 
@@ -90,12 +91,14 @@ class Settlement: public Building
 public:
 	void diceEvent(Resurse r) override;
 	bool canUpgrade() const override { return true; }
+	bool isCity() const override { return false; }
 };
 class Castle: public Building
 {
 public:
 	void diceEvent(Resurse r) override;
 	bool canUpgrade() const override { return false; }
+	bool isCity() const override { return true; }
 };
 }
 }
