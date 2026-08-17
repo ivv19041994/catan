@@ -10,6 +10,7 @@ namespace ivv {
 namespace catan {
 class Player
 {
+	friend class GameController;
 	std::string name;
 	std::map<Resurse, size_t> resurses_;
 	std::map<DevelopmentCard, size_t> cards_;

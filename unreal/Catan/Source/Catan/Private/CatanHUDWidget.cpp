@@ -700,6 +700,9 @@ void UCatanHUDWidget::BuildLayout()
     LocalNetworkPanel->AddChildToVerticalBox(LobbyNameInput);
     UButton* HostGame = AddButton(LocalNetworkPanel, TEXT("HOST ONLINE (LAN)"));
     HostGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::HostLanLobby);
+    LoadLanButton = AddButton(LocalNetworkPanel, TEXT("LOAD SAVED LAN GAME"));
+    LoadLanButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::LoadLanLobby);
+    LoadLanButton->SetIsEnabled(GameSubsystem && GameSubsystem->HasLanSavedGame());
     LobbyResults = WidgetTree->ConstructWidget<UComboBoxString>();
     ConfigureComboBox(LobbyResults, 20);
     LobbyResults->AddOption(TEXT("No search results yet"));
@@ -1029,6 +1032,7 @@ void UCatanHUDWidget::ApplyLanguage()
 void UCatanHUDWidget::Refresh()
 {
     if (!GameSubsystem || !PhaseText) return;
+    if (LoadLanButton) LoadLanButton->SetIsEnabled(GameSubsystem->HasLanSavedGame());
     SetModalSize(680.0f, 650.0f);
     SetModalPosition(FVector2D::ZeroVector);
     if (NetworkSubsystem)
@@ -1093,6 +1097,7 @@ void UCatanHUDWidget::Refresh()
         bool bAllReady = NetworkState->LobbyPlayers.Num() >= 2;
         bool bLocalReady = false;
         bool bLocalHost = false;
+        bool bAllExpectedConnected = NetworkState->ExpectedPlayerNames.IsEmpty();
         const APlayerController* LocalController = GetOwningPlayer();
         const ACatanPlayerState* LocalState = LocalController ? LocalController->GetPlayerState<ACatanPlayerState>() : nullptr;
         for (const FCatanLobbyPlayerView& Player : NetworkState->LobbyPlayers)
@@ -1106,13 +1111,31 @@ void UCatanHUDWidget::Refresh()
                 bLocalHost = Player.bHost;
             }
         }
-        LobbyPlayersText->SetText(FText::FromString(Rows + TEXT("\n2–4 players; everyone must be ready.")));
+        if (!NetworkState->ExpectedPlayerNames.IsEmpty())
+        {
+            bAllExpectedConnected = true;
+            Rows += TEXT("\n") + Localize(TEXT("Expected players:")) + TEXT("\n");
+            for (const FString& Expected : NetworkState->ExpectedPlayerNames)
+            {
+                const bool bConnected = NetworkState->LobbyPlayers.ContainsByPredicate(
+                    [&Expected](const FCatanLobbyPlayerView& Player)
+                    { return Player.Name.Equals(Expected, ESearchCase::IgnoreCase); });
+                bAllExpectedConnected = bAllExpectedConnected && bConnected;
+                Rows += FString::Printf(TEXT("%s %s%s\n"), bConnected ? TEXT("✓") : TEXT("○"),
+                    *Expected, bConnected ? TEXT("") : *FString::Printf(TEXT("  [%s]"),
+                        *Localize(TEXT("WAITING"))));
+            }
+        }
+        LobbyPlayersText->SetText(FText::FromString(Rows + (NetworkState->ExpectedPlayerNames.IsEmpty()
+            ? TEXT("\n2–4 players; everyone must be ready.")
+            : TEXT("\n") + Localize(TEXT("The restored game starts after every expected name reconnects and is ready.")))));
         LobbyAddressText->SetText(FText::FromString(FString::Printf(TEXT("Share this address: %s"),
             NetworkSubsystem ? *NetworkSubsystem->GetLocalAddress() : TEXT("port 7777"))));
         if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(ReadyButton->GetChildAt(0)))
             Label->SetText(FText::FromString(Localize(bLocalReady ? TEXT("NOT READY") : TEXT("READY"))));
         StartLobbyButton->SetVisibility(bLocalHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-        StartLobbyButton->SetIsEnabled(bLocalHost && bAllReady && NetworkState->LobbyPlayers.Num() <= 4);
+        StartLobbyButton->SetIsEnabled(bLocalHost && bAllReady && bAllExpectedConnected
+            && NetworkState->LobbyPlayers.Num() <= 4);
         CopyLobbyTokenButton->SetVisibility(ESlateVisibility::Collapsed);
         ScheduleAutomatedLobbyLeave(NetworkState->LobbyPlayers.Num(), bLocalHost);
         return;
@@ -1753,6 +1776,13 @@ void UCatanHUDWidget::HostLanLobby()
     FString PlayerName;
     if (!GetValidatedPlayerName(PlayerName)) return;
     NetworkSubsystem->HostLobby(PlayerName, LobbyNameInput->GetText().ToString());
+}
+
+void UCatanHUDWidget::LoadLanLobby()
+{
+    FString PlayerName;
+    if (!GetValidatedPlayerName(PlayerName)) return;
+    NetworkSubsystem->HostSavedLobby(PlayerName);
 }
 
 void UCatanHUDWidget::StartBotMatch()

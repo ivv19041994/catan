@@ -64,6 +64,10 @@ namespace catan {
 		const std::array<Node, nodes_count> GetNodes() const;
 		const std::array<Facet, facets_count> GetFacets() const;
 
+		void RestoreHexConfiguration(const std::array<std::pair<Resurse, int>, gexs_count>& configuration);
+		void RestoreBuilding(size_t node_id, Player& player, bool city);
+		void RestoreRoad(size_t facet_id, Player& player);
+
 		//std::set<const Facet*> GetLongWay(
 		//	const Facet* from, 
 		//	const Player* player, 

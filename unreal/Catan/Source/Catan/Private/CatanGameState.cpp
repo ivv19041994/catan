@@ -12,6 +12,7 @@ void ACatanGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(ACatanGameState, NetworkMode);
     DOREPLIFETIME(ACatanGameState, LobbyPlayers);
+    DOREPLIFETIME(ACatanGameState, ExpectedPlayerNames);
     DOREPLIFETIME(ACatanGameState, PublicView);
     DOREPLIFETIME(ACatanGameState, LobbyName);
     DOREPLIFETIME(ACatanGameState, HostAddress);

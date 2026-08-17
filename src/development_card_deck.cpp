@@ -24,6 +24,10 @@ DevelopmentCardDeck::DevelopmentCardDeck() {
 	std::shuffle(cards_.begin(), cards_.end(), generator);
 }
 
+DevelopmentCardDeck::DevelopmentCardDeck(std::deque<DevelopmentCard> cards)
+	: cards_(std::move(cards)) {
+}
+
 bool DevelopmentCardDeck::Empty() const {
 	return cards_.empty();
 }
@@ -36,6 +40,10 @@ DevelopmentCard DevelopmentCardDeck::Draw() {
 	const DevelopmentCard card = cards_.front();
 	cards_.pop_front();
 	return card;
+}
+
+const std::deque<DevelopmentCard>& DevelopmentCardDeck::RemainingCards() const {
+	return cards_;
 }
 
 }//namespace ivv::catan

@@ -28,6 +28,7 @@ public:
     virtual void Deinitialize() override;
 
     UFUNCTION(BlueprintCallable) void HostLobby(const FString& PlayerName, const FString& LobbyName);
+    UFUNCTION(BlueprintCallable) void HostSavedLobby(const FString& PlayerName);
     UFUNCTION(BlueprintCallable) void FindLobbies();
     UFUNCTION(BlueprintCallable) void JoinLobby(int32 Index, const FString& PlayerName);
     UFUNCTION(BlueprintCallable) void JoinManual(const FString& Address, const FString& PlayerName);
@@ -42,6 +43,8 @@ public:
     UFUNCTION(BlueprintPure) const TArray<FCatanDiscoveredLobby>& GetDiscoveredLobbies() const { return DiscoveredLobbies; }
     UFUNCTION(BlueprintPure) const FString& GetStatus() const { return Status; }
     const FString& GetPendingPlayerName() const { return PendingPlayerName; }
+    bool IsHostingSavedLobby() const { return bHostingSavedLobby; }
+    const TArray<FString>& GetSavedExpectedPlayerNames() const { return SavedExpectedPlayerNames; }
     bool IsDedicatedActive() const { return bDedicatedActive; }
     bool IsDedicatedPlaying() const { return bDedicatedPlaying; }
     const FCatanGameView& GetDedicatedView() const { return DedicatedView; }
@@ -95,9 +98,12 @@ private:
     int32 DedicatedAutoStartPlayers = 0;
     uint64 DedicatedGeneration = 0;
     bool bLeaveInProgress = false;
+    bool bHostingSavedLobby = false;
+    TArray<FString> SavedExpectedPlayerNames;
     FString ReturnToMenuStatus;
 
     void ConfigureLanAdapter();
+    void BeginHostLobby(const FString& PlayerName, const FString& LobbyName);
     void StartDiscoveryHost();
     void StopDiscoverySockets();
     bool TickDiscoveryHost(float DeltaTime);

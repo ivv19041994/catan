@@ -33,6 +33,9 @@ public:
     void NotifyNetworkStateChanged();
     void PublishAuthoritativeState();
     bool HasAuthoritativeGame() const;
+    bool HasLanSavedGame() const;
+    bool GetLanSavedPlayerNames(TArray<FString>& Names, FString& Error) const;
+    bool LoadLanSavedGame(FString& Error);
     bool CanLocalPlayerAct(const FCatanGameView& View) const;
 
     UFUNCTION(BlueprintPure, Category="Catan")
@@ -125,6 +128,8 @@ private:
     bool bBotTradeAttempted = false;
 
     bool CompleteCommand(bool bSucceeded, const FString& Message, FString& Error);
+    FString LanSavePath() const;
+    bool SaveLanGame(FString& Error) const;
     void AppendEvent(const FString& Message);
     void CaptureResourceChanges();
     void CaptureAwards();

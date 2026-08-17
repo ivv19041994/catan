@@ -96,12 +96,18 @@ public:
 
 	const std::optional<Deal>& GetActivDeal() const;
 	const Player& GetPlayer(std::string_view player) const;
+	std::vector<std::string> GetPlayerNames() const;
+
+	// Versioned, self-contained binary state. It intentionally contains no
+	// transport credentials; player identity is represented only by public name.
+	std::string SerializeState() const;
+	static std::unique_ptr<GameController> DeserializeState(std::string_view data);
 
 private:
 	std::vector <Player> players_;
 	std::unordered_map<std::string_view, Player*> player_by_name_;
-	unsigned int current_player_;
-	unsigned int current_drop_cards_player_;
+	unsigned int current_player_{};
+	unsigned int current_drop_cards_player_{};
 	Map map;
 
 	Bandit bandit_;
@@ -116,7 +122,7 @@ private:
 	GameStep step_ = GameStep::ForwardBuildingSettlement;
 	GameStep step_after_bandit_ = GameStep::CommonPlay;
 
-	size_t road_building_count_;
+	size_t road_building_count_{};
 
 	std::optional<std::string> winner_;
 

@@ -17,6 +17,8 @@ public:
     virtual void BeginPlay() override;
     virtual void PostLogin(APlayerController* NewPlayer) override;
     virtual void Logout(AController* Exiting) override;
+    virtual void PreLogin(const FString& Options, const FString& Address,
+        const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
     virtual FString InitNewPlayer(APlayerController* NewPlayerController,
         const FUniqueNetIdRepl& UniqueId, const FString& Options,
         const FString& Portal = TEXT("")) override;
@@ -30,9 +32,13 @@ public:
 
 private:
     bool bLobbyGameStarted = false;
+    bool bRestoredLobby = false;
+    TArray<FString> ExpectedPlayerNames;
 
     UPROPERTY(Transient)
     TObjectPtr<ACatanMenuBackdropActor> MenuBackdrop;
 
     void ShowGameBoard();
+    const FString* FindExpectedPlayerName(const FString& Name) const;
+    bool AreAllExpectedPlayersConnected() const;
 };

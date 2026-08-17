@@ -238,6 +238,13 @@ const Player& GameController::GetPlayer(std::string_view player) const {
 	return *(player_by_name_.at(player));
 }
 
+std::vector<std::string> GameController::GetPlayerNames() const {
+	std::vector<std::string> result;
+	result.reserve(players_.size());
+	for (const Player& player : players_) result.push_back(player.getName());
+	return result;
+}
+
 const std::optional<GameController::Deal>& GameController::GetActivDeal() const {
 	return activ_deal_;
 }
