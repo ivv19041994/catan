@@ -302,6 +302,31 @@ test_hud_graph() {
   [[ -s "$output" ]] || fail "HUD graph screenshot is empty"
 }
 
+test_four_player_status_panel() {
+  local output="$log_dir/player-status-4p.png"
+  print "Testing compact four-player status panel and touch scroll..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline \
+    "'-CatanAutoBots=3 -CatanUIPreview=Players4'" >/dev/null \
+    || fail "four-player status preview launch failed"
+  for attempt in {1..60}; do
+    capture_app_log
+    if rg -q "$fatal_pattern" "$log_file"; then
+      fail "four-player status panel crashed"
+    fi
+    rg -q 'CATAN_PLAYER_STATUS rows=4 scroll=1 compact=1 viewport=230' "$log_file" && break
+    sleep 1
+  done
+  rg -q 'CATAN_PLAYER_STATUS rows=4 scroll=1 compact=1 viewport=230' "$log_file" \
+    || fail "four-player status panel did not expose all rows in a scroll container"
+  adb shell input swipe 1880 510 1880 270 500
+  sleep 1
+  assert_running_without_fatal "four-player player-list swipe failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "four-player status screenshot is empty"
+}
+
 test_failed_connections() {
   print "Testing failed LAN join returns to main menu..."
   adb logcat -c
@@ -375,9 +400,10 @@ test_combo_preview Bots 1200 390
 test_bank_preview
 test_settings_preview
 test_hud_graph
+test_four_player_status_panel
 test_failed_connections
 
-print "PASS: Android startup, full HUD graph, failed joins, settings, development menus, trade and dropdown families"
+print "PASS: Android startup, four-player status panel, full HUD graph, failed joins, settings, development menus, trade and dropdown families"
 print "APK: $apk"
 print "Artifacts: $log_dir"
 if (( started_emulator )); then
