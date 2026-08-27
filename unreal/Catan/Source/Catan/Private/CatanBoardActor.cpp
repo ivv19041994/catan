@@ -263,6 +263,21 @@ void ACatanBoardActor::BuildBoard()
     BuildRoads();
     BuildPorts();
     BuildDice();
+    ConfigureLongRangeShadows();
+}
+
+void ACatanBoardActor::ConfigureLongRangeShadows()
+{
+    TInlineComponentArray<UPrimitiveComponent*> Components(this);
+    int32 Casters = 0;
+    for (UPrimitiveComponent* Component : Components)
+    {
+        if (!Component || !Component->CastShadow) continue;
+        Component->bCastFarShadow = true;
+        Component->MarkRenderStateDirty();
+        ++Casters;
+    }
+    UE_LOG(LogTemp, Display, TEXT("CATAN_SHADOWS board-casters=%d far-shadow=1"), Casters);
 }
 
 bool ACatanBoardActor::TryBuildBoard()

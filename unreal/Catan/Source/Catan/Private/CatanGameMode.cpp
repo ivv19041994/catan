@@ -9,12 +9,55 @@
 #include "CatanGameSubsystem.h"
 #include "CatanNetworkSubsystem.h"
 #include "CatanPlayerController.h"
+#include "CatanLightingPolicy.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Engine/DirectionalLight.h"
+#include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/GameSession.h"
+#include "HAL/IConsoleManager.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCatanNetworkMode, Log, All);
+
+void ACatanGameMode::ConfigureBoardLighting()
+{
+#if PLATFORM_ANDROID
+    constexpr bool bMobile = true;
+#else
+    constexpr bool bMobile = false;
+#endif
+    const FCatanShadowSettings Settings = CatanLightingPolicy::Settings(bMobile);
+    if (IConsoleVariable* Resolution = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shadow.MaxResolution")))
+        Resolution->Set(Settings.MaxResolution, ECVF_SetByGameSetting);
+    ADirectionalLight* Sun = nullptr;
+    TActorIterator<ADirectionalLight> ExistingSun(GetWorld());
+    if (ExistingSun) Sun = *ExistingSun;
+    if (!Sun)
+    {
+        Sun = GetWorld()->SpawnActor<ADirectionalLight>(ADirectionalLight::StaticClass(),
+            FVector(0.0f, 0.0f, 3000.0f), FRotator(-52.0f, -28.0f, 0.0f));
+    }
+    if (!Sun) return;
+    UDirectionalLightComponent* Light = Cast<UDirectionalLightComponent>(Sun->GetLightComponent());
+    if (!Light) return;
+    Sun->SetMobility(EComponentMobility::Movable);
+    Light->SetCastShadows(true);
+    Light->SetDynamicShadowDistanceMovableLight(Settings.DynamicDistance);
+    Light->SetDynamicShadowDistanceStationaryLight(Settings.DynamicDistance);
+    Light->SetDynamicShadowCascades(Settings.Cascades);
+    Light->SetCascadeDistributionExponent(1.35f);
+    Light->SetCascadeTransitionFraction(0.08f);
+    Light->SetShadowDistanceFadeoutFraction(0.06f);
+    Light->FarShadowCascadeCount = Settings.FarCascades;
+    Light->FarShadowDistance = Settings.FarDistance;
+    Light->MarkRenderStateDirty();
+    UE_LOG(LogCatanNetworkMode, Display,
+        TEXT("CATAN_SHADOWS configured mobile=%d dynamic=%.0f far=%.0f cascades=%d resolution=%d"),
+        bMobile, Settings.DynamicDistance, Settings.FarDistance, Settings.Cascades,
+        Settings.MaxResolution);
+}
 
 ACatanGameMode::ACatanGameMode()
 {
@@ -317,6 +360,7 @@ void ACatanGameMode::PublishLobby()
 void ACatanGameMode::BeginPlay()
 {
     Super::BeginPlay();
+    ConfigureBoardLighting();
     if (UCatanNetworkSubsystem* Network = GetGameInstance()
         ? GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>() : nullptr)
     {

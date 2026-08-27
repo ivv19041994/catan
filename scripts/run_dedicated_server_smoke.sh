@@ -17,6 +17,11 @@ fi
 server_pid=$!
 cleanup() {
   kill "$server_pid" 2>/dev/null || true
+  for _ in {1..50}; do
+    kill -0 "$server_pid" 2>/dev/null || break
+    sleep 0.05
+  done
+  kill -KILL "$server_pid" 2>/dev/null || true
   wait "$server_pid" 2>/dev/null || true
   rm -f "$log_file"
 }
@@ -35,7 +40,7 @@ if [[ -z "$port" ]]; then
 fi
 
 request() {
-  "$probe" --host 127.0.0.1 --port "$port" --request "$1"
+  "$probe" --host 127.0.0.1 --port "$port" --timeout-ms 3000 --request "$1"
 }
 
 [[ "$(request PING)" == $'OK\tPONG' ]]

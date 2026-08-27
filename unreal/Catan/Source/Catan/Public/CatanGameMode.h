@@ -39,6 +39,7 @@ private:
     TObjectPtr<ACatanMenuBackdropActor> MenuBackdrop;
 
     void ShowGameBoard();
+    void ConfigureBoardLighting();
     const FString* FindExpectedPlayerName(const FString& Name) const;
     bool AreAllExpectedPlayersConnected() const;
 };

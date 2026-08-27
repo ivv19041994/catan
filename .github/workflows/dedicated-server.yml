@@ -21,4 +21,5 @@ jobs:
       - name: Unit and domain tests
         run: ctest --test-dir build-ci --output-on-failure
       - name: Dedicated TCP smoke
+        timeout-minutes: 3
         run: scripts/run_dedicated_server_smoke.sh build-ci

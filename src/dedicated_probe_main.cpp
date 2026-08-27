@@ -2,6 +2,7 @@
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <cstdlib>
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -13,18 +14,21 @@ int main(int argc, char** argv)
     std::string host = "127.0.0.1";
     std::string port = "17777";
     std::string request;
+    int timeout_ms = 5000;
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
-        if ((argument == "--host" || argument == "--port" || argument == "--request") && index + 1 < argc) {
+        if ((argument == "--host" || argument == "--port" || argument == "--request"
+            || argument == "--timeout-ms") && index + 1 < argc) {
             if (argument == "--host") host = argv[++index];
             else if (argument == "--port") port = argv[++index];
-            else request = argv[++index];
+            else if (argument == "--request") request = argv[++index];
+            else timeout_ms = std::atoi(argv[++index]);
         } else {
             std::cerr << "Usage: catan-dedicated-probe --host HOST --port PORT --request REQUEST\n";
             return 2;
         }
     }
-    if (request.empty()) { std::cerr << "Request is required\n"; return 2; }
+    if (request.empty() || timeout_ms <= 0) { std::cerr << "Request and a positive timeout are required\n"; return 2; }
     addrinfo hints{}; hints.ai_family = AF_UNSPEC; hints.ai_socktype = SOCK_STREAM;
     addrinfo* addresses = nullptr;
     const int lookup = getaddrinfo(host.c_str(), port.c_str(), &hints, &addresses);
@@ -38,6 +42,15 @@ int main(int argc, char** argv)
     }
     freeaddrinfo(addresses);
     if (connection < 0) { std::cerr << "Could not connect to dedicated server\n"; return 1; }
+    timeval timeout{};
+    timeout.tv_sec = timeout_ms / 1000;
+    timeout.tv_usec = (timeout_ms % 1000) * 1000;
+    if (setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0
+        || setsockopt(connection, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0) {
+        std::cerr << "Could not configure socket timeout\n";
+        close(connection);
+        return 1;
+    }
     request.push_back('\n');
     std::size_t sent = 0;
     while (sent < request.size()) {
@@ -48,6 +61,11 @@ int main(int argc, char** argv)
     std::string response; char buffer[4096];
     while (response.find('\n') == std::string::npos) {
         const ssize_t count = recv(connection, buffer, sizeof(buffer), 0);
+        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            std::cerr << "Dedicated server response timed out\n";
+            close(connection);
+            return 1;
+        }
         if (count <= 0) break;
         response.append(buffer, static_cast<std::size_t>(count));
     }
