@@ -44,3 +44,11 @@ turns. Logs and screenshots from both clients are retained under `/tmp`.
 The wire protocol is a version-one request/response TCP protocol with one
 newline-terminated request per connection. `catan-dedicated-probe` is provided
 for diagnostics and smoke automation.
+
+## Hidden victory cards
+
+Before the game finishes, snapshots expose only construction and award victory
+points for opponents. Victory-point development cards and their points are
+returned only in the authenticated owner's private snapshot. At `Finished`,
+total points and victory-card counts are revealed for every player so the final
+dashboard can explain the result.

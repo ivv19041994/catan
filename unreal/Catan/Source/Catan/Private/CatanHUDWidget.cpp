@@ -1350,9 +1350,9 @@ void UCatanHUDWidget::Refresh()
         for (const FCatanPlayerView& Player : View.Players)
         {
             Standings += FString::Printf(
-                TEXT("%s — %d VP | %d dev | %d resources\n  %d settlements, %d cities, %d roads remaining\n"),
-                *Player.Name, Player.VictoryPoints, Player.DevelopmentCards,
-                Player.ResourceCards,
+                TEXT("%s — %d VP | %d VP cards | %d dev | %d resources\n  %d settlements, %d cities, %d roads remaining\n"),
+                *Player.Name, Player.VictoryPoints, Player.VictoryPointCards,
+                Player.DevelopmentCards, Player.ResourceCards,
                 Player.FreeSettlements, Player.FreeCities, Player.FreeRoads);
         }
         WinnerText->SetText(FText::FromString(Standings));

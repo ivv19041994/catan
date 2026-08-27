@@ -52,6 +52,8 @@ struct FCatanPrivatePlayerView
     GENERATED_BODY()
 
     UPROPERTY(BlueprintReadOnly) FCatanResourceView Resources;
+    UPROPERTY(BlueprintReadOnly) int32 VictoryPoints = 0;
+    UPROPERTY(BlueprintReadOnly) int32 VictoryPointCards = 0;
     UPROPERTY(BlueprintReadOnly) int32 DevelopmentCards = 0;
     UPROPERTY(BlueprintReadOnly) int32 Knights = 0;
     UPROPERTY(BlueprintReadOnly) int32 RoadBuildingCards = 0;

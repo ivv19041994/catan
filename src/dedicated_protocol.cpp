@@ -140,7 +140,7 @@ std::string SerializeSnapshot(const Snapshot& snapshot)
                << player.knights << '\t' << player.road_building << '\t'
                << player.year_of_plenty << '\t' << player.monopoly << '\t'
                << player.pending_development << '\t' << player.largest_army << '\t'
-               << player.longest_road << '\n';
+               << player.longest_road << '\t' << player.victory_point_cards << '\n';
     for (const auto& hex : snapshot.hexes)
         output << "H\t" << hex.id << '\t' << hex.resource << '\t' << hex.dice << '\t' << hex.robber << '\n';
     for (const auto& node : snapshot.nodes)
@@ -197,7 +197,7 @@ std::optional<Snapshot> DeserializeSnapshot(std::string_view payload, std::strin
             snapshot.deal.active = true; snapshot.deal.offering_player = *offering; snapshot.deal.target_player = *target;
         } else if (fields[0] == "E" && fields.size() == 2) {
             auto value = decode(fields[1]); if (!value) return std::nullopt; snapshot.events.push_back(*value);
-        } else if (fields[0] == "P" && fields.size() == 21) {
+        } else if (fields[0] == "P" && fields.size() == 22) {
             PlayerSnapshot item; int current = 0, local = 0, visible = 0, army = 0, road = 0; auto name = decode(fields[2]);
             if (!name || !ParseInt(fields[1], item.id) || !ParseInt(fields[3], current) || !ParseInt(fields[4], local)
                 || !ParseInt(fields[5], visible) || !ParseInt(fields[6], item.victory_points)
@@ -207,7 +207,8 @@ std::optional<Snapshot> DeserializeSnapshot(std::string_view payload, std::strin
                 || !ParseResources(fields[13], item.trade_rates) || !ParseInt(fields[14], item.knights)
                 || !ParseInt(fields[15], item.road_building) || !ParseInt(fields[16], item.year_of_plenty)
                 || !ParseInt(fields[17], item.monopoly) || !ParseInt(fields[18], item.pending_development)
-                || !ParseInt(fields[19], army) || !ParseInt(fields[20], road)) return std::nullopt;
+                || !ParseInt(fields[19], army) || !ParseInt(fields[20], road)
+                || !ParseInt(fields[21], item.victory_point_cards)) return std::nullopt;
             item.name = *name; item.current = current != 0; item.local = local != 0; item.resources_visible = visible != 0;
             item.largest_army = army != 0; item.longest_road = road != 0; snapshot.players.push_back(std::move(item));
         } else if (fields[0] == "H" && fields.size() == 5) {

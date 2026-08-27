@@ -83,6 +83,7 @@ struct PlayerSnapshot {
     bool local = false;
     bool resources_visible = false;
     int victory_points = 0;
+    int victory_point_cards = 0;
     int resource_cards = 0;
     int development_cards = 0;
     int free_settlements = 0;

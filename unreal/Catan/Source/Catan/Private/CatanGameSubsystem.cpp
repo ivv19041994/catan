@@ -2,6 +2,7 @@
 #include "CatanBotStrategy.h"
 #include "CatanTradePolicy.h"
 #include "CatanInteractionPolicy.h"
+#include "CatanVictoryVisibilityPolicy.h"
 
 #include "CatanGameState.h"
 #include "CatanPlayerController.h"
@@ -416,6 +417,8 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
                 {
                     Player->bIsLocalPlayer = true;
                     Player->bResourcesVisible = true;
+                    Player->VictoryPoints = PlayerState->PrivateView.VictoryPoints;
+                    Player->VictoryPointCards = PlayerState->PrivateView.VictoryPointCards;
                     Player->Resources = PlayerState->PrivateView.Resources;
                     Player->Knights = PlayerState->PrivateView.Knights;
                     Player->RoadBuildingCards = PlayerState->PrivateView.RoadBuildingCards;
@@ -430,7 +433,14 @@ FCatanGameView UCatanGameSubsystem::GetSnapshot() const
     {
         Player.bIsLocalPlayer = Player.Name == LocalPlayerName;
         Player.bResourcesVisible = Player.bIsLocalPlayer;
-        if (Player.bResourcesVisible) continue;
+        if (Player.bResourcesVisible)
+        {
+            Player.VictoryPoints = static_cast<int32>(
+                Game->GetPlayer(TCHAR_TO_UTF8(*Player.Name)).GetWinPoints());
+            Player.VictoryPointCards = static_cast<int32>(
+                Game->GetPlayer(TCHAR_TO_UTF8(*Player.Name)).GetVictoryPointCardCount());
+            continue;
+        }
         Player.Resources = {};
         Player.Knights = 0;
         Player.RoadBuildingCards = 0;
@@ -818,7 +828,12 @@ FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
         PlayerView.Name = PlayerName;
         PlayerView.bIsCurrent = PlayerName == View.CurrentPlayer;
         PlayerView.bIsBot = IsBotPlayer(PlayerName);
-        PlayerView.VictoryPoints = static_cast<int32>(Player.GetWinPoints());
+        const FCatanVisibleVictoryState Victory = CatanVictoryVisibilityPolicy::Resolve(
+            static_cast<int32>(Player.GetPublicWinPoints()), static_cast<int32>(Player.GetWinPoints()),
+            static_cast<int32>(Player.GetVictoryPointCardCount()), false,
+            View.Phase == ECatanGamePhase::Finished);
+        PlayerView.VictoryPoints = Victory.VictoryPoints;
+        PlayerView.VictoryPointCards = Victory.VictoryPointCards;
         PlayerView.ResourceCards = static_cast<int32>(Player.getCountResurses());
         PlayerView.DevelopmentCards = CountDevelopmentCards(Player);
         PlayerView.Knights = static_cast<int32>(Player.GetReadyForUseCardCount(ivv::catan::DevelopmentCard::Knights));
@@ -1365,6 +1380,9 @@ void UCatanGameSubsystem::PublishAuthoritativeState()
     for (FCatanPlayerView& Player : Public.Players)
     {
         FCatanPrivatePlayerView Private;
+        const ivv::catan::Player& CorePlayer = Game->GetPlayer(TCHAR_TO_UTF8(*Player.Name));
+        Private.VictoryPoints = static_cast<int32>(CorePlayer.GetWinPoints());
+        Private.VictoryPointCards = static_cast<int32>(CorePlayer.GetVictoryPointCardCount());
         Private.Resources = Player.Resources;
         Private.DevelopmentCards = Player.DevelopmentCards;
         Private.Knights = Player.Knights;
