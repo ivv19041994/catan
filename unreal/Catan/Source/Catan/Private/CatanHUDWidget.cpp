@@ -12,6 +12,7 @@
 #include "CatanUserSettings.h"
 #include "CatanMobileUIPolicy.h"
 #include "CatanTouchComboBoxString.h"
+#include "CatanPlayerStatusPanelPolicy.h"
 #include "CommonTextBlock.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -284,7 +285,19 @@ void UCatanHUDWidget::BuildLayout()
     PlayerPanel->AddChildToVerticalBox(PlayerDetails);
     DevelopmentHandText = AddText(PlayerDetails, TEXT("Development: 0"), 14);
     AddText(PlayerDetails, TEXT("PLAYERS"), 20);
-    PlayersText = AddText(PlayerDetails, FString(), 17);
+    PlayersListSizeBox = WidgetTree->ConstructWidget<USizeBox>();
+    PlayersListSizeBox->SetHeightOverride(
+        FCatanPlayerStatusPanelPolicy::Resolve(false).ViewportHeight);
+    PlayerDetails->AddChildToVerticalBox(PlayersListSizeBox);
+    PlayersScroll = WidgetTree->ConstructWidget<UScrollBox>();
+    PlayersScroll->SetOrientation(EOrientation::Orient_Vertical);
+    PlayersScroll->SetConsumeMouseWheel(EConsumeMouseWheel::WhenScrollingPossible);
+    PlayersScroll->SetAlwaysShowScrollbar(false);
+    PlayersListSizeBox->SetContent(PlayersScroll);
+    UVerticalBox* PlayerRows = WidgetTree->ConstructWidget<UVerticalBox>();
+    PlayersScroll->AddChild(PlayerRows);
+    PlayersText = AddText(PlayerRows, FString(),
+        FCatanPlayerStatusPanelPolicy::Resolve(false).FontSize);
 
     CostBorder = AddPanel(WidgetTree, Canvas, FAnchors(1, 0), FVector2D(1, 0),
         FMargin(-24, 500, 440, 150));
@@ -890,6 +903,17 @@ void UCatanHUDWidget::ApplyAdaptiveLayout(bool bCompact)
             ? (bRightDetailsOpen ? 560.0f : 240.0f) : 455.0f));
     if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(CostBorder->Slot))
         Slot->SetPosition(FVector2D(-24.0f, bCompact && bRightDetailsOpen ? 610.0f : 500.0f));
+    const FCatanPlayerStatusPanelMetrics PlayerMetrics = FCatanPlayerStatusPanelPolicy::Resolve(bCompact);
+    if (PlayersListSizeBox) PlayersListSizeBox->SetHeightOverride(PlayerMetrics.ViewportHeight);
+    if (PlayersText)
+    {
+        FSlateFontInfo Font = PlayersText->GetFont();
+        Font.Size = PlayerMetrics.FontSize;
+        PlayersText->SetFont(Font);
+    }
+    if (PreviousPlayerStatusCount > 0)
+        UE_LOG(LogTemp, Display, TEXT("CATAN_PLAYER_STATUS rows=%d scroll=1 compact=%d viewport=%.0f"),
+            PreviousPlayerStatusCount, bCompactLayout, PlayerMetrics.ViewportHeight);
 
     if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(LeftDetailsButton->GetChildAt(0)))
         Label->SetText(FText::FromString(Localize(bLeftDetailsOpen
@@ -1228,24 +1252,29 @@ void UCatanHUDWidget::Refresh()
     for (const FCatanPlayerView& Player : View.Players)
     {
         FString Awards;
-        if (Player.bHasLongestRoad) Awards += TEXT("  ★ ") + Localize(TEXT("LONGEST ROAD"));
-        if (Player.bHasLargestArmy) Awards += TEXT("  ★ ") + Localize(TEXT("LARGEST ARMY"));
-        Players += FString::Printf(TEXT("%s %s  |  VP %d  RES %d  DEV %d%s\n"),
+        if (Player.bHasLongestRoad) Awards += TEXT("  ★") + Localize(TEXT("ROAD"));
+        if (Player.bHasLargestArmy) Awards += TEXT("  ★") + Localize(TEXT("ARMY"));
+        FString DisplayName = FCatanPlayerStatusPanelPolicy::CompactName(Player.Name);
+        if (Player.bIsLocalPlayer) DisplayName += TEXT(" [") + Localize(TEXT("YOU")) + TEXT("]");
+        if (Player.bIsBot) DisplayName += TEXT(" [") + Localize(TEXT("BOT")) + TEXT("]");
+        Players += FString::Printf(TEXT("%s %s  ·  VP %d  ·  RES %d  ·  DEV %d\n"),
             Player.bIsCurrent ? TEXT("▶") : TEXT(" "),
-            *FString::Printf(TEXT("%s%s%s"), *Player.Name,
-                Player.bIsLocalPlayer ? *FString::Printf(TEXT(" [%s]"), *Localize(TEXT("YOU"))) : TEXT(""),
-                Player.bIsBot ? *FString::Printf(TEXT(" [%s]"), *Localize(TEXT("BOT"))) : TEXT("")),
-            Player.VictoryPoints, Player.ResourceCards, Player.DevelopmentCards, *Awards);
-        Players += Localize(TEXT("Pieces:")) + FString::Printf(TEXT(" %d "), Player.FreeSettlements)
-            + Localize(TEXT("settlements")) + FString::Printf(TEXT(", %d "), Player.FreeCities)
-            + Localize(TEXT("cities")) + FString::Printf(TEXT(", %d "), Player.FreeRoads)
-            + Localize(TEXT("roads")) + TEXT("\n\n");
+            *DisplayName, Player.VictoryPoints, Player.ResourceCards, Player.DevelopmentCards);
+        Players += FString::Printf(TEXT("   S %d  ·  C %d  ·  R %d%s\n"),
+            Player.FreeSettlements, Player.FreeCities, Player.FreeRoads, *Awards);
         if (Player.bResourcesVisible)
             ResourceDigest = FString::Printf(TEXT("%d/%d/%d/%d/%d"),
                 Player.Resources.Wood, Player.Resources.Clay, Player.Resources.Hay,
                 Player.Resources.Sheep, Player.Resources.Stone);
     }
     PlayersText->SetText(FText::FromString(Players));
+    if (PreviousPlayerStatusCount != View.Players.Num())
+    {
+        PreviousPlayerStatusCount = View.Players.Num();
+        UE_LOG(LogTemp, Display, TEXT("CATAN_PLAYER_STATUS rows=%d scroll=1 compact=%d viewport=%.0f"),
+            View.Players.Num(), bCompactLayout,
+            FCatanPlayerStatusPanelPolicy::Resolve(bCompactLayout).ViewportHeight);
+    }
     if (!PreviousResourceDigest.IsEmpty() && PreviousResourceDigest != ResourceDigest)
         ResourcePulseRemaining = 0.45f;
     PreviousResourceDigest = ResourceDigest;
@@ -1533,6 +1562,14 @@ void UCatanHUDWidget::ApplyUIPreview()
     {
         bSetupPanelOpen = false;
         ModalBorder->SetVisibility(ESlateVisibility::Collapsed);
+    }
+    else if (Preview.Equals(TEXT("Players4"), ESearchCase::IgnoreCase))
+    {
+        bSetupPanelOpen = false;
+        ModalBorder->SetVisibility(ESlateVisibility::Collapsed);
+        bLeftDetailsOpen = false;
+        bRightDetailsOpen = true;
+        ApplyAdaptiveLayout(true);
     }
     else if (Preview.Equals(TEXT("Bank"), ESearchCase::IgnoreCase))
     {

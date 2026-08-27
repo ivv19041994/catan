@@ -15,6 +15,8 @@ class UCatanGameSubsystem;
 class UCatanNetworkSubsystem;
 class UBorder;
 class UVerticalBox;
+class UScrollBox;
+class USizeBox;
 class UWidgetSwitcher;
 class UWrapBox;
 enum class ECatanDevelopmentCard : uint8;
@@ -40,6 +42,8 @@ private:
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> PhaseText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DiceText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> PlayersText;
+    UPROPERTY(Transient) TObjectPtr<UScrollBox> PlayersScroll;
+    UPROPERTY(Transient) TObjectPtr<USizeBox> PlayersListSizeBox;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> HandTitleText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DevelopmentHandText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> DevelopmentAvailabilityText;
@@ -132,6 +136,7 @@ private:
     bool bTradeInputsNeedReset = true;
     bool bUIPreviewReported = false;
     bool bAutoLeaveScheduled = false;
+    int32 PreviousPlayerStatusCount = INDEX_NONE;
     ECatanResource BankFromSelection = ECatanResource::Wood;
     ECatanResource BankToSelection = ECatanResource::Clay;
     ECatanResource MonopolySelection = ECatanResource::Wood;

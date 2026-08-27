@@ -38,6 +38,7 @@ private:
         {TEXT("ACTIONS"), TEXT("ДЕЙСТВИЯ")}, {TEXT("ROLL DICE"), TEXT("БРОСИТЬ КУБИКИ")},
         {TEXT("ROLL"), TEXT("БРОСОК")}, {TEXT("SETTLEMENT"), TEXT("ПОСЕЛЕНИЕ")},
         {TEXT("SETTLE"), TEXT("ПОСЕЛЕНИЕ")}, {TEXT("ROAD"), TEXT("ДОРОГА")},
+        {TEXT("ARMY"), TEXT("АРМИЯ")},
         {TEXT("CITY"), TEXT("ЗАМОК")}, {TEXT("BUY DEV"), TEXT("КУПИТЬ КАРТУ")},
         {TEXT("USE DEV"), TEXT("ИГРАТЬ КАРТУ")}, {TEXT("VIEW DEV"), TEXT("КАРТЫ")},
         {TEXT("DEV"), TEXT("КАРТЫ")}, {TEXT("TRADE"), TEXT("ТОРГОВЛЯ")},
