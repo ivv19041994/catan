@@ -23,9 +23,19 @@ struct FCatanBotPlayerTrade
     FCatanResourceView Requested;
 };
 
+enum class ECatanBotPlan : uint8
+{
+    Balanced,
+    Expansion,
+    CitiesAndArmy
+};
+
 class FCatanBotStrategy final
 {
 public:
+    static int32 DiceWeight(int32 Dice);
+    static ECatanBotPlan ChoosePlan(const FCatanGameView& View,
+        const FCatanBotTopology& Topology, int32 PlayerId);
     static int32 ChooseSettlement(const FCatanGameView& View, const FCatanBotTopology& Topology,
         const TArray<int32>& Targets, int32 PlayerId);
     static int32 ChooseCity(const FCatanGameView& View, const FCatanBotTopology& Topology,

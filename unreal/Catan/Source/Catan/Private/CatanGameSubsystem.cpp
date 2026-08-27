@@ -607,6 +607,9 @@ void UCatanGameSubsystem::PerformBotAction()
     const FCatanPlayerView* Player = View.Players.FindByPredicate(
         [&View](const FCatanPlayerView& Item) { return Item.Name == View.CurrentPlayer; });
     const int32 PlayerId = Player ? Player->Id : INDEX_NONE;
+    const ECatanBotPlan StrategicPlan = FCatanBotStrategy::ChoosePlan(View, Topology, PlayerId);
+    UE_LOG(LogTemp, Display, TEXT("CATAN_BOT plan=%d player=%s"),
+        static_cast<int32>(StrategicPlan), *View.CurrentPlayer);
 
     if (View.PendingRobberHex != INDEX_NONE && !View.RobberVictims.IsEmpty())
     {
@@ -695,7 +698,11 @@ void UCatanGameSubsystem::PerformBotAction()
     }
     if (!bBotDevelopmentAttempted)
     {
-        if (Player->RoadBuildingCards > 0 && Player->FreeRoads > 0 && View.bHasRoadTarget)
+        int32 BuiltRoads = 0;
+        for (const FCatanRoadView& Road : View.Roads)
+            if (Road.OwnerId == PlayerId) ++BuiltRoads;
+        if (Player->RoadBuildingCards > 0 && Player->FreeRoads > 0 && View.bHasRoadTarget
+            && (StrategicPlan == ECatanBotPlan::Expansion || BuiltRoads >= 4))
         {
             bBotDevelopmentAttempted = true;
             if (TryUseDevelopmentCard(ECatanDevelopmentCard::RoadBuilding,
@@ -758,8 +765,15 @@ void UCatanGameSubsystem::PerformBotAction()
     if (Player->FreeRoads > 0 && View.bHasRoadTarget && Have.Wood > 0 && Have.Clay > 0
         && (!View.bHasSettlementTarget || TotalResources >= 7))
     {
-        SelectBoardAction(ECatanBoardAction::BuildRoad);
-        return;
+        BoardAction = ECatanBoardAction::BuildRoad;
+        const FCatanGameView RoadPreview = BuildAuthoritativeSnapshot();
+        BoardAction = ECatanBoardAction::Automatic;
+        if (FCatanBotStrategy::ChooseRoad(RoadPreview, Topology,
+            RoadPreview.ValidRoadTargets, PlayerId) != INDEX_NONE)
+        {
+            SelectBoardAction(ECatanBoardAction::BuildRoad);
+            return;
+        }
     }
     TryPass(Error);
 }

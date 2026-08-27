@@ -36,6 +36,15 @@ done
 
 adb -s "$serial" install -r "$apk" >/dev/null || fail "APK installation failed"
 fatal_pattern='Assertion failed|Fatal error|FATAL EXCEPTION|Fatal signal|CATAN_BOT_E2E FAIL'
+app_pid=""
+capture_app_log() {
+  if [[ -z "$app_pid" ]]; then
+    app_pid="$(adb -s "$serial" shell pidof -s "$package_name" 2>/dev/null | tr -d '\r' || true)"
+  fi
+  if [[ -n "$app_pid" ]]; then adb -s "$serial" logcat -d --pid="$app_pid" >"$log_file"
+  else : >"$log_file"
+  fi
+}
 for bot_count in 1 2 3; do
   log_file="$log_dir/bots-${bot_count}.log"
   args="-CatanAutoBots=$bot_count -CatanPlayerName=AndroidE2E -CatanBotAutoplay -CatanBotMaxActions=12000"
@@ -44,9 +53,16 @@ for bot_count in 1 2 3; do
   adb -s "$serial" shell am force-stop "$package_name"
   adb -s "$serial" shell am start -n "$activity" --es cmdline "'$args'" >/dev/null \
     || fail "could not launch $((bot_count + 1))-player game"
+  app_pid=""
+  for _ in {1..50}; do
+    app_pid="$(adb -s "$serial" shell pidof -s "$package_name" 2>/dev/null | tr -d '\r' || true)"
+    [[ -n "$app_pid" ]] && break
+    sleep 0.1
+  done
+  [[ -n "$app_pid" ]] || fail "Catan process did not start"
   passed=0
   for _ in {1..180}; do
-    adb -s "$serial" logcat -d >"$log_file"
+    capture_app_log
     if rg -q "$fatal_pattern" "$log_file"; then
       rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
       fail "$((bot_count + 1))-player Android bot game failed"
