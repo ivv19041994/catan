@@ -34,6 +34,8 @@ private:
         {TEXT("HIDE PLAYERS & COSTS"), TEXT("СКРЫТЬ ПОДРОБНОСТИ")},
         {TEXT("Development: 0"), TEXT("Карты развития: 0")},
         {TEXT("PLAYERS"), TEXT("ИГРОКИ")}, {TEXT("BUILD COSTS"), TEXT("СТОИМОСТЬ СТРОИТЕЛЬСТВА")},
+        {TEXT("SAVED GAMES"), TEXT("СОХРАНЁННЫЕ ИГРЫ")},
+        {TEXT("No saved games"), TEXT("Нет сохранённых игр")},
         {TEXT("Costs appear for the current player"), TEXT("Здесь появится стоимость для текущего игрока")},
         {TEXT("ACTIONS"), TEXT("ДЕЙСТВИЯ")}, {TEXT("ROLL DICE"), TEXT("БРОСИТЬ КУБИКИ")},
         {TEXT("ROLL"), TEXT("БРОСОК")}, {TEXT("SETTLEMENT"), TEXT("ПОСЕЛЕНИЕ")},

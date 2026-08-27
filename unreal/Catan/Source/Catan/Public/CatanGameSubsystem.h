@@ -13,6 +13,18 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCatanGameStateChanged);
 
+struct FCatanLanSaveSummary
+{
+    FString SlotId;
+    FString Label;
+    TArray<FString> PlayerNames;
+    FString CurrentPlayer;
+    FString Phase;
+    FDateTime SavedAt;
+    bool bValid = false;
+    FString Error;
+};
+
 UCLASS()
 class CATAN_API UCatanGameSubsystem final : public UGameInstanceSubsystem
 {
@@ -34,6 +46,9 @@ public:
     void PublishAuthoritativeState();
     bool HasAuthoritativeGame() const;
     bool HasLanSavedGame() const;
+    TArray<FCatanLanSaveSummary> ListLanSavedGames() const;
+    FString CreateLanSaveSlot(const FString& LobbyName);
+    bool SelectLanSaveSlot(const FString& SlotId, FString& Error);
     bool GetLanSavedPlayerNames(TArray<FString>& Names, FString& Error) const;
     bool LoadLanSavedGame(FString& Error);
     bool CanLocalPlayerAct(const FCatanGameView& View) const;
@@ -129,6 +144,8 @@ private:
 
     bool CompleteCommand(bool bSucceeded, const FString& Message, FString& Error);
     FString LanSavePath() const;
+    FString LanSaveDirectory() const;
+    FString CurrentLanSaveSlot;
     bool SaveLanGame(FString& Error) const;
     void AppendEvent(const FString& Message);
     void CaptureResourceChanges();

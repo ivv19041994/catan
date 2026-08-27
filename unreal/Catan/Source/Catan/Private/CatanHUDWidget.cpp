@@ -697,8 +697,12 @@ void UCatanHUDWidget::BuildLayout()
     DedicatedServerMode->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowDedicatedServerSetup);
     OnlineBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMainSetup);
 
+    UScrollBox* LocalNetworkScroll = WidgetTree->ConstructWidget<UScrollBox>();
+    LocalNetworkScroll->SetOrientation(EOrientation::Orient_Vertical);
+    LocalNetworkScroll->SetConsumeMouseWheel(EConsumeMouseWheel::WhenScrollingPossible);
+    SetupSwitcher->AddChild(LocalNetworkScroll);
     UVerticalBox* LocalNetworkPanel = WidgetTree->ConstructWidget<UVerticalBox>();
-    SetupSwitcher->AddChild(LocalNetworkPanel);
+    LocalNetworkScroll->AddChild(LocalNetworkPanel);
     AddText(LocalNetworkPanel, TEXT("LOCAL NETWORK"), 27);
     AddText(LocalNetworkPanel, TEXT("Host a LAN lobby, find one automatically, or enter its address."), 15);
     LobbyNameInput = WidgetTree->ConstructWidget<UEditableTextBox>();
@@ -708,6 +712,13 @@ void UCatanHUDWidget::BuildLayout()
     LocalNetworkPanel->AddChildToVerticalBox(LobbyNameInput);
     UButton* HostGame = AddButton(LocalNetworkPanel, TEXT("HOST ONLINE (LAN)"));
     HostGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::HostLanLobby);
+    AddText(LocalNetworkPanel, TEXT("SAVED GAMES"), 17);
+    SavedGameInput = WidgetTree->ConstructWidget<UCatanTouchComboBoxString>();
+    ConfigureComboBox(SavedGameInput, 17);
+    SavedGameInput->AddOption(TEXT("No saved games"));
+    SavedGameInput->SetSelectedIndex(0);
+    SavedGameInput->OnSelectionChanged.AddDynamic(this, &UCatanHUDWidget::UpdateSavedGameSelection);
+    LocalNetworkPanel->AddChildToVerticalBox(SavedGameInput);
     LoadLanButton = AddButton(LocalNetworkPanel, TEXT("LOAD SAVED LAN GAME"));
     LoadLanButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::LoadLanLobby);
     LoadLanButton->SetIsEnabled(GameSubsystem && GameSubsystem->HasLanSavedGame());
@@ -1069,7 +1080,7 @@ void UCatanHUDWidget::Refresh()
 {
     if (!GameSubsystem || !PhaseText) return;
     ON_SCOPE_EXIT { UpdateActionPanelVisibility(); };
-    if (LoadLanButton) LoadLanButton->SetIsEnabled(GameSubsystem->HasLanSavedGame());
+    RefreshSavedGameOptions();
     SetModalSize(680.0f, 650.0f);
     SetModalPosition(FVector2D::ZeroVector);
     if (NetworkSubsystem)
@@ -1358,6 +1369,8 @@ void UCatanHUDWidget::Refresh()
         const int32 SetupPage = SetupSwitcher ? SetupSwitcher->GetActiveWidgetIndex() : SetupMainIndex;
         if (SetupPage == SetupOnlineIndex)
             SetModalSize(760.0f, 520.0f);
+        else if (SetupPage == SetupLocalNetworkIndex)
+            SetModalSize(900.0f, 720.0f);
         else if (SetupPage == SetupDedicatedServerIndex)
             SetModalSize(760.0f, 590.0f);
         else if (SetupPage == SetupBotsIndex)
@@ -1535,6 +1548,43 @@ void UCatanHUDWidget::Refresh()
         if (View.Phase != ECatanGamePhase::DropCards) LastDropPlayer.Reset();
     }
     ApplyUIPreview();
+}
+
+void UCatanHUDWidget::RefreshSavedGameOptions()
+{
+    if (!GameSubsystem || !SavedGameInput || !LoadLanButton) return;
+    const TArray<FCatanLanSaveSummary> Saves = GameSubsystem->ListLanSavedGames();
+    FString Digest;
+    for (const FCatanLanSaveSummary& Save : Saves)
+        Digest += Save.SlotId + TEXT("|") + Save.Label + (Save.bValid ? TEXT("1;") : TEXT("0;"));
+    if (Digest != SavedGameCatalogDigest)
+    {
+        const FString PreviousSlot = SavedGameSlotIds.IsValidIndex(SavedGameInput->GetSelectedIndex())
+            ? SavedGameSlotIds[SavedGameInput->GetSelectedIndex()] : FString();
+        SavedGameCatalogDigest = Digest;
+        SavedGameSlotIds.Reset();
+        SavedGameSlotValid.Reset();
+        SavedGameInput->ClearOptions();
+        int32 Selected = INDEX_NONE;
+        int32 FirstValid = INDEX_NONE;
+        for (const FCatanLanSaveSummary& Save : Saves)
+        {
+            const int32 Index = SavedGameSlotIds.Add(Save.SlotId);
+            SavedGameSlotValid.Add(Save.bValid);
+            SavedGameInput->AddOption(Save.Label);
+            if (Save.SlotId == PreviousSlot) Selected = Index;
+            if (FirstValid == INDEX_NONE && Save.bValid) FirstValid = Index;
+        }
+        if (Saves.IsEmpty()) SavedGameInput->AddOption(Localize(TEXT("No saved games")));
+        SavedGameInput->SetSelectedIndex(Selected != INDEX_NONE ? Selected
+            : (FirstValid != INDEX_NONE ? FirstValid : 0));
+        const int32 ActiveIndex = SavedGameInput->GetSelectedIndex();
+        UE_LOG(LogTemp, Display, TEXT("CATAN_SAVE_CATALOG slots=%d valid=%d selectedValid=%d"), Saves.Num(),
+            Saves.FilterByPredicate([](const FCatanLanSaveSummary& Save) { return Save.bValid; }).Num(),
+            SavedGameSlotValid.IsValidIndex(ActiveIndex) && SavedGameSlotValid[ActiveIndex]);
+    }
+    const int32 Index = SavedGameInput->GetSelectedIndex();
+    LoadLanButton->SetIsEnabled(SavedGameSlotValid.IsValidIndex(Index) && SavedGameSlotValid[Index]);
 }
 
 void UCatanHUDWidget::UpdateActionPanelVisibility()
@@ -1857,7 +1907,19 @@ void UCatanHUDWidget::LoadLanLobby()
 {
     FString PlayerName;
     if (!GetValidatedPlayerName(PlayerName)) return;
-    NetworkSubsystem->HostSavedLobby(PlayerName);
+    const int32 Index = SavedGameInput ? SavedGameInput->GetSelectedIndex() : INDEX_NONE;
+    if (!SavedGameSlotIds.IsValidIndex(Index) || !SavedGameSlotValid.IsValidIndex(Index)
+        || !SavedGameSlotValid[Index]) return;
+    NetworkSubsystem->HostSavedLobby(PlayerName, SavedGameSlotIds[Index]);
+}
+
+void UCatanHUDWidget::UpdateSavedGameSelection(FString SelectedItem, ESelectInfo::Type SelectionType)
+{
+    (void)SelectedItem;
+    (void)SelectionType;
+    if (!LoadLanButton || !SavedGameInput) return;
+    const int32 Index = SavedGameInput->GetSelectedIndex();
+    LoadLanButton->SetIsEnabled(SavedGameSlotValid.IsValidIndex(Index) && SavedGameSlotValid[Index]);
 }
 
 void UCatanHUDWidget::StartBotMatch()
@@ -1882,7 +1944,7 @@ void UCatanHUDWidget::ShowOnlineSetup()
 void UCatanHUDWidget::ShowLocalNetworkSetup()
 {
     if (SetupSwitcher) SetupSwitcher->SetActiveWidgetIndex(SetupLocalNetworkIndex);
-    SetModalSize(900.0f, 650.0f);
+    SetModalSize(900.0f, 720.0f);
     UE_LOG(LogTemp, Display, TEXT("CATAN_ONLINE_NAV page=local"));
 }
 

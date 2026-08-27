@@ -225,6 +225,28 @@ test_online_page_preview() {
   [[ -s "$output" ]] || fail "$mode page screenshot is empty"
 }
 
+test_local_network_page() {
+  local output="$log_dir/localnetwork-page.png"
+  print "Testing scrollable Local Network page and empty save catalog..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline '-CatanUIPreview=LocalNetwork' >/dev/null \
+    || fail "Local Network page launch failed"
+  for attempt in {1..60}; do
+    capture_app_log
+    if rg -q "$fatal_pattern" "$log_file"; then fail "Local Network page crashed"; fi
+    rg -q 'CATAN_UI_PREVIEW ready mode=LocalNetwork' "$log_file" && break
+    sleep 1
+  done
+  rg -q 'CATAN_UI_PREVIEW ready mode=LocalNetwork' "$log_file" \
+    || fail "Local Network page did not become ready"
+  adb shell input swipe 1200 680 1200 300 600
+  sleep 1
+  assert_running_without_fatal "Local Network page swipe failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "Local Network page screenshot is empty"
+}
+
 test_settings_preview() {
   local output="$log_dir/settings-russian-page.png"
   print "Testing persistent settings page and Cyrillic rendering..."
@@ -395,7 +417,7 @@ test_development_monopoly_preview
 test_online_navigation
 test_online_page_preview Online
 test_online_page_preview DedicatedServer
-test_combo_preview LocalNetwork 1200 540
+test_local_network_page
 test_combo_preview Bots 1200 390
 test_bank_preview
 test_settings_preview

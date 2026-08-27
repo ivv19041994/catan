@@ -623,15 +623,24 @@ void UCatanNetworkSubsystem::HostLobby(const FString& PlayerName, const FString&
 {
     bHostingSavedLobby = false;
     SavedExpectedPlayerNames.Reset();
+    if (UCatanGameSubsystem* Games = GetGameInstance()
+        ? GetGameInstance()->GetSubsystem<UCatanGameSubsystem>() : nullptr)
+        Games->CreateLanSaveSlot(LobbyName);
     BeginHostLobby(PlayerName, LobbyName);
 }
 
-void UCatanNetworkSubsystem::HostSavedLobby(const FString& PlayerName)
+void UCatanNetworkSubsystem::HostSavedLobby(const FString& PlayerName, const FString& SlotId)
 {
     UCatanGameSubsystem* Games = GetGameInstance()
         ? GetGameInstance()->GetSubsystem<UCatanGameSubsystem>() : nullptr;
     FString Error;
     TArray<FString> Expected;
+    if (!SlotId.IsEmpty() && (!Games || !Games->SelectLanSaveSlot(SlotId, Error)))
+    {
+        Status = Error.IsEmpty() ? TEXT("Saved game slot is invalid") : Error;
+        OnNetworkChanged.Broadcast();
+        return;
+    }
     if (!Games || !Games->GetLanSavedPlayerNames(Expected, Error))
     {
         Status = Error.IsEmpty() ? TEXT("Could not read the saved LAN game") : Error;

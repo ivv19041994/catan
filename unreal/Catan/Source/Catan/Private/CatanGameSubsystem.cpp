@@ -466,12 +466,101 @@ FString UCatanGameSubsystem::LanSavePath() const
     if (FParse::Value(FCommandLine::Get(), TEXT("CatanSaveFile="), Override)
         && !Override.TrimStartAndEnd().IsEmpty())
         return FPaths::ConvertRelativePathToFull(Override);
-    return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("SaveGames"), TEXT("lan-host.catan"));
+    return FPaths::Combine(LanSaveDirectory(), CurrentLanSaveSlot.IsEmpty()
+        ? TEXT("lan-host.catan") : CurrentLanSaveSlot + TEXT(".catan"));
+}
+
+FString UCatanGameSubsystem::LanSaveDirectory() const
+{
+    FString Override;
+    if (FParse::Value(FCommandLine::Get(), TEXT("CatanSaveDirectory="), Override)
+        && !Override.TrimStartAndEnd().IsEmpty())
+        return FPaths::ConvertRelativePathToFull(Override);
+    return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("SaveGames"));
+}
+
+FString UCatanGameSubsystem::CreateLanSaveSlot(const FString& LobbyName)
+{
+    FString Base = LobbyName.TrimStartAndEnd().ToLower();
+    for (TCHAR& Character : Base)
+        if (!FChar::IsAlnum(Character) && Character != TEXT('-') && Character != TEXT('_')) Character = TEXT('-');
+    while (Base.Contains(TEXT("--"))) Base.ReplaceInline(TEXT("--"), TEXT("-"));
+    while (Base.StartsWith(TEXT("-"))) Base.RightChopInline(1);
+    while (Base.EndsWith(TEXT("-"))) Base.LeftChopInline(1);
+    Base = Base.Left(28);
+    if (Base.IsEmpty()) Base = TEXT("lan-game");
+    CurrentLanSaveSlot = FString::Printf(TEXT("%s-%lld-%s"), *Base,
+        FDateTime::UtcNow().ToUnixTimestamp(), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(6));
+    return CurrentLanSaveSlot;
+}
+
+bool UCatanGameSubsystem::SelectLanSaveSlot(const FString& SlotId, FString& Error)
+{
+    FString Safe = SlotId.TrimStartAndEnd();
+    bool bUnsafeCharacter = false;
+    for (const TCHAR Character : Safe)
+        bUnsafeCharacter = bUnsafeCharacter
+            || (!FChar::IsAlnum(Character) && Character != TEXT('-') && Character != TEXT('_'));
+    if (Safe.IsEmpty() || bUnsafeCharacter)
+    {
+        Error = TEXT("Saved game slot is invalid");
+        return false;
+    }
+    CurrentLanSaveSlot = Safe;
+    Error.Reset();
+    return true;
+}
+
+TArray<FCatanLanSaveSummary> UCatanGameSubsystem::ListLanSavedGames() const
+{
+    TArray<FString> Files;
+    IFileManager::Get().FindFiles(Files, *FPaths::Combine(LanSaveDirectory(), TEXT("*.catan")), true, false);
+    TArray<FCatanLanSaveSummary> Result;
+    for (const FString& File : Files)
+    {
+        FCatanLanSaveSummary& Summary = Result.Emplace_GetRef();
+        Summary.SlotId = FPaths::GetBaseFilename(File);
+        const FString Path = FPaths::Combine(LanSaveDirectory(), File);
+        Summary.SavedAt = IFileManager::Get().GetTimeStamp(*Path);
+        FCatanLanSaveEnvelope Envelope;
+        FString Error;
+        if (ReadLanSaveEnvelope(Path, Envelope, Error))
+        {
+            try
+            {
+                const std::string Core(reinterpret_cast<const char*>(Envelope.CoreState.GetData()),
+                    static_cast<size_t>(Envelope.CoreState.Num()));
+                const std::unique_ptr<ivv::catan::GameController> Saved =
+                    ivv::catan::GameController::DeserializeState(Core);
+                Summary.PlayerNames = Envelope.PlayerNames;
+                Summary.CurrentPlayer = UTF8_TO_TCHAR(Saved->GetCurrentPlayer().c_str());
+                std::ostringstream Phase;
+                Saved->PrintStep(Phase);
+                Summary.Phase = UTF8_TO_TCHAR(Phase.str().c_str());
+                Summary.bValid = true;
+            }
+            catch (const std::exception& Exception)
+            {
+                Error = UTF8_TO_TCHAR(Exception.what());
+            }
+        }
+        Summary.Error = Error;
+        Summary.Label = Summary.bValid
+            ? FString::Printf(TEXT("%s  |  %s  |  %s  |  %s"),
+                *Summary.SavedAt.ToString(TEXT("%Y-%m-%d %H:%M")),
+                *FString::Join(Summary.PlayerNames, TEXT(", ")), *Summary.CurrentPlayer, *Summary.Phase)
+            : FString::Printf(TEXT("[DAMAGED] %s — %s"), *File,
+                Error.IsEmpty() ? TEXT("invalid saved game") : *Error);
+    }
+    Result.Sort([](const FCatanLanSaveSummary& A, const FCatanLanSaveSummary& B)
+        { return A.SavedAt > B.SavedAt; });
+    return Result;
 }
 
 bool UCatanGameSubsystem::HasLanSavedGame() const
 {
-    return IFileManager::Get().FileExists(*LanSavePath());
+    return ListLanSavedGames().ContainsByPredicate(
+        [](const FCatanLanSaveSummary& Summary) { return Summary.bValid; });
 }
 
 bool UCatanGameSubsystem::GetLanSavedPlayerNames(TArray<FString>& Names, FString& Error) const

@@ -31,6 +31,17 @@ launch() {
   pids+=("$REPLY")
 }
 
+launch_catalog() {
+  local log_file="$1"
+  local catalog_dir="$2"
+  shift 2
+  "$editor" "$project_dir/Catan.uproject" "/Engine/Maps/Templates/Template_Default" \
+    -game -nullrhi -unattended -nosound -abslog="$log_file" \
+    -CatanSaveDirectory="$catalog_dir" "$@" &
+  REPLY="$!"
+  pids+=("$REPLY")
+}
+
 wait_for() {
   local log_file="$1"
   local pattern="$2"
@@ -95,5 +106,15 @@ wait_for "$log_dir/restored-host.log" 'CATAN_SAVE restored .* players=3' 75
 wait_for "$log_dir/restored-host.log" 'CATAN_SMOKE match started players=3 restored=1' 45
 wait_for "$log_dir/restored-host.log" 'CATAN_MP_E2E action player=.* action=(roll|pass|move-robber|discard)' 90
 
-print "PASS: host autosave, name-only rebinding, expected-name gate and resumed play succeeded"
+stop_all
+print "Checking multi-slot metadata and damaged-save isolation..."
+catalog_dir="$log_dir/catalog"
+mkdir -p "$catalog_dir"
+cp "$save_file" "$catalog_dir/family-game.catan"
+cp "$save_file" "$catalog_dir/second-table.catan"
+print -n 'damaged-save' >"$catalog_dir/broken.catan"
+launch_catalog "$log_dir/catalog.log" "$catalog_dir" -CatanUIPreview=LocalNetwork
+wait_for "$log_dir/catalog.log" 'CATAN_SAVE_CATALOG slots=3 valid=2 selectedValid=1' 60
+
+print "PASS: host autosave, multi-slot catalog, damaged-save isolation, name-only rebinding, expected-name gate and resumed play succeeded"
 print "Artifacts: $log_dir"
