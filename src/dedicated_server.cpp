@@ -531,7 +531,12 @@ std::optional<Snapshot> Service::GetSnapshot(std::string_view lobby_token,
         snapshot.current = auth.name == view.current_player;
         snapshot.local = auth.token == player_token;
         snapshot.resources_visible = snapshot.local;
-        snapshot.victory_points = static_cast<int>(player.GetWinPoints());
+        const bool reveal_victory_cards = snapshot.local
+            || game.GetStep() == GameController::GameStep::Finish;
+        snapshot.victory_points = static_cast<int>(reveal_victory_cards
+            ? player.GetWinPoints() : player.GetPublicWinPoints());
+        snapshot.victory_point_cards = reveal_victory_cards
+            ? static_cast<int>(player.GetVictoryPointCardCount()) : 0;
         snapshot.resource_cards = static_cast<int>(player.getCountResurses());
         snapshot.development_cards = DevelopmentCount(player);
         snapshot.free_settlements = static_cast<int>(player.getFreeSettlementCount());

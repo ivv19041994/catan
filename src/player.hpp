@@ -101,6 +101,8 @@ public:
 	bool HasLongestRoad() const;
 
 	size_t GetWinPoints() const;
+	size_t GetPublicWinPoints() const;
+	size_t GetVictoryPointCardCount() const;
 
 	size_t GetRoadSize() const;
 

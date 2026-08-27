@@ -36,6 +36,8 @@ int main() { return test::Run({
         Player p("winner",0); p.PutCard(DevelopmentCard::University);
         const auto points=p.GetWinPoints(); const auto owned=p.GetReadyForUseCardCount(DevelopmentCard::University);
         test::Equal(points,size_t{1},"owned victory card scores immediately");
+        test::Equal(p.GetPublicWinPoints(),size_t{0},"hidden victory card is absent from public score");
+        test::Equal(p.GetVictoryPointCardCount(),size_t{1},"owner can inspect hidden victory-card count");
         test::Throws([&]{p.Use(DevelopmentCard::University);},"victory card is not played");
         test::Equal(p.GetWinPoints(),points,"rejected use preserves points");
         test::Equal(p.GetReadyForUseCardCount(DevelopmentCard::University),owned,"rejected use preserves ownership");

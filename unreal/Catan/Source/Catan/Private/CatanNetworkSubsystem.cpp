@@ -431,6 +431,7 @@ void UCatanNetworkSubsystem::ApplyDedicatedSnapshot(const FString& EncodedPayloa
             Target.Id = Source.id; Target.Name = ToFString(Source.name); Target.bIsCurrent = Source.current;
             Target.bIsLocalPlayer = Source.local; Target.bResourcesVisible = Source.resources_visible;
             Target.VictoryPoints = Source.victory_points; Target.ResourceCards = Source.resource_cards;
+            Target.VictoryPointCards = Source.victory_point_cards;
             Target.DevelopmentCards = Source.development_cards; Target.FreeSettlements = Source.free_settlements;
             Target.FreeCities = Source.free_cities; Target.FreeRoads = Source.free_roads;
             CopyResources(Source.resources, Target.Resources); CopyResources(Source.trade_rates, Target.TradeRates);

@@ -71,6 +71,7 @@ struct FCatanPlayerView
     UPROPERTY(BlueprintReadOnly) bool bIsLocalPlayer = false;
     UPROPERTY(BlueprintReadOnly) bool bResourcesVisible = false;
     UPROPERTY(BlueprintReadOnly) int32 VictoryPoints = 0;
+    UPROPERTY(BlueprintReadOnly) int32 VictoryPointCards = 0;
     UPROPERTY(BlueprintReadOnly) int32 ResourceCards = 0;
     UPROPERTY(BlueprintReadOnly) int32 DevelopmentCards = 0;
     UPROPERTY(BlueprintReadOnly) int32 FreeSettlements = 0;

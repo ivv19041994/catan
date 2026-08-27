@@ -491,10 +491,25 @@ void Player::ResetRoadCard() {
 	road_card_ = false;
 }
 
-size_t Player::GetWinPoints() const {
+size_t Player::GetPublicWinPoints() const {
 	size_t res = 0;
 	res += 5 - getFreeSettlementCount();
 	res += (4 - getFreeCastleCount()) * 2;
+	if (knight_card_) {
+		res += 2;
+	}
+	if (road_card_) {
+		res += 2;
+	}
+	return res;
+}
+
+size_t Player::GetWinPoints() const {
+	return GetPublicWinPoints() + GetVictoryPointCardCount();
+}
+
+size_t Player::GetVictoryPointCardCount() const {
+	size_t res = 0;
 	for (DevelopmentCard card : {
 		DevelopmentCard::University,
 		DevelopmentCard::Market,
@@ -502,12 +517,6 @@ size_t Player::GetWinPoints() const {
 		DevelopmentCard::Chapel,
 		DevelopmentCard::Library }) {
 		res += GetReadyForUseCardCount(card);
-	}
-	if (knight_card_) {
-		res += 2;
-	}
-	if (road_card_) {
-		res += 2;
 	}
 	return res;
 }
