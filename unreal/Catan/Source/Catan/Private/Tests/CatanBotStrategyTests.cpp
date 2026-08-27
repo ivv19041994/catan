@@ -25,6 +25,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCatanBotPlacementTest,
 bool FCatanBotPlacementTest::RunTest(const FString&)
 {
     FCatanGameView View;
+    View.Phase = ECatanGamePhase::SetupRoad;
     View.Hexes = {Hex(0, ECatanResource::Wood, 6), Hex(1, ECatanResource::Clay, 3)};
     View.Nodes.SetNum(4); for (int32 Index = 0; Index < View.Nodes.Num(); ++Index) View.Nodes[Index].Id = Index;
     View.Roads.SetNum(2); for (int32 Index = 0; Index < View.Roads.Num(); ++Index) View.Roads[Index].Id = Index;
@@ -35,6 +36,104 @@ bool FCatanBotPlacementTest::RunTest(const FString&)
         FCatanBotStrategy::ChooseSettlement(View, Topology, {0, 1}, 0), 0);
     TestEqual(TEXT("road aims toward the stronger future settlement"),
         FCatanBotStrategy::ChooseRoad(View, Topology, {0, 1}, 0), 0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCatanBotProbabilityAndPlanTest,
+    "Catan.Bot.Strategy.ProbabilityAndPlan", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCatanBotProbabilityAndPlanTest::RunTest(const FString&)
+{
+    const int32 Expected[13] = {0, 0, 1, 2, 3, 4, 5, 0, 5, 4, 3, 2, 1};
+    for (int32 Dice = 0; Dice <= 12; ++Dice)
+        TestEqual(FString::Printf(TEXT("2d6 weight for %d"), Dice),
+            FCatanBotStrategy::DiceWeight(Dice), Expected[Dice]);
+
+    FCatanGameView View;
+    FCatanPlayerView Bot = Player(0, TEXT("Bot"));
+    View.Players = {Bot};
+    View.Nodes.SetNum(1); View.Nodes[0].Id = 0; View.Nodes[0].OwnerId = 0;
+    FCatanBotTopology Topology; Topology.NodeHexes = {{0, 1}};
+    View.Hexes = {Hex(0, ECatanResource::Wood, 6), Hex(1, ECatanResource::Clay, 8)};
+    TestEqual(TEXT("strong wood and clay production selects expansion"),
+        FCatanBotStrategy::ChoosePlan(View, Topology, 0), ECatanBotPlan::Expansion);
+    Topology.NodeHexes = {{0, 1, 2}};
+    View.Hexes = {Hex(0, ECatanResource::Hay, 6), Hex(1, ECatanResource::Stone, 8),
+        Hex(2, ECatanResource::Sheep, 5)};
+    TestEqual(TEXT("ore wheat sheep production selects cities and army"),
+        FCatanBotStrategy::ChoosePlan(View, Topology, 0), ECatanBotPlan::CitiesAndArmy);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCatanBotPurposefulRoadTest,
+    "Catan.Bot.Strategy.PurposefulRoads", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCatanBotPurposefulRoadTest::RunTest(const FString&)
+{
+    FCatanGameView View; View.Phase = ECatanGamePhase::CommonPlay;
+    FCatanPlayerView Bot = Player(0, TEXT("Bot"));
+    FCatanPlayerView Opponent = Player(1, TEXT("Opponent"));
+    View.Players = {Bot, Opponent};
+    View.Hexes = {Hex(0, ECatanResource::Hay, 6), Hex(1, ECatanResource::Wood, 12)};
+    View.Nodes.SetNum(5);
+    for (int32 Index = 0; Index < View.Nodes.Num(); ++Index) View.Nodes[Index].Id = Index;
+    View.Nodes[0].OwnerId = 0;
+    View.Nodes[4].OwnerId = 1;
+    View.Roads.SetNum(4);
+    for (int32 Index = 0; Index < View.Roads.Num(); ++Index) View.Roads[Index].Id = Index;
+    View.Roads[0].OwnerId = 0;
+    View.Roads[3].OwnerId = 1;
+    FCatanBotTopology Topology;
+    Topology.NodeHexes = {{}, {}, {0}, {1}, {}};
+    Topology.RoadNodes = {FIntPoint(0, 1), FIntPoint(1, 2),
+        FIntPoint(1, 3), FIntPoint(3, 4)};
+    TestEqual(TEXT("road follows a concrete high-production settlement route"),
+        FCatanBotStrategy::ChooseRoad(View, Topology, {1, 2}, 0), 1);
+    TestEqual(TEXT("road with no legal settlement route or award purpose is skipped"),
+        FCatanBotStrategy::ChooseRoad(View, Topology, {2}, 0), INDEX_NONE);
+
+    View.Nodes.SetNum(6);
+    for (int32 Index = 0; Index < View.Nodes.Num(); ++Index)
+    {
+        View.Nodes[Index].Id = Index;
+        View.Nodes[Index].OwnerId = INDEX_NONE;
+    }
+    View.Nodes[0].OwnerId = 0;
+    Bot.FreeSettlements = 0; View.Players[0] = Bot;
+    View.Roads.SetNum(5);
+    for (int32 Index = 0; Index < View.Roads.Num(); ++Index)
+    {
+        View.Roads[Index].Id = Index;
+        View.Roads[Index].OwnerId = Index < 4 ? 0 : INDEX_NONE;
+    }
+    Topology.NodeHexes.SetNum(6);
+    Topology.RoadNodes = {FIntPoint(0, 1), FIntPoint(1, 2), FIntPoint(2, 3),
+        FIntPoint(3, 4), FIntPoint(4, 5)};
+    TestEqual(TEXT("fifth connected road is worthwhile for Longest Road"),
+        FCatanBotStrategy::ChooseRoad(View, Topology, {4}, 0), 4);
+
+    Bot.VictoryPoints = 8; Bot.bHasLongestRoad = false; Bot.FreeSettlements = 0;
+    Opponent.VictoryPoints = 9; Opponent.bHasLongestRoad = true;
+    View.Players = {Bot, Opponent};
+    View.Nodes.SetNum(13);
+    for (int32 Index = 0; Index < View.Nodes.Num(); ++Index)
+    {
+        View.Nodes[Index].Id = Index;
+        View.Nodes[Index].OwnerId = INDEX_NONE;
+    }
+    View.Roads.SetNum(11);
+    for (int32 Index = 0; Index < View.Roads.Num(); ++Index)
+    {
+        View.Roads[Index].Id = Index;
+        View.Roads[Index].OwnerId = Index < 4 ? 0 : (Index >= 5 && Index <= 9 ? 1 : INDEX_NONE);
+    }
+    Topology.NodeHexes.SetNum(13);
+    Topology.RoadNodes = {FIntPoint(0, 1), FIntPoint(1, 2), FIntPoint(2, 3),
+        FIntPoint(3, 4), FIntPoint(4, 5), FIntPoint(6, 7), FIntPoint(7, 8),
+        FIntPoint(8, 9), FIntPoint(9, 10), FIntPoint(10, 11), FIntPoint(5, 12)};
+    TestEqual(TEXT("tying the incumbent does not steal Longest Road"),
+        FCatanBotStrategy::ChooseRoad(View, Topology, {4}, 0), INDEX_NONE);
+    View.Roads[4].OwnerId = 0;
+    TestEqual(TEXT("strict lead steals Longest Road, wins, and denies a match-point opponent"),
+        FCatanBotStrategy::ChooseRoad(View, Topology, {10}, 0), 10);
     return true;
 }
 

@@ -50,7 +50,7 @@ FCatanResourceView Cost(int32 Wood, int32 Clay, int32 Hay, int32 Sheep, int32 St
 
 int32 DicePips(int32 Dice)
 {
-    return Dice >= 2 && Dice <= 12 && Dice != 7 ? 6 - FMath::Abs(7 - Dice) : 0;
+    return FCatanBotStrategy::DiceWeight(Dice);
 }
 
 float BaseResourceValue(int32 Index)
@@ -107,6 +107,21 @@ float PortBonus(int32 NodeId)
     return 0.0f;
 }
 
+float ScarcityMultiplier(const FCatanGameView& View, int32 Resource)
+{
+    float Total[ResourceCount]{};
+    for (const FCatanHexView& Hex : View.Hexes)
+    {
+        const int32 Index = ResourceIndex(Hex.Resource);
+        if (Index != INDEX_NONE) Total[Index] += DicePips(Hex.Dice);
+    }
+    float Mean = 0.0f;
+    for (float Value : Total) Mean += Value;
+    Mean /= ResourceCount;
+    if (Mean <= 0.0f) return 1.0f;
+    return 1.0f + FMath::Clamp((Mean - Total[Resource]) / Mean, -0.12f, 0.25f);
+}
+
 float NodeProductionScore(const FCatanGameView& View, const FCatanBotTopology& Topology,
     int32 NodeId, int32 PlayerId, bool bExpansion)
 {
@@ -133,11 +148,11 @@ float NodeProductionScore(const FCatanGameView& View, const FCatanBotTopology& T
         const int32 Resource = ResourceIndex(Hex.Resource);
         if (Resource == INDEX_NONE) { Score -= 1.5f; continue; }
         const float Pips = static_cast<float>(DicePips(Hex.Dice));
-        Score += Pips * BaseResourceValue(Resource);
+        Score += Pips * BaseResourceValue(Resource) * ScarcityMultiplier(View, Resource) * 1.45f;
         if (Hex.bHasRobber) Score -= Pips * 0.7f;
-        if (!Existing[Resource]) Score += 2.1f;
-        if (!Seen[Resource]) { Seen[Resource] = true; Score += 0.55f; }
-        if (!ExistingNumbers.Contains(Hex.Dice)) Score += 0.35f;
+        if (!Existing[Resource]) Score += 1.1f;
+        if (!Seen[Resource]) { Seen[Resource] = true; Score += 0.35f; }
+        if (!ExistingNumbers.Contains(Hex.Dice)) Score += 0.2f;
     }
     if (bExpansion)
     {
@@ -152,6 +167,134 @@ float NodeProductionScore(const FCatanGameView& View, const FCatanBotTopology& T
     }
     Score += PortBonus(NodeId);
     return Score;
+}
+
+TArray<int32> IncidentRoads(const FCatanBotTopology& Topology, int32 NodeId)
+{
+    TArray<int32> Result;
+    for (int32 RoadId = 0; RoadId < Topology.RoadNodes.Num(); ++RoadId)
+    {
+        const FIntPoint Ends = Topology.RoadNodes[RoadId];
+        if (Ends.X == NodeId || Ends.Y == NodeId) Result.Add(RoadId);
+    }
+    return Result;
+}
+
+int32 OtherEnd(const FCatanBotTopology& Topology, int32 RoadId, int32 NodeId)
+{
+    if (!Topology.RoadNodes.IsValidIndex(RoadId)) return INDEX_NONE;
+    const FIntPoint Ends = Topology.RoadNodes[RoadId];
+    return Ends.X == NodeId ? Ends.Y : Ends.X;
+}
+
+bool IsSettlementCandidate(const FCatanGameView& View, const FCatanBotTopology& Topology, int32 NodeId)
+{
+    if (!View.Nodes.IsValidIndex(NodeId) || View.Nodes[NodeId].OwnerId != INDEX_NONE) return false;
+    for (int32 RoadId : IncidentRoads(Topology, NodeId))
+    {
+        const int32 Neighbor = OtherEnd(Topology, RoadId, NodeId);
+        if (View.Nodes.IsValidIndex(Neighbor) && View.Nodes[Neighbor].OwnerId != INDEX_NONE) return false;
+    }
+    return true;
+}
+
+bool ConnectedBeforeCandidate(const FCatanGameView& View, const FCatanBotTopology& Topology,
+    int32 NodeId, int32 CandidateRoad, int32 PlayerId)
+{
+    if (View.Nodes.IsValidIndex(NodeId) && View.Nodes[NodeId].OwnerId == PlayerId) return true;
+    for (int32 RoadId : IncidentRoads(Topology, NodeId))
+        if (RoadId != CandidateRoad && View.Roads.IsValidIndex(RoadId)
+            && View.Roads[RoadId].OwnerId == PlayerId) return true;
+    return false;
+}
+
+int32 VirtualRoadOwner(const FCatanGameView& View, int32 RoadId,
+    int32 CandidateRoad, int32 PlayerId)
+{
+    if (RoadId == CandidateRoad) return PlayerId;
+    return View.Roads.IsValidIndex(RoadId) ? View.Roads[RoadId].OwnerId : INDEX_NONE;
+}
+
+int32 LongestFromNode(const FCatanGameView& View, const FCatanBotTopology& Topology,
+    int32 NodeId, int32 CandidateRoad, int32 PlayerId, TSet<int32>& Used)
+{
+    if (View.Nodes.IsValidIndex(NodeId) && View.Nodes[NodeId].OwnerId != INDEX_NONE
+        && View.Nodes[NodeId].OwnerId != PlayerId && !Used.IsEmpty()) return 0;
+    int32 Best = 0;
+    for (int32 RoadId : IncidentRoads(Topology, NodeId))
+    {
+        if (Used.Contains(RoadId)
+            || VirtualRoadOwner(View, RoadId, CandidateRoad, PlayerId) != PlayerId) continue;
+        Used.Add(RoadId);
+        Best = FMath::Max(Best, 1 + LongestFromNode(View, Topology,
+            OtherEnd(Topology, RoadId, NodeId), CandidateRoad, PlayerId, Used));
+        Used.Remove(RoadId);
+    }
+    return Best;
+}
+
+int32 LongestRoadLength(const FCatanGameView& View, const FCatanBotTopology& Topology,
+    int32 CandidateRoad, int32 PlayerId)
+{
+    int32 Best = 0;
+    for (int32 NodeId = 0; NodeId < View.Nodes.Num(); ++NodeId)
+    {
+        TSet<int32> Used;
+        Best = FMath::Max(Best,
+            LongestFromNode(View, Topology, NodeId, CandidateRoad, PlayerId, Used));
+    }
+    return Best;
+}
+
+float BestExpansionFromRoad(const FCatanGameView& View, const FCatanBotTopology& Topology,
+    int32 CandidateRoad, int32 PlayerId)
+{
+    if (!Topology.RoadNodes.IsValidIndex(CandidateRoad)) return -100000.0f;
+    const FIntPoint Ends = Topology.RoadNodes[CandidateRoad];
+    TArray<int32> Frontier;
+    for (int32 NodeId : {Ends.X, Ends.Y})
+        if (!ConnectedBeforeCandidate(View, Topology, NodeId, CandidateRoad, PlayerId))
+            Frontier.AddUnique(NodeId);
+    if (Frontier.IsEmpty()) return -100000.0f;
+
+    struct FVisit { int32 Node; int32 ExtraRoads; };
+    TArray<FVisit> Queue;
+    TMap<int32, int32> BestDistance;
+    for (int32 NodeId : Frontier) { Queue.Add({NodeId, 0}); BestDistance.Add(NodeId, 0); }
+    float Best = -100000.0f;
+    for (int32 Cursor = 0; Cursor < Queue.Num(); ++Cursor)
+    {
+        const FVisit Current = Queue[Cursor];
+        if (IsSettlementCandidate(View, Topology, Current.Node))
+        {
+            float Utility = NodeProductionScore(View, Topology, Current.Node, PlayerId, true)
+                - Current.ExtraRoads * 5.0f;
+            bool OpponentApproach = false;
+            for (int32 RoadId : IncidentRoads(Topology, Current.Node))
+                if (View.Roads.IsValidIndex(RoadId) && View.Roads[RoadId].OwnerId != INDEX_NONE
+                    && View.Roads[RoadId].OwnerId != PlayerId) OpponentApproach = true;
+            if (OpponentApproach) Utility += 2.0f;
+            Best = FMath::Max(Best, Utility);
+        }
+        if (Current.ExtraRoads >= 2) continue;
+        if (View.Nodes.IsValidIndex(Current.Node) && View.Nodes[Current.Node].OwnerId != INDEX_NONE
+            && View.Nodes[Current.Node].OwnerId != PlayerId) continue;
+        for (int32 RoadId : IncidentRoads(Topology, Current.Node))
+        {
+            if (RoadId == CandidateRoad || !View.Roads.IsValidIndex(RoadId)) continue;
+            const int32 Owner = View.Roads[RoadId].OwnerId;
+            if (Owner != INDEX_NONE && Owner != PlayerId) continue;
+            const int32 Distance = Current.ExtraRoads + (Owner == PlayerId ? 0 : 1);
+            const int32 Next = OtherEnd(Topology, RoadId, Current.Node);
+            const int32* Previous = BestDistance.Find(Next);
+            if (Distance <= 2 && (!Previous || Distance < *Previous))
+            {
+                BestDistance.Add(Next, Distance);
+                Queue.Add({Next, Distance});
+            }
+        }
+    }
+    return Best;
 }
 
 FCatanResourceView AddResources(const FCatanResourceView& Left, const FCatanResourceView& Right,
@@ -172,6 +315,38 @@ float WeightedTotal(const FCatanPlayerView& Player, const FCatanGameView& View,
             Result += ResourceUtility(Player, View, Index, GetResource(Player.Resources, Index) + Count);
     return Result;
 }
+}
+
+int32 FCatanBotStrategy::DiceWeight(int32 Dice)
+{
+    return Dice >= 2 && Dice <= 12 && Dice != 7 ? 6 - FMath::Abs(7 - Dice) : 0;
+}
+
+ECatanBotPlan FCatanBotStrategy::ChoosePlan(const FCatanGameView& View,
+    const FCatanBotTopology& Topology, int32 PlayerId)
+{
+    float Production[ResourceCount]{};
+    for (const FCatanNodeView& Node : View.Nodes)
+    {
+        if (Node.OwnerId != PlayerId || !Topology.NodeHexes.IsValidIndex(Node.Id)) continue;
+        const float Multiplier = static_cast<float>(BuildingMultiplier(Node));
+        for (int32 HexId : Topology.NodeHexes[Node.Id])
+        {
+            if (!View.Hexes.IsValidIndex(HexId)) continue;
+            const int32 Resource = ResourceIndex(View.Hexes[HexId].Resource);
+            if (Resource != INDEX_NONE)
+                Production[Resource] += DiceWeight(View.Hexes[HexId].Dice) * Multiplier;
+        }
+    }
+    const FCatanPlayerView* Player = View.Players.FindByPredicate(
+        [PlayerId](const FCatanPlayerView& Item) { return Item.Id == PlayerId; });
+    if (Player && Player->FreeSettlements <= 0) return ECatanBotPlan::CitiesAndArmy;
+    const float Expansion = Production[0] + Production[1]
+        + Production[2] * 0.35f + Production[3] * 0.35f;
+    const float Cities = Production[2] * 1.15f + Production[4] * 1.35f + Production[3] * 0.55f;
+    if (Expansion > Cities * 1.15f) return ECatanBotPlan::Expansion;
+    if (Cities > Expansion * 1.15f) return ECatanBotPlan::CitiesAndArmy;
+    return ECatanBotPlan::Balanced;
 }
 
 int32 FCatanBotStrategy::ChooseSettlement(const FCatanGameView& View,
@@ -202,26 +377,45 @@ int32 FCatanBotStrategy::ChooseRoad(const FCatanGameView& View, const FCatanBotT
     const TArray<int32>& Targets, int32 PlayerId)
 {
     int32 Best = INDEX_NONE; float BestScore = -TNumericLimits<float>::Max();
+    const int32 BeforeLongest = LongestRoadLength(View, Topology, INDEX_NONE, PlayerId);
+    const FCatanPlayerView* Player = View.Players.FindByPredicate(
+        [PlayerId](const FCatanPlayerView& Item) { return Item.Id == PlayerId; });
+    int32 MaximumOpponentLongest = 0;
+    const FCatanPlayerView* OpponentHolder = nullptr;
+    for (const FCatanPlayerView& Opponent : View.Players)
+    {
+        if (Opponent.Id == PlayerId) continue;
+        MaximumOpponentLongest = FMath::Max(MaximumOpponentLongest,
+            LongestRoadLength(View, Topology, INDEX_NONE, Opponent.Id));
+        if (Opponent.bHasLongestRoad) OpponentHolder = &Opponent;
+    }
     for (int32 Target : Targets)
     {
         if (!Topology.RoadNodes.IsValidIndex(Target)) continue;
-        const FIntPoint Ends = Topology.RoadNodes[Target];
-        float Score = 0.0f;
-        for (int32 NodeId : {Ends.X, Ends.Y})
+        float Score = Player && Player->FreeSettlements > 0
+            ? BestExpansionFromRoad(View, Topology, Target, PlayerId) : -100000.0f;
+        const int32 AfterLongest = LongestRoadLength(View, Topology, Target, PlayerId);
+        if (AfterLongest > BeforeLongest)
+            Score = FMath::Max(Score, 0.0f) + (AfterLongest - BeforeLongest) * 1.1f;
+        const bool bClaimsLongestRoad = Player && !Player->bHasLongestRoad
+            && AfterLongest >= 5 && AfterLongest > MaximumOpponentLongest;
+        if (bClaimsLongestRoad)
         {
-            if (!View.Nodes.IsValidIndex(NodeId)) continue;
-            const FCatanNodeView& Node = View.Nodes[NodeId];
-            if (Node.OwnerId == INDEX_NONE)
-                Score = FMath::Max(Score, NodeProductionScore(View, Topology, NodeId, PlayerId, true));
-            else if (Node.OwnerId != PlayerId) Score -= 4.0f;
-            for (int32 RoadId = 0; RoadId < Topology.RoadNodes.Num(); ++RoadId)
-                if (RoadId != Target && View.Roads.IsValidIndex(RoadId)
-                    && View.Roads[RoadId].OwnerId == PlayerId
-                    && (Topology.RoadNodes[RoadId].X == NodeId || Topology.RoadNodes[RoadId].Y == NodeId))
-                    Score += 0.9f;
+            Score = FMath::Max(Score, 0.0f) + 12.0f;
+            if (OpponentHolder) Score += 5.0f;
+            if (Player->VictoryPoints >= 8) Score += 100.0f;
+            if (OpponentHolder && OpponentHolder->VictoryPoints >= 8) Score += 25.0f;
+        }
+        else if (Player && Player->bHasLongestRoad && AfterLongest > BeforeLongest
+            && MaximumOpponentLongest + 1 >= BeforeLongest)
+        {
+            Score += 5.0f;
         }
         if (Score > BestScore || (Score == BestScore && Target < Best)) { BestScore = Score; Best = Target; }
     }
+    const bool bMandatoryPlacement = View.Phase == ECatanGamePhase::SetupRoad
+        || View.Phase == ECatanGamePhase::RoadBuilding;
+    if (!bMandatoryPlacement && BestScore < 4.0f) return INDEX_NONE;
     return Best;
 }
 
