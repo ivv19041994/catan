@@ -73,6 +73,16 @@ Headless smoke-test:
 unreal/Catan/Scripts/run_hud_graph_smoke.sh
 ```
 
+Проверка дальних теней на Android при максимальном отдалении камеры:
+
+```bash
+unreal/Catan/Scripts/run_android_shadow_smoke.sh \
+  unreal/Catan/Builds/AndroidShadow/Catan-arm64.apk
+```
+
+Она проверяет применение мобильного shadow-профиля, включение far-shadow у
+компонентов поля, максимальную дистанцию камеры и сохраняет контрольный снимок.
+
 ### Сохранение LAN-партии
 
 Listen-host атомарно обновляет последнее сохранение после каждого принятого

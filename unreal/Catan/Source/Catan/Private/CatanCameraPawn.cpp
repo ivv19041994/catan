@@ -4,6 +4,8 @@
 #include "Camera/CameraComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 ACatanCameraPawn::ACatanCameraPawn()
 {
@@ -26,6 +28,12 @@ void ACatanCameraPawn::BeginPlay()
     Super::BeginPlay();
     SetActorLocation(FVector(0.0f, 0.0f, 80.0f));
     DesiredArmLength = SpringArm->TargetArmLength;
+    if (FParse::Param(FCommandLine::Get(), TEXT("CatanShadowVisualSmoke")))
+    {
+        DesiredArmLength = 5200.0f;
+        SpringArm->TargetArmLength = DesiredArmLength;
+        UE_LOG(LogTemp, Display, TEXT("CATAN_SHADOWS visual-camera arm=%.0f"), DesiredArmLength);
+    }
 }
 
 void ACatanCameraPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)

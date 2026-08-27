@@ -1500,7 +1500,12 @@ void UCatanHUDWidget::ApplyUIPreview()
     FString Preview;
     if (!FParse::Value(FCommandLine::Get(), TEXT("CatanUIPreview="), Preview)) return;
     ModalBorder->SetVisibility(ESlateVisibility::Visible);
-    if (Preview.Equals(TEXT("Bank"), ESearchCase::IgnoreCase))
+    if (Preview.Equals(TEXT("Game"), ESearchCase::IgnoreCase))
+    {
+        bSetupPanelOpen = false;
+        ModalBorder->SetVisibility(ESlateVisibility::Collapsed);
+    }
+    else if (Preview.Equals(TEXT("Bank"), ESearchCase::IgnoreCase))
     {
         SetModalSize(1040.0f, 760.0f);
         ModalSwitcher->SetActiveWidgetIndex(3);

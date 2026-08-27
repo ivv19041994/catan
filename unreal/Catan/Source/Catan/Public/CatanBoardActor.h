@@ -144,6 +144,7 @@ private:
     void BuildNodes();
     void BuildRoads();
     void BuildDice();
+    void ConfigureLongRangeShadows();
     void AnimateFeedback(float DeltaSeconds);
     void PlayFeedbackTone(float Frequency, float Duration, float Volume = 0.18f);
     UStaticMeshComponent* AddDecoration(const FString& Name, UStaticMesh* Mesh,
