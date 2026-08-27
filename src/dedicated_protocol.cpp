@@ -123,6 +123,7 @@ std::string SerializeSnapshot(const Snapshot& snapshot)
     output << "T\tN\t" << IntList(snapshot.valid_nodes) << '\n';
     output << "T\tR\t" << IntList(snapshot.valid_roads) << '\n';
     output << "T\tH\t" << IntList(snapshot.valid_hexes) << '\n';
+    output << "B\t" << ResourceString(snapshot.bank_resources) << '\n';
     for (const auto& victim : snapshot.robber_victims) output << "V\t" << HexEncode(victim) << '\n';
     if (snapshot.deal.active)
         output << "D\t" << HexEncode(snapshot.deal.offering_player) << '\t'
@@ -191,6 +192,8 @@ std::optional<Snapshot> DeserializeSnapshot(std::string_view payload, std::strin
             if (!ParseIntList(fields[2], *target)) return std::nullopt;
         } else if (fields[0] == "V" && fields.size() == 2) {
             auto value = decode(fields[1]); if (!value) return std::nullopt; snapshot.robber_victims.push_back(*value);
+        } else if (fields[0] == "B" && fields.size() == 2) {
+            if (!ParseResources(fields[1], snapshot.bank_resources)) return std::nullopt;
         } else if (fields[0] == "D" && fields.size() == 5) {
             auto offering = decode(fields[1]); auto target = decode(fields[2]);
             if (!offering || !target || !ParseResources(fields[3], snapshot.deal.offered) || !ParseResources(fields[4], snapshot.deal.requested)) return std::nullopt;

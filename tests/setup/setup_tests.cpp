@@ -3,6 +3,15 @@
 using namespace ivv::catan;
 
 int main() { return test::Run({
+    {"second settlements receive physical cards from the bank", [] {
+        test::ControlledGame controlled({"a","b"});
+        test::CompleteSetup(*controlled.game, 2);
+        size_t players = 0;
+        for (const char* name : {"a", "b"}) players += controlled.game->GetPlayer(name).getCountResurses();
+        size_t bank = 0;
+        for (Resurse resource : test::Resources) bank += controlled.game->GetResourceBank().Count(resource);
+        test::Equal(players + bank, size_t{95}, "setup transfers rather than creates resource cards");
+    }},
     {"game accepts two, three, and four distinct players", [] {
         for (size_t count : {2u, 3u, 4u}) {
             std::vector<std::string> names;

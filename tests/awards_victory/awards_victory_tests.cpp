@@ -80,6 +80,20 @@ int main() { return test::Run({
         test::Throws([&]{game.DevCard(current);},"card purchase is rejected after Finish");
         test::Equal(test::ResourceCounts(game.GetPlayer(current)),before,"post-finish actions leave resources unchanged");
     }},
+    {"ten points win only when that player's own turn begins", [] {
+        test::ControlledGame controlled({"a","b"}); test::EnterCommonPlay(controlled); auto& game=*controlled.game;
+        const auto current=game.GetCurrentPlayer(); const auto waiting=current=="a"?"b":"a";
+        auto& waiting_player=test::MutablePlayer(game,waiting);
+        for(size_t index=0;index<8;++index) waiting_player.PutCard(DevelopmentCard::University);
+        waiting_player.OnEndTurn();
+        test::Equal(waiting_player.GetWinPoints(),size_t{10},"waiting player has ten private points");
+        test::SeedResources(game,current,{{Resurse::Wood,1},{Resurse::Clay,1}});
+        game.BuildRoad(current,1);
+        test::Check(!game.Finish(),"another player's action cannot declare waiting player winner");
+        game.Pass(current);
+        test::Check(game.Finish(),"winner is declared as their own turn begins");
+        test::Equal(*game.GetWinner(),waiting,"incoming current player wins before rolling");
+    }},
     {"three used knights are threshold for largest army", [] {
         Player p("army",0);
         for(size_t i=0;i<3;++i) { p.PutCard(DevelopmentCard::Knights); p.OnEndTurn(); p.Use(DevelopmentCard::Knights); p.OnEndTurn(); }

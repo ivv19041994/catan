@@ -4,6 +4,7 @@
 #include "CatanGameSubsystem.h"
 #include "CatanHexMeshBuilder.h"
 #include "CatanResourceVisualBuilder.h"
+#include "CatanResourceBankVisualPolicy.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Engine/Engine.h"
@@ -28,6 +29,9 @@ constexpr float DiceTableY = -1370.0f;
 constexpr float DiceScale = 0.58f * 4.0f;
 constexpr float DiceSpacing = 340.0f;
 constexpr float DiceRestZ = 157.0f;
+constexpr float BankTableY = 1225.0f;
+constexpr float BankStackSpacing = 330.0f;
+constexpr float BankCardBaseZ = 16.0f;
 
 FVector DiceRestLocation(int32 Index, float HeightOffset = 0.0f)
 {
@@ -263,6 +267,7 @@ void ACatanBoardActor::BuildBoard()
     BuildRoads();
     BuildPorts();
     BuildDice();
+    BuildResourceBank();
     ConfigureLongRangeShadows();
 }
 
@@ -1043,6 +1048,38 @@ void ACatanBoardActor::BuildDice()
     }
 }
 
+void ACatanBoardActor::BuildResourceBank()
+{
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    constexpr ECatanResource Resources[] = {
+        ECatanResource::Wood, ECatanResource::Clay, ECatanResource::Hay,
+        ECatanResource::Sheep, ECatanResource::Stone};
+    for (int32 Index = 0; Index < 5; ++Index)
+    {
+        const FVector Position((static_cast<float>(Index) - 2.0f) * BankStackSpacing,
+            BankTableY, BankCardBaseZ + 55.0f);
+        UStaticMeshComponent* Stack = AddDecoration(
+            FString::Printf(TEXT("ResourceBankStack%d"), Index), Cube, Position,
+            FVector(3.45f, 2.46f, 1.10f), ResourceColor(Resources[Index]), FRotator(0, 90, 0));
+        Stack->SetCastShadow(true);
+        BankCardStacks.Add(Stack);
+
+        UTextRenderComponent* Label = NewObject<UTextRenderComponent>(this,
+            *FString::Printf(TEXT("ResourceBankLabel%d"), Index));
+        Label->SetupAttachment(SceneRoot);
+        Label->RegisterComponent();
+        Label->SetRelativeLocation(Position + FVector(0, 0, 82.0f));
+        Label->SetRelativeRotation(FRotator(90, 180, 0));
+        Label->SetHorizontalAlignment(EHTA_Center);
+        Label->SetVerticalAlignment(EVRTA_TextCenter);
+        Label->SetWorldSize(72.0f);
+        Label->SetTextRenderColor(FColor::White);
+        Label->SetText(FText::AsNumber(19));
+        Label->SetCastShadow(true);
+        BankCardLabels.Add(Label);
+    }
+}
+
 void ACatanBoardActor::PlayFeedbackTone(float Frequency, float Duration, float Volume)
 {
     constexpr int32 SampleRate = 24000;
@@ -1179,6 +1216,39 @@ void ACatanBoardActor::RefreshPieces()
     if (!TryBuildBoard()) return;
     const FCatanGameView View = Subsystem->GetSnapshot();
     const bool bCanLocalPlayerAct = Subsystem->CanLocalPlayerAct(View);
+    const int32 BankCounts[] = {
+        View.BankResources.Wood, View.BankResources.Clay, View.BankResources.Hay,
+        View.BankResources.Sheep, View.BankResources.Stone};
+    bool bBankChanged = PreviousBankCounts.Num() != 5;
+    if (bBankChanged) PreviousBankCounts.Init(INDEX_NONE, 5);
+    for (int32 Index = 0; Index < BankCardStacks.Num() && Index < 5; ++Index)
+    {
+        const FCatanResourcePileVisual Pile = FCatanResourceBankVisualPolicy::Resolve(BankCounts[Index]);
+        const int32 Count = Pile.Count;
+        bBankChanged = bBankChanged || PreviousBankCounts[Index] != Count;
+        PreviousBankCounts[Index] = Count;
+        const float Height = Pile.Height;
+        BankCardStacks[Index]->SetHiddenInGame(!Pile.bVisible);
+        BankCardStacks[Index]->SetRelativeScale3D(FVector(3.45f, 2.46f, Height / 100.0f));
+        BankCardStacks[Index]->SetRelativeLocation(FVector(
+            (static_cast<float>(Index) - 2.0f) * BankStackSpacing,
+            BankTableY, BankCardBaseZ + Height * 0.5f));
+        if (BankCardLabels.IsValidIndex(Index))
+        {
+            BankCardLabels[Index]->SetHiddenInGame(!Pile.bVisible);
+            BankCardLabels[Index]->SetRelativeLocation(FVector(
+                (static_cast<float>(Index) - 2.0f) * BankStackSpacing,
+                BankTableY, BankCardBaseZ + Height + 8.0f));
+            BankCardLabels[Index]->SetText(FText::AsNumber(Count));
+        }
+    }
+    if (bBankChanged)
+        UE_LOG(LogTemp, Display,
+            TEXT("CATAN_RESOURCE_BANK stacks=%d counts=%d,%d,%d,%d,%d visible=%d,%d,%d,%d,%d"),
+            BankCardStacks.Num(), PreviousBankCounts[0], PreviousBankCounts[1], PreviousBankCounts[2],
+            PreviousBankCounts[3], PreviousBankCounts[4],
+            PreviousBankCounts[0] > 0, PreviousBankCounts[1] > 0, PreviousBankCounts[2] > 0,
+            PreviousBankCounts[3] > 0, PreviousBankCounts[4] > 0);
     if (Subsystem->HasPendingBuildTarget() && !bPlacementCameraFocused)
     {
         const bool bRoad = Subsystem->GetPendingBuildAction() == ECatanBoardAction::BuildRoad;

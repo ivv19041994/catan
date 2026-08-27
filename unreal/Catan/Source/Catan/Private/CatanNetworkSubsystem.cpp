@@ -419,6 +419,7 @@ void UCatanNetworkSubsystem::ApplyDedicatedSnapshot(const FString& EncodedPayloa
         { Target.Wood = Source.wood; Target.Clay = Source.clay; Target.Hay = Source.hay; Target.Sheep = Source.sheep; Target.Stone = Source.stone; };
         CopyResources(Snapshot->deal.offered, View.ActiveDeal.Offered);
         CopyResources(Snapshot->deal.requested, View.ActiveDeal.Requested);
+        CopyResources(Snapshot->bank_resources, View.BankResources);
         for (int Value : Snapshot->valid_nodes) View.ValidNodeTargets.Add(Value);
         for (int Value : Snapshot->valid_roads) View.ValidRoadTargets.Add(Value);
         for (int Value : Snapshot->valid_hexes) View.ValidHexTargets.Add(Value);

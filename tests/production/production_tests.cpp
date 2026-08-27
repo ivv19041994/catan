@@ -31,11 +31,14 @@ int main() { return test::Run({
         test::Check(target && owner, "setup must own a producing intersection");
         const auto resource = target->getType();
         const size_t before = owner->getCountResurses(resource);
+        const size_t bank_before = controlled.game->GetResourceBank().Count(resource);
         const size_t total = static_cast<size_t>(target->getDice());
         const size_t first = total > 6 ? 6 : 1;
         test::AddRoll(controlled, first, total - first);
         controlled.game->Dice(current);
         test::Equal(owner->getCountResurses(resource), before + 1, "settlement produces exactly one card");
+        test::Equal(controlled.game->GetResourceBank().Count(resource), bank_before - 1,
+            "production transfers a physical card out of the bank");
     }},
     {"a seven produces nothing and starts discard flow", [] {
         test::ControlledGame controlled({"a","b"});

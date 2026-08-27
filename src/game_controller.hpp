@@ -5,6 +5,7 @@
 #include "development_card_deck.hpp"
 #include "map.hpp"
 #include "player.hpp"
+#include "resource_bank.hpp"
 
 #include <vector>
 #include <unordered_map>
@@ -97,6 +98,7 @@ public:
 	const std::optional<Deal>& GetActivDeal() const;
 	const Player& GetPlayer(std::string_view player) const;
 	std::vector<std::string> GetPlayerNames() const;
+	const ResourceBank& GetResourceBank() const;
 
 	// Versioned, self-contained binary state. It intentionally contains no
 	// transport credentials; player identity is represented only by public name.
@@ -116,6 +118,7 @@ private:
 	std::pair<size_t, size_t> last_dice_{};
 
 	std::unique_ptr<IDevelopmentCardDeck> development_cards_;
+	ResourceBank resource_bank_;
 	Player* player_knights_{};//владелец карты рыцарей
 	Player* player_roads_{};//владелец карты длинная дорога
 
@@ -123,6 +126,7 @@ private:
 	GameStep step_after_bandit_ = GameStep::CommonPlay;
 
 	size_t road_building_count_{};
+	GameStep road_building_return_step_ = GameStep::CommonPlay;
 
 	std::optional<std::string> winner_;
 
@@ -151,6 +155,10 @@ private:
 	void CheckRoadLen();
 
 	void CheckWinner();
+	bool HasLegalRoadPlacement(const Player& player) const;
+	void GiveFromBank(Player& player, Resurse resource, size_t count = 1);
+	void ReturnToBank(Resurse resource, size_t count = 1);
+	void ResolveProduction(size_t dice_result);
 };
 
 std::ostream& operator<<(std::ostream& os, GameController::GameStep step);

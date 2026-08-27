@@ -33,6 +33,26 @@ int main() { return test::Run({
                      "road away from the restored setup settlement stays forbidden");
         restored->BuildRoad(current, 0);
     }},
+    {"round trip preserves finite bank and pre-roll Road Building return phase", [] {
+        auto first = std::make_shared<test::DiceState>();
+        auto second = std::make_shared<test::DiceState>();
+        GameController::Dependencies dependencies;
+        dependencies.dice[0] = std::make_unique<test::ScriptedDice>(first);
+        dependencies.dice[1] = std::make_unique<test::ScriptedDice>(second);
+        dependencies.development_cards = std::make_unique<DevelopmentCardDeck>();
+        GameController game(std::vector<std::string>{"Alice","Bob"},std::move(dependencies));
+        test::CompleteSetup(game,2); const auto current=game.GetCurrentPlayer();
+        auto& player=test::MutablePlayer(game,current);
+        player.PutCard(DevelopmentCard::RoadBuilding); player.OnEndTurn();
+        game.UseDevCard(current,DevelopmentCard::RoadBuilding,std::nullopt);
+        game.BuildRoad(current,1);
+        auto restored=GameController::DeserializeState(game.SerializeState());
+        test::Equal(restored->GetResourceBank().Counts(),game.GetResourceBank().Counts(),
+            "all five physical piles round-trip");
+        restored->BuildRoad(current,7);
+        test::Equal(restored->GetStep(),GameController::GameStep::DiceDrop,
+            "saved pre-roll card returns to dice after its second road");
+    }},
     {"round trip accepts completed discard iteration while robber is waiting", [] {
         auto first = std::make_shared<test::DiceState>();
         auto second = std::make_shared<test::DiceState>();
@@ -65,7 +85,7 @@ int main() { return test::Run({
                      "truncated state is rejected");
 
         std::string unsupported = saved;
-        unsupported[16] = 2; // magic is 16 bytes; version is little-endian uint32
+        unsupported[16] = 99; // magic is 16 bytes; version is little-endian uint32
         test::Throws([&] { GameController::DeserializeState(unsupported); },
                      "unknown version is rejected");
 

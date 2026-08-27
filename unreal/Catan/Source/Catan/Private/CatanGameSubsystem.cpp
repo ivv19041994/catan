@@ -815,6 +815,12 @@ FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
         View.ActiveDeal.Offered = ToResourceView(Deal->sell);
         View.ActiveDeal.Requested = ToResourceView(Deal->buy);
     }
+    const ivv::catan::ResourceBank& Bank = Game->GetResourceBank();
+    View.BankResources.Wood = static_cast<int32>(Bank.Count(ivv::catan::Resurse::Wood));
+    View.BankResources.Clay = static_cast<int32>(Bank.Count(ivv::catan::Resurse::Clay));
+    View.BankResources.Hay = static_cast<int32>(Bank.Count(ivv::catan::Resurse::Hay));
+    View.BankResources.Sheep = static_cast<int32>(Bank.Count(ivv::catan::Resurse::Sheep));
+    View.BankResources.Stone = static_cast<int32>(Bank.Count(ivv::catan::Resurse::Stone));
     std::ostringstream Step;
     Game->PrintStep(Step);
     View.Step = UTF8_TO_TCHAR(Step.str().c_str());

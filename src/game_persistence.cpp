@@ -16,7 +16,7 @@ namespace catan {
 namespace {
 
 constexpr std::string_view SaveMagic{"CATAN_CORE_STATE"};
-constexpr uint32_t SaveVersion = 1;
+constexpr uint32_t SaveVersion = 2;
 constexpr uint32_t NoPlayer = std::numeric_limits<uint32_t>::max();
 constexpr uint64_t MaxStoredCount = 1'000'000;
 
@@ -151,6 +151,8 @@ struct State {
 	size_t die_a{};
 	size_t die_b{};
 	size_t road_building_count{};
+	GameController::GameStep road_building_return{};
+	std::array<size_t, Resources.size()> bank{};
 	std::optional<std::string> winner;
 	std::optional<size_t> setup_settlement;
 	std::optional<GameController::Deal> deal;
@@ -195,7 +197,8 @@ State ReadState(std::string_view data) {
 	Reader reader(data);
 	if (reader.Raw(SaveMagic.size()) != SaveMagic)
 		throw invalid_argument("Not a Catan saved game");
-	if (reader.U32() != SaveVersion)
+	const uint32_t version = reader.U32();
+	if (version != 1 && version != SaveVersion)
 		throw invalid_argument("Unsupported saved game version");
 
 	State state;
@@ -223,6 +226,19 @@ State ReadState(std::string_view data) {
 		player.largest_army = reader.Bool();
 		player.longest_road = reader.Bool();
 	}
+	if (version >= 2) {
+		for (size_t& value : state.bank) {
+			value = Count(reader);
+			if (value > ResourceBank::CardsPerResource)
+				throw invalid_argument("Saved resource bank exceeds physical supply");
+		}
+	} else {
+		state.bank.fill(ResourceBank::CardsPerResource);
+		for (const PlayerState& player : state.players)
+			for (size_t index = 0; index < state.bank.size(); ++index)
+				state.bank[index] = player.resources[index] >= state.bank[index]
+					? 0 : state.bank[index] - player.resources[index];
+	}
 
 	state.current = reader.U32();
 	state.drop_current = reader.U32();
@@ -238,6 +254,10 @@ State ReadState(std::string_view data) {
 	state.road_building_count = Count(reader);
 	if (state.road_building_count > 2)
 		throw invalid_argument("Saved road-building count is invalid");
+	state.road_building_return = version >= 2 ? ReadStep(reader) : GameController::GameStep::CommonPlay;
+	if (state.road_building_return != GameController::GameStep::DiceDrop
+		&& state.road_building_return != GameController::GameStep::CommonPlay)
+		throw invalid_argument("Saved Road Building return step is invalid");
 	if (reader.Bool()) state.winner = reader.String();
 	if (reader.Bool()) {
 		state.setup_settlement = Count(reader);
@@ -307,6 +327,7 @@ std::string GameController::SerializeState() const {
 		writer.Bool(player.knight_card_);
 		writer.Bool(player.road_card_);
 	}
+	for (Resurse resource : Resources) writer.U64(resource_bank_.Count(resource));
 
 	writer.U32(current_player_);
 	writer.U32(current_drop_cards_player_);
@@ -315,6 +336,7 @@ std::string GameController::SerializeState() const {
 	writer.U64(last_dice_.first);
 	writer.U64(last_dice_.second);
 	writer.U64(road_building_count_);
+	writer.U8(static_cast<uint8_t>(road_building_return_step_));
 	writer.Bool(winner_.has_value());
 	if (winner_) writer.String(*winner_);
 	writer.Bool(setup_settlement_id_.has_value());
@@ -392,6 +414,10 @@ std::unique_ptr<GameController> GameController::DeserializeState(std::string_vie
 	game->step_after_bandit_ = state.after_bandit;
 	game->last_dice_ = {state.die_a, state.die_b};
 	game->road_building_count_ = state.road_building_count;
+	game->road_building_return_step_ = state.road_building_return;
+	std::map<Resurse, size_t> bank;
+	for (size_t index = 0; index < Resources.size(); ++index) bank[Resources[index]] = state.bank[index];
+	game->resource_bank_ = ResourceBank(bank);
 	game->winner_ = std::move(state.winner);
 	game->setup_settlement_id_ = state.setup_settlement;
 	game->activ_deal_ = std::move(state.deal);

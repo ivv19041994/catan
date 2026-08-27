@@ -12,6 +12,14 @@ int main() { return test::Run({
         test::Equal(p.getCountResurses(Resurse::Wood), wood - 4, "bank consumes four offered cards");
         test::Equal(p.getCountResurses(Resurse::Clay), clay + 1, "bank gives one requested card");
     }},
+    {"bank trade rejects identical and non-resource sides", [] {
+        Player p("trader",0); test::SeedResources(p,{{Resurse::Wood,8}});
+        const auto before=test::ResourceCounts(p);
+        test::Throws([&]{p.Market(Resurse::Wood,Resurse::Wood);},"same resource is not an exchange");
+        test::Throws([&]{p.Market(Resurse::Not,Resurse::Wood);},"desert cannot be offered");
+        test::Throws([&]{p.Market(Resurse::Wood,Resurse::Not);},"desert cannot be requested");
+        test::Equal(test::ResourceCounts(p),before,"invalid bank trades are atomic");
+    }},
     {"generic and specialized ports reduce only the correct prices", [] {
         Map map; Player generic("generic",0), specialized("specialized",1);
         map.placeStartBuilding(0, &generic);
@@ -26,6 +34,14 @@ int main() { return test::Run({
         const auto stone = specialized.getCountResurses(Resurse::Stone);
         specialized.Market(Resurse::Stone, Resurse::Wood);
         test::Equal(specialized.getCountResurses(Resurse::Stone), stone - 4, "specialized port leaves other rates at 4:1");
+    }},
+    {"controller bank trade moves a physical requested card", [] {
+        test::ControlledGame controlled({"a","b"}); test::EnterCommonPlay(controlled); auto& game=*controlled.game;
+        const auto current=game.GetCurrentPlayer(); test::SeedResources(game,current,{{Resurse::Wood,4}});
+        const size_t clay_before=game.GetResourceBank().Count(Resurse::Clay);
+        game.Market(current,Resurse::Wood,Resurse::Clay);
+        test::Equal(game.GetResourceBank().Count(Resurse::Clay),clay_before-1,
+            "requested card leaves finite bank");
     }},
     {"matching player deal transfers both sides atomically", [] {
         test::ControlledGame controlled({"a","b"}); test::EnterCommonPlay(controlled);
@@ -63,6 +79,17 @@ int main() { return test::Run({
         test::Equal(game.GetPlayer(buyer).getCountResurses(), before, "rejected deal is atomic");
         test::SeedResources(game, buyer, {});
         test::Throws([&] { game.SetDeal(buyer, {{Resurse::Clay,1}}, {{Resurse::Wood,2}}); }, "buyer cannot offer absent cards");
+    }},
+    {"zero, desert and overlapping player offers are rejected", [] {
+        test::ControlledGame controlled({"a","b"}); test::EnterCommonPlay(controlled); auto& game=*controlled.game;
+        const auto current=game.GetCurrentPlayer(); test::SeedResources(game,current,{{Resurse::Wood,3}});
+        test::Throws([&]{game.SetDeal(current,{{Resurse::Wood,0}},{{Resurse::Clay,1}});},
+            "zero quantity is not a deal side");
+        test::Throws([&]{game.SetDeal(current,{{Resurse::Not,1}},{{Resurse::Clay,1}});},
+            "desert is not tradable");
+        test::Throws([&]{game.SetDeal(current,{{Resurse::Wood,2}},{{Resurse::Wood,1}});},
+            "same-resource overlap cannot disguise a giveaway");
+        test::Check(!game.GetActivDeal(),"invalid offers are never published");
     }},
     {"passing clears an unaccepted deal", [] {
         test::ControlledGame controlled({"a","b"}); test::EnterCommonPlay(controlled);

@@ -12,5 +12,6 @@
 #include "map.cpp"
 #include "node.cpp"
 #include "player.cpp"
+#include "resource_bank.cpp"
 #include "dedicated_server.cpp"
 #include "dedicated_protocol.cpp"
