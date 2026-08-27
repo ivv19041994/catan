@@ -10,6 +10,8 @@
 #include "CatanInteractionPolicy.h"
 #include "CatanTextResources.h"
 #include "CatanUserSettings.h"
+#include "CatanMobileUIPolicy.h"
+#include "CatanTouchComboBoxString.h"
 #include "CommonTextBlock.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -371,12 +373,10 @@ void UCatanHUDWidget::BuildLayout()
         FSlateFontInfo Font = Label->GetFont(); Font.Size = 22; Label->SetFont(Font);
         UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(Label);
         LabelSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-        UComboBoxString* Input = WidgetTree->ConstructWidget<UComboBoxString>();
+        UComboBoxString* Input = WidgetTree->ConstructWidget<UCatanTouchComboBoxString>();
         ConfigureComboBox(Input, 24);
         Input->AddOption(TEXT("0"));
         Input->SetSelectedOption(TEXT("0"));
-        Input->SetContentPadding(FMargin(18, 8));
-        Input->SetMaxListHeight(360.0f);
         Input->OnSelectionChanged.AddDynamic(this, &UCatanHUDWidget::UpdateDropConfirmation);
         USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
         InputSize->SetMinDesiredWidth(150.0f);
@@ -437,12 +437,10 @@ void UCatanHUDWidget::BuildLayout()
         UHorizontalBoxSlot* NameSlot = Row->AddChildToHorizontalBox(Name);
         NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         NameSlot->SetVerticalAlignment(VAlign_Center);
-        UComboBoxString* Input = WidgetTree->ConstructWidget<UComboBoxString>();
+        UComboBoxString* Input = WidgetTree->ConstructWidget<UCatanTouchComboBoxString>();
         ConfigureComboBox(Input, 24);
         for (int32 Count = 0; Count <= 2; ++Count) Input->AddOption(FString::FromInt(Count));
         Input->SetSelectedOption(TEXT("0"));
-        Input->SetContentPadding(FMargin(18, 8));
-        Input->SetMaxListHeight(240.0f);
         Input->OnSelectionChanged.AddDynamic(this, &UCatanHUDWidget::UpdatePlentySelection);
         USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
         InputSize->SetMinDesiredWidth(150.0f);
@@ -583,10 +581,8 @@ void UCatanHUDWidget::BuildLayout()
     UVerticalBox* PlayerTradePanel = WidgetTree->ConstructWidget<UVerticalBox>();
     TradeModeSwitcher->AddChild(PlayerTradePanel);
     AddText(PlayerTradePanel, TEXT("OFFER TO"), 18);
-    TradingPlayer = WidgetTree->ConstructWidget<UComboBoxString>();
+    TradingPlayer = WidgetTree->ConstructWidget<UCatanTouchComboBoxString>();
     ConfigureComboBox(TradingPlayer, 22);
-    TradingPlayer->SetContentPadding(FMargin(14, 10));
-    TradingPlayer->SetMaxListHeight(320.0f);
     USizeBox* RecipientSize = WidgetTree->ConstructWidget<USizeBox>();
     RecipientSize->SetMinDesiredHeight(56.0f);
     RecipientSize->AddChild(TradingPlayer);
@@ -615,13 +611,11 @@ void UCatanHUDWidget::BuildLayout()
             UHorizontalBoxSlot* NameSlot = Row->AddChildToHorizontalBox(Name);
             NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
             NameSlot->SetVerticalAlignment(VAlign_Center);
-            UComboBoxString* Input = WidgetTree->ConstructWidget<UComboBoxString>();
+            UComboBoxString* Input = WidgetTree->ConstructWidget<UCatanTouchComboBoxString>();
             ConfigureComboBox(Input, 24);
             for (int32 Count = 0; Count <= 5; ++Count)
                 Input->AddOption(FString::FromInt(Count));
             Input->SetSelectedOption(TEXT("0"));
-            Input->SetContentPadding(FMargin(18, 8));
-            Input->SetMaxListHeight(360.0f);
             USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
             InputSize->SetMinDesiredWidth(150.0f);
             InputSize->SetMinDesiredHeight(56.0f);
@@ -703,7 +697,7 @@ void UCatanHUDWidget::BuildLayout()
     LoadLanButton = AddButton(LocalNetworkPanel, TEXT("LOAD SAVED LAN GAME"));
     LoadLanButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::LoadLanLobby);
     LoadLanButton->SetIsEnabled(GameSubsystem && GameSubsystem->HasLanSavedGame());
-    LobbyResults = WidgetTree->ConstructWidget<UComboBoxString>();
+    LobbyResults = WidgetTree->ConstructWidget<UCatanTouchComboBoxString>();
     ConfigureComboBox(LobbyResults, 20);
     LobbyResults->AddOption(TEXT("No search results yet"));
     LobbyResults->SetSelectedIndex(0);
@@ -749,7 +743,7 @@ void UCatanHUDWidget::BuildLayout()
     SetupSwitcher->AddChild(BotPanel);
     AddText(BotPanel, TEXT("PLAY AGAINST BOTS"), 27);
     AddText(BotPanel, TEXT("Choose the total number of players."), 17);
-    PlayerCount = WidgetTree->ConstructWidget<UComboBoxString>();
+    PlayerCount = WidgetTree->ConstructWidget<UCatanTouchComboBoxString>();
     ConfigureComboBox(PlayerCount, 22);
     PlayerCount->AddOption(TEXT("2 players"));
     PlayerCount->AddOption(TEXT("3 players"));
@@ -772,7 +766,7 @@ void UCatanHUDWidget::BuildLayout()
     SettingsNameInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
     SettingsPanel->AddChildToVerticalBox(SettingsNameInput);
     AddText(SettingsPanel, TEXT("LANGUAGE"), 18);
-    SettingsLanguageInput = WidgetTree->ConstructWidget<UComboBoxString>();
+    SettingsLanguageInput = WidgetTree->ConstructWidget<UCatanTouchComboBoxString>();
     ConfigureComboBox(SettingsLanguageInput, 22);
     SettingsLanguageInput->AddOption(TEXT("English"));
     SettingsLanguageInput->AddOption(TEXT("Русский"));
@@ -818,23 +812,40 @@ void UCatanHUDWidget::BuildLayout()
     YearOfPlentyButton->SetToolTipText(FText::FromString(TEXT("Take the two selected resources")));
     MonopolyButton->SetToolTipText(FText::FromString(TEXT("Take the selected resource from every opponent")));
     ApplyLanguage();
-    UE_LOG(LogTemp, Display, TEXT("CATAN_COMBO_STYLE ready widgets=%d popupText=white"),
-        8 + DropInputs.Num() + OfferedInputs.Num() + RequestedInputs.Num());
+#if PLATFORM_ANDROID
+    const FCatanComboBoxMetrics ComboMetrics = CatanMobileUIPolicy::ComboBoxMetrics(22, true);
+#else
+    const FCatanComboBoxMetrics ComboMetrics = CatanMobileUIPolicy::ComboBoxMetrics(22, false);
+#endif
+    UE_LOG(LogTemp, Display,
+        TEXT("CATAN_COMBO_STYLE ready widgets=%d popupText=white rowHeight=%.0f font=%d"),
+        8 + DropInputs.Num() + OfferedInputs.Num() + RequestedInputs.Num(),
+        ComboMetrics.MinimumRowHeight, ComboMetrics.PopupFontSize);
 }
 
 void UCatanHUDWidget::ConfigureComboBox(UComboBoxString* ComboBox, int32 FontSize)
 {
     if (!ComboBox) return;
+#if PLATFORM_ANDROID
+    constexpr bool bMobile = true;
+#else
+    constexpr bool bMobile = false;
+#endif
+    const FCatanComboBoxMetrics Metrics = CatanMobileUIPolicy::ComboBoxMetrics(FontSize, bMobile);
     FTableRowStyle ItemStyle = ComboBox->GetItemStyle();
     ItemStyle.SetTextColor(FSlateColor(FLinearColor::White));
     ItemStyle.SetSelectedTextColor(FSlateColor(FLinearColor::White));
     ComboBox->SetItemStyle(ItemStyle);
     FSlateFontInfo Font = ComboBox->GetFont();
-    Font.Size = FontSize;
+    Font.Size = Metrics.ClosedFontSize;
 PRAGMA_DISABLE_DEPRECATION_WARNINGS
     ComboBox->Font = Font;
     ComboBox->ForegroundColor = FSlateColor(FLinearColor(0.025f, 0.035f, 0.05f, 1.0f));
 PRAGMA_ENABLE_DEPRECATION_WARNINGS
+    ComboBox->SetContentPadding(Metrics.ClosedContentPadding);
+    ComboBox->SetMaxListHeight(Metrics.MaximumListHeight);
+    if (UCatanTouchComboBoxString* TouchCombo = Cast<UCatanTouchComboBoxString>(ComboBox))
+        TouchCombo->ConfigurePopup(Metrics.PopupFontSize, Metrics.MinimumRowHeight, Metrics.PopupPadding);
     ComboBox->OnOpening.AddDynamic(this, &UCatanHUDWidget::ReportComboOpening);
 }
 

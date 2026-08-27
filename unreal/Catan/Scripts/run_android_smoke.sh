@@ -17,6 +17,10 @@ screenshot="$log_dir/main-menu.png"
 started_emulator=0
 
 fail() {
+  if command -v adb >/dev/null 2>&1 && [[ -n "$(adb devices 2>/dev/null | awk 'NR > 1 && $2 == "device" { print $1; exit }')" ]]; then
+    adb exec-out screencap -p >"$log_dir/failure-screen.png" 2>/dev/null || true
+    adb logcat -d >"$log_file" 2>/dev/null || true
+  fi
   print -u2 "FAIL: $1"
   print -u2 "Artifacts: $log_dir"
   exit 1
@@ -50,9 +54,16 @@ print "Renderer: ${renderer:-unknown}"
 adb install -r "$apk" >/dev/null || fail "APK installation failed"
 fatal_pattern='No Vulkan driver found|Unable to run on this device|Assertion failed|Ensure condition failed|Handled ensure|Fatal error|FATAL EXCEPTION|Fatal signal|Lock at Offset|RequestExit\(1'
 
+capture_app_log() {
+  local app_pid="$(adb shell pidof -s "$package_name" 2>/dev/null | tr -d '\r')"
+  if [[ -n "$app_pid" ]]; then adb logcat -d --pid="$app_pid" >"$log_file"
+  else : >"$log_file"
+  fi
+}
+
 assert_running_without_fatal() {
   local context="$1"
-  adb logcat -d >"$log_file"
+  capture_app_log
   if rg -q "$fatal_pattern" "$log_file"; then
     rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
     fail "$context"
@@ -75,18 +86,18 @@ test_combo_preview() {
   local preview_ready=0
   local style_ready=0
   for attempt in {1..60}; do
-    adb logcat -d >"$log_file"
+    capture_app_log
     if rg -q "$fatal_pattern" "$log_file"; then
       rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
       fail "$mode preview crashed during startup"
     fi
     rg -q "CATAN_UI_PREVIEW ready mode=$mode" "$log_file" && preview_ready=1
-    rg -q 'CATAN_COMBO_STYLE ready widgets=23 popupText=white' "$log_file" && style_ready=1
+    rg -q 'CATAN_COMBO_STYLE ready widgets=23 popupText=white rowHeight=82 font=30' "$log_file" && style_ready=1
     (( preview_ready && style_ready )) && break
     sleep 1
   done
   (( preview_ready )) || fail "$mode preview marker was not observed"
-  (( style_ready )) || fail "readable combo style was not applied to all 23 dropdowns"
+  (( style_ready )) || fail "large readable combo style was not applied to all 23 dropdowns"
   if [[ "$mode" == "PlayerTrade" ]]; then
     rg -q 'CATAN_PLAYER_TRADE_LIMITS max=1,2,3,4,7 receive=5' "$log_file" \
       || fail "Other Player give limits do not match the local hand"
@@ -99,13 +110,17 @@ test_combo_preview() {
     rg -q 'CATAN_DEVELOPMENT_MENU mode=plenty totalLimit=2' "$log_file" \
       || fail "Year of Plenty total selection limit was not applied"
   fi
+  if [[ "$mode" == "PlayerTrade" ]]; then
+    adb exec-out screencap -p >"$log_dir/playertrade-closed.png"
+    [[ -s "$log_dir/playertrade-closed.png" ]] || fail "closed PlayerTrade screenshot is empty"
+  fi
   local combo_open=0
   # The preview marker can arrive one frame before Android starts routing touch to Slate.
   sleep 2
   for attempt in {1..3}; do
     adb shell input tap "$tap_x" "$tap_y"
     sleep 1
-    adb logcat -d >"$log_file"
+    capture_app_log
     rg -q 'CATAN_COMBO_OPEN' "$log_file" && combo_open=1
     (( combo_open )) && break
   done
@@ -127,7 +142,7 @@ test_bank_preview() {
   local preview_ready=0
   local labels_ready=0
   for attempt in {1..60}; do
-    adb logcat -d >"$log_file"
+    capture_app_log
     if rg -q "$fatal_pattern" "$log_file"; then
       rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
       fail "bank preview crashed during startup"
@@ -154,7 +169,7 @@ test_development_monopoly_preview() {
   local preview_ready=0
   local selection_ready=0
   for attempt in {1..60}; do
-    adb logcat -d >"$log_file"
+    capture_app_log
     if rg -q "$fatal_pattern" "$log_file"; then
       rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
       fail "Monopoly preview crashed during startup"
@@ -182,7 +197,7 @@ test_online_page_preview() {
   local preview_ready=0
   local split_ready=0
   for attempt in {1..60}; do
-    adb logcat -d >"$log_file"
+    capture_app_log
     if rg -q "$fatal_pattern" "$log_file"; then
       rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
       fail "$mode page crashed during startup"
@@ -208,7 +223,7 @@ test_settings_preview() {
   adb shell am start -n "$activity" --es cmdline "'-CatanUIPreview=Settings -CatanLanguage=ru'" >/dev/null \
     || fail "settings preview launch failed"
   for attempt in {1..60}; do
-    adb logcat -d >"$log_file"
+    capture_app_log
     if rg -q "$fatal_pattern" "$log_file"; then
       rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
       fail "settings preview crashed during startup"
@@ -230,7 +245,7 @@ test_online_navigation() {
   adb shell am start -n "$activity" --es cmdline '-CatanUIPreview=Online' >/dev/null \
     || fail "online navigation preview launch failed"
   for attempt in {1..60}; do
-    adb logcat -d >"$log_file"
+    capture_app_log
     rg -q 'CATAN_UI_PREVIEW ready mode=Online' "$log_file" && break
     sleep 1
   done
@@ -239,14 +254,14 @@ test_online_navigation() {
   sleep 2
   adb shell input tap 1200 495
   sleep 1
-  adb logcat -d >"$log_file"
+  capture_app_log
   rg -q 'CATAN_ONLINE_NAV page=dedicated' "$log_file" \
     || fail "Dedicated Server button did not open its page"
   adb shell input tap 1200 615
   sleep 1
   adb shell input tap 1200 420
   sleep 1
-  adb logcat -d >"$log_file"
+  capture_app_log
   rg -q 'CATAN_ONLINE_NAV page=chooser' "$log_file" \
     || fail "Dedicated Server Back button did not return to the chooser"
   rg -q 'CATAN_ONLINE_NAV page=local' "$log_file" \
@@ -262,7 +277,7 @@ test_hud_graph() {
   adb shell am start -n "$activity" --es cmdline '-CatanHUDGraphSmoke' >/dev/null \
     || fail "HUD graph launch failed"
   for attempt in {1..60}; do
-    adb logcat -d >"$log_file"
+    capture_app_log
     if rg -q "$fatal_pattern" "$log_file"; then
       fail "HUD graph crashed"
     fi
@@ -284,7 +299,7 @@ test_failed_connections() {
     "'-CatanAutoManualJoin=10.0.2.2:1 -CatanAutoName=InvalidAndroidJoin'" >/dev/null \
     || fail "invalid LAN join launch failed"
   for attempt in {1..50}; do
-    adb logcat -d >"$log_file"
+    capture_app_log
     rg -q 'CATAN_HUD_GRAPH returned-main status=Connection failed:' "$log_file" && break
     sleep 1
   done
@@ -300,7 +315,7 @@ test_failed_connections() {
     "'-CatanDedicatedAddress=10.0.2.2:1 -CatanDedicatedJoin=INVALID -CatanAutoName=InvalidDedicated'" >/dev/null \
     || fail "unavailable dedicated launch failed"
   for attempt in {1..30}; do
-    adb logcat -d >"$log_file"
+    capture_app_log
     rg -q 'CATAN_HUD_GRAPH request-failure dedicatedActive=0 leaving=0' "$log_file" && break
     sleep 1
   done
@@ -317,7 +332,7 @@ adb shell am start -n "$activity" >/dev/null || fail "activity launch failed"
 initialized=0
 menu_ready=0
 for attempt in {1..60}; do
-  adb logcat -d >"$log_file"
+  capture_app_log
   if rg -q "$fatal_pattern" "$log_file"; then
     rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
     fail "fatal Android/RHI condition detected"
@@ -337,14 +352,14 @@ assert_running_without_fatal "late Android/RHI failure detected"
 adb exec-out screencap -p >"$screenshot"
 [[ -s "$screenshot" ]] || fail "Android screenshot is empty"
 
-test_combo_preview PlayerTrade 1180 490
+test_combo_preview PlayerTrade 1200 350
 test_combo_preview Discard 1600 320
 test_combo_preview DevelopmentPlenty 1550 390
 test_development_monopoly_preview
 test_online_navigation
 test_online_page_preview Online
 test_online_page_preview DedicatedServer
-test_combo_preview LocalNetwork 1200 460
+test_combo_preview LocalNetwork 1200 540
 test_combo_preview Bots 1200 390
 test_bank_preview
 test_settings_preview
