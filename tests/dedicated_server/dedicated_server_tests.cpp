@@ -180,6 +180,8 @@ int main() { return test::Run({
         test::Equal(round_trip->hexes.size(), std::size_t{19}, "all hexes survive transport");
         test::Equal(round_trip->nodes.size(), std::size_t{54}, "all nodes survive transport");
         test::Equal(round_trip->roads.size(), std::size_t{72}, "all roads survive transport");
+        test::Equal(round_trip->bank_resources, alice->bank_resources,
+            "public finite bank survives dedicated transport");
     }},
     {"snapshot and request protocol round-trip unicode and delimiters", [] {
         auto service = DeterministicService();

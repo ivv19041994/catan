@@ -48,6 +48,25 @@ Player* SelectAwardHolder(std::vector<Player>& players, Player* incumbent,
 	return leader;
 }
 
+void ValidateDealSide(const std::map<Resurse, size_t>& side) {
+	if (side.empty()) throw logic_error("Both deal sides must contain resources");
+	for (const auto& [resource, count] : side) {
+		if (resource == Resurse::Not || count == 0)
+			throw logic_error("Deal resources must have positive quantities");
+	}
+}
+
+void ValidateDeal(const std::map<Resurse, size_t>& sell,
+		const std::map<Resurse, size_t>& buy) {
+	ValidateDealSide(sell);
+	ValidateDealSide(buy);
+	for (const auto& [resource, count] : sell) {
+		(void)count;
+		if (buy.contains(resource))
+			throw logic_error("The same resource cannot be on both deal sides");
+	}
+}
+
 }//namespace
 
 GameController::GameController(std::initializer_list<std::string> players_il) : GameController(std::vector<std::string>(players_il.begin(), players_il.end()))
@@ -89,14 +108,15 @@ void GameController::DevCard(std::string_view player) {
 	DevelopmentCard card = development_cards_->Draw();
 	p.PutCard(card);
 	p.FreeDevCardResurses();
+	ReturnToBank(Resurse::Hay);
+	ReturnToBank(Resurse::Sheep);
+	ReturnToBank(Resurse::Stone);
 	CheckWinner();
 }
 
 void GameController::UseDevCard(std::string_view player, DevelopmentCard card, UseDevCardParam param) {
 	using namespace std::string_literals;
-	if (step_ != GameStep::CommonPlay && 
-		(step_ != GameStep::DiceDrop || card != DevelopmentCard::Knights)
-		) {
+	if (step_ != GameStep::CommonPlay && step_ != GameStep::DiceDrop) {
 		throw logic_error("Use dev card is not aviable on this game step!"s);
 	}
 	Player& p = CheckCurrentPlayer(player);
@@ -111,6 +131,13 @@ void GameController::UseDevCard(std::string_view player, DevelopmentCard card, U
 				throw logic_error("Invalid use dev card resource!"s);
 			}
 		}
+		{
+			const auto resources = std::get<std::array<Resurse, 2>>(*param);
+			const size_t first_count = resources[0] == resources[1] ? 2 : 1;
+			if (!resource_bank_.CanTake(resources[0], first_count)
+				|| (resources[0] != resources[1] && !resource_bank_.CanTake(resources[1])))
+				throw logic_error("Resource bank cannot supply Year of Plenty");
+		}
 		break;
 	case DevelopmentCard::Monopoly:
 		if (!param || !std::holds_alternative<Resurse>(*param) ||
@@ -121,6 +148,8 @@ void GameController::UseDevCard(std::string_view player, DevelopmentCard card, U
 	default:
 		break;
 	}
+	if (card == DevelopmentCard::RoadBuilding && !HasLegalRoadPlacement(p))
+		throw logic_error("Road Building has no legal road placement");
 
 	p.Use(card);
 
@@ -131,16 +160,15 @@ void GameController::UseDevCard(std::string_view player, DevelopmentCard card, U
 		CheckKnightsCard();
 		break;
 	case DevelopmentCard::RoadBuilding:
-		if (p.getFreeRoad()) {
-			step_ = GameStep::RoadBuilding;
-			road_building_count_ = 0;
-		}
+		road_building_return_step_ = step_;
+		step_ = GameStep::RoadBuilding;
+		road_building_count_ = 0;
 		break;
 	case DevelopmentCard::YearOfPlenty:
 	{
 		auto& res = std::get<std::array<Resurse, 2>>(*param);
-		p.addResurse(res[0]);
-		p.addResurse(res[1]);
+		GiveFromBank(p, res[0]);
+		GiveFromBank(p, res[1]);
 	}
 		break;
 	case DevelopmentCard::Monopoly:
@@ -172,9 +200,7 @@ void GameController::SetDeal(std::string_view player, std::map<Resurse, size_t> 
 		throw logic_error("Deal is not aviable on this game step!"s);
 	}
 
-	if (sell.size() == 0 || buy.size() == 0) {
-		throw logic_error("Deal must be fair!");
-	}
+	ValidateDeal(sell, buy);
 
 	auto pplayer = player_by_name_.find(player);
 	if (pplayer == player_by_name_.end()) {
@@ -238,6 +264,10 @@ const Player& GameController::GetPlayer(std::string_view player) const {
 	return *(player_by_name_.at(player));
 }
 
+const ResourceBank& GameController::GetResourceBank() const {
+	return resource_bank_;
+}
+
 std::vector<std::string> GameController::GetPlayerNames() const {
 	std::vector<std::string> result;
 	result.reserve(players_.size());
@@ -288,12 +318,10 @@ void GameController::CheckRoadLen() {
 }
 
 void GameController::CheckWinner() {
-	for (Player& player : players_) {
-		if (player.GetWinPoints() >= 10) {
-			step_ = GameStep::Finish;
-			winner_ = player.getName();
-			return;
-		}
+	Player& player = players_[current_player_];
+	if (player.GetWinPoints() >= 10) {
+		step_ = GameStep::Finish;
+		winner_ = player.getName();
 	}
 }
 
@@ -424,7 +452,7 @@ void GameController::BuildSettlement(Player& player, size_t settlement_id) {
 		else {
 			step_ = GameStep::BackwardBuildingRoad;
 			for (const auto pgex : map.getGexsByNodeId(settlement_id))
-				player.addResurse(pgex->getType());
+				GiveFromBank(player, pgex->getType());
 		}
 	} else if(step_ == GameStep::CommonPlay) {
 		if (!map.canPlaceBuilding(settlement_id, player)) {
@@ -436,6 +464,10 @@ void GameController::BuildSettlement(Player& player, size_t settlement_id) {
 
 		map.placeSettlement(settlement_id, &player);
 		player.FreeSettlemenResurses();
+		ReturnToBank(Resurse::Wood);
+		ReturnToBank(Resurse::Clay);
+		ReturnToBank(Resurse::Hay);
+		ReturnToBank(Resurse::Sheep);
 	} else {
 		throw logic_error("Build settlement is not aviable on this game step!"s);
 	}
@@ -478,6 +510,8 @@ void GameController::BuildCastle(Player& player, size_t settlement_id) {
 
 	map.placeCastle(settlement_id, player);
 	player.FreeCastleResurses();
+	ReturnToBank(Resurse::Hay, 2);
+	ReturnToBank(Resurse::Stone, 3);
 }
 
 std::string GameController::GetCurrentPlayer() const {
@@ -533,6 +567,8 @@ void GameController::BuildRoad(Player& player, size_t road_id) {
 		map.placeRoad(road_id, &player);
 		
 		player.FreeRoadResurses();
+		ReturnToBank(Resurse::Wood);
+		ReturnToBank(Resurse::Clay);
 
 	}
 	else if (step_ == GameStep::RoadBuilding) {
@@ -540,8 +576,9 @@ void GameController::BuildRoad(Player& player, size_t road_id) {
 			throw logic_error("Road id "s + std::to_string(road_id) + " is busy / far by other building!"s);
 		}
 		map.placeRoad(road_id, &player);
-		if (++road_building_count_ >= 2 || player.getFreeRoad() == nullptr) {
-			step_ = GameStep::CommonPlay;
+		++road_building_count_;
+		if (road_building_count_ >= 2 || !HasLegalRoadPlacement(player)) {
+			step_ = road_building_return_step_;
 		}
 	}
 	else {
@@ -560,7 +597,7 @@ void GameController::Dice(std::string_view player) {
 
 	last_dice_ = { dice_[0]->Roll(), dice_[1]->Roll() };
 	const size_t dice_result = last_dice_.first + last_dice_.second;
-	map.diceEvent(dice_result);
+	ResolveProduction(dice_result);
 
 	if (dice_result == 7) {
 		step_ = GameStep::DropCards;
@@ -676,6 +713,7 @@ void GameController::DropCards(Player& player, const std::map<Resurse, size_t>& 
 	}
 
 	player.Drop(resurses);
+	for (const auto& [resource, count] : resurses) ReturnToBank(resource, count);
 	CheckNextDropCard();
 	return;
 }
@@ -686,7 +724,15 @@ void GameController::Market(std::string_view player, Resurse from, Resurse to) {
 		throw logic_error("Market is not aviable on this game step!"s);
 	}
 
-	CheckCurrentPlayer(player).Market(from, to);
+	if (from == Resurse::Not || to == Resurse::Not || from == to)
+		throw logic_error("Bank trade requires two different resources");
+	Player& current = CheckCurrentPlayer(player);
+	if (!resource_bank_.CanTake(to))
+		throw logic_error("Resource bank does not contain requested card");
+	const size_t price = current.GetMarketPrice(from);
+	current.Market(from, to);
+	ReturnToBank(from, price);
+	resource_bank_.Take(to);
 }
 
 std::pair<size_t, size_t> GameController::GetLastDice() const {
@@ -703,6 +749,52 @@ void GameController::Pass(std::string_view player) {
 	current_player_ = (++current_player_) % players_.size();
 	step_ = GameStep::DiceDrop;
 	activ_deal_.reset();
+	CheckWinner();
+}
+
+bool GameController::HasLegalRoadPlacement(const Player& player) const {
+	if (player.getFreeRoadCount() == 0) return false;
+	for (size_t road_id = 0; road_id < Map::facets_count; ++road_id)
+		if (map.canPlaceRoad(road_id, &player)) return true;
+	return false;
+}
+
+void GameController::GiveFromBank(Player& player, Resurse resource, size_t count) {
+	if (resource == Resurse::Not || count == 0) return;
+	const size_t granted = std::min(count, resource_bank_.Count(resource));
+	if (granted == 0) return;
+	resource_bank_.Take(resource, granted);
+	player.addResurse(resource, granted);
+}
+
+void GameController::ReturnToBank(Resurse resource, size_t count) {
+	if (resource != Resurse::Not && count != 0) resource_bank_.Return(resource, count);
+}
+
+void GameController::ResolveProduction(size_t dice_result) {
+	std::array<std::array<size_t, ResourceBank::Resources.size()>, 4> before{};
+	for (size_t player_index = 0; player_index < players_.size(); ++player_index)
+		for (size_t resource_index = 0; resource_index < ResourceBank::Resources.size(); ++resource_index)
+			before[player_index][resource_index] = players_[player_index].getCountResurses(
+				ResourceBank::Resources[resource_index]);
+
+	map.diceEvent(dice_result);
+
+	for (size_t resource_index = 0; resource_index < ResourceBank::Resources.size(); ++resource_index) {
+		const Resurse resource = ResourceBank::Resources[resource_index];
+		std::array<size_t, 4> gains{};
+		for (size_t player_index = 0; player_index < players_.size(); ++player_index) {
+			gains[player_index] = players_[player_index].getCountResurses(resource)
+				- before[player_index][resource_index];
+		}
+		for (size_t player_index = 0; player_index < players_.size(); ++player_index)
+			if (gains[player_index] != 0) players_[player_index].Drop({{resource, gains[player_index]}});
+
+		const std::vector<size_t> grants = resource_bank_.DistributeProduction(
+			resource, std::span<const size_t>(gains.data(), players_.size()));
+		for (size_t player_index = 0; player_index < players_.size(); ++player_index)
+			players_[player_index].addResurse(resource, grants[player_index]);
+	}
 }
 
 const Map& GameController::GetMap() const {

@@ -1449,14 +1449,14 @@ void UCatanHUDWidget::Refresh()
             Button->SetIsEnabled(bVisible);
         };
         ShowCard(KnightButton, LocalPlayer->Knights > 0);
-        ShowCard(RoadBuildingButton, bPlay && LocalPlayer->RoadBuildingCards > 0);
-        ShowCard(YearOfPlentyButton, bPlay && LocalPlayer->YearOfPlentyCards > 0);
-        ShowCard(MonopolyButton, bPlay && LocalPlayer->MonopolyCards > 0);
+        ShowCard(RoadBuildingButton, (bPlay || bRoll) && LocalPlayer->RoadBuildingCards > 0);
+        ShowCard(YearOfPlentyButton, (bPlay || bRoll) && LocalPlayer->YearOfPlentyCards > 0);
+        ShowCard(MonopolyButton, (bPlay || bRoll) && LocalPlayer->MonopolyCards > 0);
         if (DevelopmentModeSwitcher && DevelopmentModeSwitcher->GetActiveWidgetIndex() == 1
-            && (!bPlay || LocalPlayer->YearOfPlentyCards <= 0))
+            && (!(bPlay || bRoll) || LocalPlayer->YearOfPlentyCards <= 0))
             DevelopmentModeSwitcher->SetActiveWidgetIndex(0);
         if (DevelopmentModeSwitcher && DevelopmentModeSwitcher->GetActiveWidgetIndex() == 2
-            && (!bPlay || LocalPlayer->MonopolyCards <= 0))
+            && (!(bPlay || bRoll) || LocalPlayer->MonopolyCards <= 0))
             DevelopmentModeSwitcher->SetActiveWidgetIndex(0);
         const int32 ReadyCount = LocalPlayer->Knights + LocalPlayer->RoadBuildingCards
             + LocalPlayer->YearOfPlentyCards + LocalPlayer->MonopolyCards;

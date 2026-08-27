@@ -522,6 +522,13 @@ std::optional<Snapshot> Service::GetSnapshot(std::string_view lobby_token,
         view.deal.offered = ResourceView(deal->sell);
         view.deal.requested = ResourceView(deal->buy);
     }
+    const ResourceBank& bank = game.GetResourceBank();
+    view.bank_resources = {
+        static_cast<int>(bank.Count(Resurse::Wood)),
+        static_cast<int>(bank.Count(Resurse::Clay)),
+        static_cast<int>(bank.Count(Resurse::Hay)),
+        static_cast<int>(bank.Count(Resurse::Sheep)),
+        static_cast<int>(bank.Count(Resurse::Stone))};
 
     for (const AuthPlayer& auth : lobby.players) {
         const Player& player = game.GetPlayer(auth.name);

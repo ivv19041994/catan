@@ -145,6 +145,7 @@ struct Snapshot {
     int pending_robber_hex = -1;
     std::vector<std::string> robber_victims;
     DealSnapshot deal;
+    Resources bank_resources{19, 19, 19, 19, 19};
     std::vector<int> valid_nodes;
     std::vector<int> valid_roads;
     std::vector<int> valid_hexes;

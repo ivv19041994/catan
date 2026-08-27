@@ -20,6 +20,7 @@ add_library(catan_engine
     src/map.cpp
     src/node.cpp
     src/player.cpp
+    src/resource_bank.cpp
 )
 
 target_include_directories(catan_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -83,6 +84,7 @@ if(CATAN_BUILD_TESTS)
         add_catan_domain_test(map)
         add_catan_domain_test(player_deck)
         add_catan_domain_test(persistence)
+        add_catan_domain_test(resource_bank)
 
         if(CATAN_BUILD_DEDICATED_SERVER)
             add_executable(catan_dedicated_server_tests

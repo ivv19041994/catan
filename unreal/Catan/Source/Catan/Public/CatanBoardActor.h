@@ -97,6 +97,7 @@ private:
     TArray<int32> RoadPavingRoadIds;
     TArray<FVector> RoadPavingScaleTargets;
     TArray<FVector> RoadScaleTargets;
+    TArray<int32> PreviousBankCounts;
     TArray<float> HexLabelSizeTargets;
     TArray<FVector> HexTokenScaleTargets;
     TArray<FQuat> DiceTargetRotations;
@@ -128,6 +129,12 @@ private:
     TArray<TObjectPtr<UStaticMeshComponent>> DicePieces;
 
     UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> BankCardStacks;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UTextRenderComponent>> BankCardLabels;
+
+    UPROPERTY(Transient)
     TObjectPtr<USoundWaveProcedural> FeedbackSound;
 
     UPROPERTY(Transient)
@@ -144,6 +151,7 @@ private:
     void BuildNodes();
     void BuildRoads();
     void BuildDice();
+    void BuildResourceBank();
     void ConfigureLongRangeShadows();
     void AnimateFeedback(float DeltaSeconds);
     void PlayFeedbackTone(float Frequency, float Duration, float Volume = 0.18f);

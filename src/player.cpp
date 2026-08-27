@@ -270,6 +270,9 @@ void Player::Drop(const std::map<Resurse, size_t>& resurses) {
 
 void Player::Market(Resurse from, Resurse to) {
 	using namespace std::string_literals;
+	if (from == Resurse::Not || to == Resurse::Not || from == to) {
+		throw logic_error("Market requires two different resources"s);
+	}
 	auto price = resurses_market_price_.at(from);
 
 	if (resurses_.at(from) < price) {

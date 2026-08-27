@@ -147,6 +147,9 @@ struct FCatanGameView
     UPROPERTY(BlueprintReadOnly) int32 PendingRobberHex = INDEX_NONE;
     UPROPERTY(BlueprintReadOnly) TArray<FString> RobberVictims;
     UPROPERTY(BlueprintReadOnly) FCatanDealView ActiveDeal;
+    // Public Core bank state adapted for presentation. The Core module owns
+    // all supply rules; this struct only transports the resulting counts.
+    UPROPERTY(BlueprintReadOnly) FCatanResourceView BankResources;
     UPROPERTY(BlueprintReadOnly) TArray<int32> ValidNodeTargets;
     UPROPERTY(BlueprintReadOnly) TArray<int32> ValidRoadTargets;
     UPROPERTY(BlueprintReadOnly) TArray<int32> ValidHexTargets;
