@@ -53,7 +53,7 @@ stop_pid() {
 print "Checking every in-widget HUD navigation edge..."
 launch "$log_dir/graph.log" -CatanHUDGraphSmoke
 graph_pid="$REPLY"
-wait_for "$log_dir/graph.log" 'CATAN_HUD_GRAPH PASS edges=33 failures=0' 45
+wait_for "$log_dir/graph.log" 'CATAN_HUD_GRAPH PASS edges=37 failures=0' 45
 stop_pid "$graph_pid"
 
 print "Checking failed manual join stays out of the lobby..."

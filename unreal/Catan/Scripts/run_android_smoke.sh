@@ -61,6 +61,12 @@ capture_app_log() {
   fi
 }
 
+assert_modal_hides_actions() {
+  capture_app_log
+  rg -q 'CATAN_ACTION_PANEL modal=1 visible=0' "$log_file" \
+    || fail "modal did not hide the lower action panel"
+}
+
 assert_running_without_fatal() {
   local context="$1"
   capture_app_log
@@ -98,6 +104,7 @@ test_combo_preview() {
   done
   (( preview_ready )) || fail "$mode preview marker was not observed"
   (( style_ready )) || fail "large readable combo style was not applied to all 23 dropdowns"
+  assert_modal_hides_actions
   if [[ "$mode" == "PlayerTrade" ]]; then
     rg -q 'CATAN_PLAYER_TRADE_LIMITS max=1,2,3,4,7 receive=5' "$log_file" \
       || fail "Other Player give limits do not match the local hand"
@@ -154,6 +161,7 @@ test_bank_preview() {
   done
   (( preview_ready )) || fail "bank preview marker was not observed"
   (( labels_ready )) || fail "per-resource bank rate labels were not applied"
+  assert_modal_hides_actions
   assert_running_without_fatal "bank rate labels failed"
   adb exec-out screencap -p >"$output"
   [[ -s "$output" ]] || fail "bank rate screenshot is empty"
@@ -181,6 +189,7 @@ test_development_monopoly_preview() {
   done
   (( preview_ready )) || fail "Monopoly preview marker was not observed"
   (( selection_ready )) || fail "Monopoly single-resource selection was not applied"
+  assert_modal_hides_actions
   assert_running_without_fatal "Monopoly resource submenu failed"
   adb exec-out screencap -p >"$output"
   [[ -s "$output" ]] || fail "Monopoly resource submenu screenshot is empty"
@@ -210,6 +219,7 @@ test_online_page_preview() {
   done
   (( preview_ready )) || fail "$mode page preview marker was not observed"
   (( split_ready )) || fail "split online menu marker was not observed"
+  assert_modal_hides_actions
   assert_running_without_fatal "$mode online page failed"
   adb exec-out screencap -p >"$output"
   [[ -s "$output" ]] || fail "$mode page screenshot is empty"
@@ -233,6 +243,7 @@ test_settings_preview() {
   done
   rg -q 'CATAN_SETTINGS_PREVIEW name=.* language=ru' "$log_file" \
     || fail "settings persistence marker was not observed"
+  assert_modal_hides_actions
   assert_running_without_fatal "settings page failed"
   adb exec-out screencap -p >"$output"
   [[ -s "$output" ]] || fail "settings page screenshot is empty"
@@ -281,10 +292,10 @@ test_hud_graph() {
     if rg -q "$fatal_pattern" "$log_file"; then
       fail "HUD graph crashed"
     fi
-    rg -q 'CATAN_HUD_GRAPH PASS edges=33 failures=0' "$log_file" && break
+    rg -q 'CATAN_HUD_GRAPH PASS edges=37 failures=0' "$log_file" && break
     sleep 1
   done
-  rg -q 'CATAN_HUD_GRAPH PASS edges=33 failures=0' "$log_file" \
+  rg -q 'CATAN_HUD_GRAPH PASS edges=37 failures=0' "$log_file" \
     || fail "complete HUD graph did not pass"
   assert_running_without_fatal "HUD graph failed after traversal"
   adb exec-out screencap -p >"$output"

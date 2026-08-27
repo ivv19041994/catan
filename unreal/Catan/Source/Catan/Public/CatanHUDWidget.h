@@ -117,6 +117,7 @@ private:
     bool bDevelopmentPanelOpen = false;
     bool bTradePanelOpen = false;
     bool bSetupPanelOpen = true;
+    bool bActionPanelWasVisible = true;
     FString PreviousToastStatus;
     float ToastRemaining = 0.0f;
     float ResourcePulseRemaining = 0.0f;
@@ -226,6 +227,7 @@ private:
     bool GetValidatedPlayerName(FString& OutName);
     void ApplyAdaptiveLayout(bool bCompact);
     void UpdateActionLabels();
+    void UpdateActionPanelVisibility();
     void UpdateBankSelectionStyles();
     void UpdateMonopolySelectionStyles();
     void ResetPlentyInputs();

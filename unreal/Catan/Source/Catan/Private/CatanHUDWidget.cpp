@@ -37,6 +37,7 @@
 #include "Engine/Texture2D.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Misc/ScopeExit.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "Containers/Ticker.h"
 
@@ -1043,6 +1044,7 @@ void UCatanHUDWidget::ApplyLanguage()
 void UCatanHUDWidget::Refresh()
 {
     if (!GameSubsystem || !PhaseText) return;
+    ON_SCOPE_EXIT { UpdateActionPanelVisibility(); };
     if (LoadLanButton) LoadLanButton->SetIsEnabled(GameSubsystem->HasLanSavedGame());
     SetModalSize(680.0f, 650.0f);
     SetModalPosition(FVector2D::ZeroVector);
@@ -1506,6 +1508,22 @@ void UCatanHUDWidget::Refresh()
     ApplyUIPreview();
 }
 
+void UCatanHUDWidget::UpdateActionPanelVisibility()
+{
+    if (!ActionBorder || !ModalBorder) return;
+    const ESlateVisibility ModalVisibility = ModalBorder->GetVisibility();
+    const bool bModalOpen = ModalVisibility != ESlateVisibility::Collapsed
+        && ModalVisibility != ESlateVisibility::Hidden;
+    const bool bShowActions = !bModalOpen;
+    ActionBorder->SetVisibility(bShowActions ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    if (bShowActions != bActionPanelWasVisible)
+    {
+        bActionPanelWasVisible = bShowActions;
+        UE_LOG(LogTemp, Display, TEXT("CATAN_ACTION_PANEL modal=%d visible=%d"),
+            bModalOpen, bShowActions);
+    }
+}
+
 void UCatanHUDWidget::ApplyUIPreview()
 {
     FString Preview;
@@ -1664,6 +1682,7 @@ void UCatanHUDWidget::RunHUDGraphSmoke()
 
     bSetupPanelOpen = true;
     ShowMainSetup();
+    Verify(TEXT("main-modal-hides-actions"), ActionBorder->GetVisibility() == ESlateVisibility::Collapsed);
     Verify(TEXT("main-online"), (ShowOnlineSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupOnlineIndex));
     Verify(TEXT("online-local"), (ShowLocalNetworkSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupLocalNetworkIndex));
     ManualAddressInput->SetText(FText::GetEmpty());
@@ -1697,6 +1716,7 @@ void UCatanHUDWidget::RunHUDGraphSmoke()
     ShowBotSetup();
     StartBotMatch();
     Verify(TEXT("bots-start-game"), !bSetupPanelOpen && GameSubsystem->GetSnapshot().Players.Num() == 2);
+    Verify(TEXT("game-shows-actions"), ActionBorder->GetVisibility() == ESlateVisibility::Visible);
     StartNewGame();
     ShowMainSetup();
 
@@ -1726,8 +1746,10 @@ void UCatanHUDWidget::RunHUDGraphSmoke()
 
     BuyDevelopmentCard();
     Verify(TEXT("game-buy-confirmation"), PendingExpensiveAction == 2);
+    Verify(TEXT("confirmation-hides-actions"), ActionBorder->GetVisibility() == ESlateVisibility::Collapsed);
     CancelExpensiveAction();
     Verify(TEXT("confirmation-cancel-game"), PendingExpensiveAction == 0);
+    Verify(TEXT("confirmation-cancel-restores-actions"), ActionBorder->GetVisibility() == ESlateVisibility::Visible);
     ApplyAdaptiveLayout(true);
     ToggleLeftDetails();
     Verify(TEXT("game-open-left-details"), bLeftDetailsOpen);
