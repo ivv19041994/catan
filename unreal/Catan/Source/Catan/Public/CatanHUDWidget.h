@@ -103,6 +103,10 @@ private:
     UPROPERTY(Transient) TObjectPtr<UButton> ReadyButton;
     UPROPERTY(Transient) TObjectPtr<UButton> StartLobbyButton;
     UPROPERTY(Transient) TObjectPtr<UButton> LoadLanButton;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> SavedGameInput;
+    TArray<FString> SavedGameSlotIds;
+    TArray<bool> SavedGameSlotValid;
+    FString SavedGameCatalogDigest;
     UPROPERTY(Transient) TObjectPtr<UButton> CopyLobbyTokenButton;
     UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> SetupSwitcher;
     UPROPERTY(Transient) TObjectPtr<UBorder> InfoBorder;
@@ -152,6 +156,7 @@ private:
     FString Localize(const FString& Key) const;
     void RegisterLocalizedText(UCommonTextBlock* Widget, const FString& Key);
     void ApplyLanguage();
+    void RefreshSavedGameOptions();
 
     UFUNCTION() void Refresh();
     UFUNCTION() void RollDice();
@@ -207,6 +212,7 @@ private:
     UFUNCTION() void QuitGame();
     UFUNCTION() void HostLanLobby();
     UFUNCTION() void LoadLanLobby();
+    UFUNCTION() void UpdateSavedGameSelection(FString SelectedItem, ESelectInfo::Type SelectionType);
     UFUNCTION() void StartBotMatch();
     UFUNCTION() void ShowOnlineSetup();
     UFUNCTION() void ShowLocalNetworkSetup();

@@ -28,7 +28,8 @@ public:
     virtual void Deinitialize() override;
 
     UFUNCTION(BlueprintCallable) void HostLobby(const FString& PlayerName, const FString& LobbyName);
-    UFUNCTION(BlueprintCallable) void HostSavedLobby(const FString& PlayerName);
+    UFUNCTION(BlueprintCallable) void HostSavedLobby(const FString& PlayerName,
+        const FString& SlotId = FString());
     UFUNCTION(BlueprintCallable) void FindLobbies();
     UFUNCTION(BlueprintCallable) void JoinLobby(int32 Index, const FString& PlayerName);
     UFUNCTION(BlueprintCallable) void JoinManual(const FString& Address, const FString& PlayerName);
