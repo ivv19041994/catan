@@ -37,6 +37,7 @@ FCatanUserPreferences FCatanUserSettings::Load(const FString& Filename)
                 Result.PlayerName = NormalizePlayerName(Value);
             if (Section->GetString(TEXT("Language"), Value))
                 Result.Language = FCatanTextResources::ParseLanguage(Value);
+            Section->GetBool(TEXT("OnboardingCompleted"), Result.bOnboardingCompleted);
         }
     }
     else
@@ -45,6 +46,8 @@ FCatanUserPreferences FCatanUserSettings::Load(const FString& Filename)
             Result.PlayerName = NormalizePlayerName(Value);
         if (GConfig && GConfig->GetString(SettingsSection, TEXT("Language"), Value, ConfigFilename))
             Result.Language = FCatanTextResources::ParseLanguage(Value);
+        if (GConfig) GConfig->GetBool(SettingsSection, TEXT("OnboardingCompleted"),
+            Result.bOnboardingCompleted, ConfigFilename);
     }
     return Result;
 }
@@ -62,6 +65,9 @@ void FCatanUserSettings::Save(const FCatanUserPreferences& Preferences, const FS
             FConfigValue::EValueType::Set));
         Section.Add(TEXT("Language"), FConfigValue(FCatanTextResources::LanguageCode(Preferences.Language),
             FConfigValue::EValueType::Set));
+        Section.Add(TEXT("OnboardingCompleted"), FConfigValue(
+            Preferences.bOnboardingCompleted ? TEXT("True") : TEXT("False"),
+            FConfigValue::EValueType::Set));
         Config.Remove(SettingsSection);
         Config.Add(SettingsSection, MoveTemp(Section));
         Config.Dirty = true;
@@ -73,6 +79,8 @@ void FCatanUserSettings::Save(const FCatanUserPreferences& Preferences, const FS
         *NormalizePlayerName(Preferences.PlayerName), ConfigFilename);
     GConfig->SetString(SettingsSection, TEXT("Language"),
         *FCatanTextResources::LanguageCode(Preferences.Language), ConfigFilename);
+    GConfig->SetBool(SettingsSection, TEXT("OnboardingCompleted"),
+        Preferences.bOnboardingCompleted, ConfigFilename);
     GConfig->Flush(false, ConfigFilename);
 }
 

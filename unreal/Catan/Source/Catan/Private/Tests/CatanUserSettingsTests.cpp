@@ -19,6 +19,38 @@ bool FCatanTextResourcesTest::RunTest(const FString&)
         FString(TEXT("Unregistered text")));
     TestEqual(TEXT("language parsing is stable"), FCatanTextResources::ParseLanguage(TEXT("ru")),
         ECatanLanguage::Russian);
+    const TArray<FString> OnboardingKeys = {
+        TEXT("WELCOME TO CATAN"), TEXT("Build, trade and race to 10 victory points."),
+        TEXT("Set your name and language before you begin."), TEXT("TOUCH CONTROLS"),
+        TEXT("Drag with one finger to move the camera."),
+        TEXT("Pinch to zoom. Tap highlighted intersections, roads and hexes."),
+        TEXT("Use the two side buttons to open help, players and build costs."),
+        TEXT("YOUR TURN"), TEXT("Follow the phase hint in the top-left corner."),
+        TEXT("Roll first, then build, trade or play a development card."),
+        TEXT("End your turn when you are done. Your own resources are always visible."),
+        TEXT("NEXT"), TEXT("START PLAYING"), TEXT("SKIP"),
+        TEXT("STEP 1 OF 3"), TEXT("STEP 2 OF 3"), TEXT("STEP 3 OF 3")};
+    TestEqual(TEXT("Russian onboarding has no fallback strings"),
+        FCatanTextResources::MissingTranslations(ECatanLanguage::Russian, OnboardingKeys).Num(), 0);
+    TestFalse(TEXT("missing Russian keys are detectable"),
+        FCatanTextResources::HasTranslation(ECatanLanguage::Russian, TEXT("Missing key")));
+    const TArray<FString> RuntimeKeys = {
+        TEXT("Ready to host or join a game"), TEXT("Waiting for the dedicated server..."),
+        TEXT("Enter server IP and optional port"), TEXT("Malformed create response"),
+        TEXT("Malformed join response"), TEXT("Saved dedicated server address is invalid"),
+        TEXT("Saved dedicated credentials are incomplete"), TEXT("Malformed resume response"),
+        TEXT("No saved dedicated session"),
+        TEXT("Your public name is not part of this saved game"),
+        TEXT("LAN session service is unavailable"), TEXT("Creating LAN lobby..."),
+        TEXT("Could not start LAN lobby"), TEXT("LAN search is already running..."),
+        TEXT("Could not start LAN discovery socket"), TEXT("Searching the local network..."),
+        TEXT("Select a discovered lobby first"), TEXT("Joining lobby..."),
+        TEXT("Could not join the selected lobby"), TEXT("Could not resolve lobby address"),
+        TEXT("Enter host IP address"), TEXT("Returned to main menu"),
+        TEXT("Connection failed:"), TEXT("WINS!"), TEXT("FINAL SCORE"),
+        TEXT("offers to"), TEXT("and requests:")};
+    TestEqual(TEXT("Russian runtime and network UI has no fallback strings"),
+        FCatanTextResources::MissingTranslations(ECatanLanguage::Russian, RuntimeKeys).Num(), 0);
     return true;
 }
 
@@ -33,12 +65,14 @@ bool FCatanUserSettingsPersistenceTest::RunTest(const FString&)
     FCatanUserPreferences Saved;
     Saved.PlayerName = TEXT("  Test\tPlayer\n ");
     Saved.Language = ECatanLanguage::Russian;
+    Saved.bOnboardingCompleted = true;
     FCatanUserSettings::Save(Saved, Filename);
     const FCatanUserPreferences Loaded = FCatanUserSettings::Load(Filename);
 
     TestEqual(TEXT("player name is normalized and persisted"), Loaded.PlayerName,
         FString(TEXT("Test Player")));
     TestEqual(TEXT("language is persisted"), Loaded.Language, ECatanLanguage::Russian);
+    TestTrue(TEXT("completed onboarding is persisted"), Loaded.bOnboardingCompleted);
     TestEqual(TEXT("empty names use the documented default"),
         FCatanUserSettings::NormalizePlayerName(TEXT(" \n ")), FString(TEXT("Player")));
     TestEqual(TEXT("names are capped at 24 characters"),

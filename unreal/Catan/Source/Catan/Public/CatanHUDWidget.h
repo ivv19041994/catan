@@ -91,6 +91,9 @@ private:
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> MainPlayerNameText;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> SettingsNameInput;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> SettingsLanguageInput;
+    UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> OnboardingSwitcher;
+    UPROPERTY(Transient) TObjectPtr<UEditableTextBox> OnboardingNameInput;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> OnboardingLanguageInput;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> ConfirmationText;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> LobbyNameInput;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> ManualAddressInput;
@@ -146,6 +149,7 @@ private:
     ECatanResource BankToSelection = ECatanResource::Clay;
     ECatanResource MonopolySelection = ECatanResource::Wood;
     bool bUpdatingPlentyInputs = false;
+    bool bUpdatingOnboardingLanguage = false;
     FCatanResourceView CurrentBankTradeRates;
     FCatanUserPreferences UserPreferences;
     TArray<TPair<TWeakObjectPtr<UCommonTextBlock>, FString>> LocalizedTexts;
@@ -221,6 +225,12 @@ private:
     UFUNCTION() void ShowBotSetup();
     UFUNCTION() void ShowSettings();
     UFUNCTION() void SaveSettings();
+    UFUNCTION() void ShowOnboarding();
+    UFUNCTION() void ShowOnboardingWelcome();
+    UFUNCTION() void ShowOnboardingControls();
+    UFUNCTION() void ShowOnboardingTurn();
+    UFUNCTION() void CompleteOnboarding();
+    UFUNCTION() void UpdateOnboardingLanguage(FString SelectedItem, ESelectInfo::Type SelectionType);
     UFUNCTION() void ShowMainSetup();
     UFUNCTION() void FindLanLobbies();
     UFUNCTION() void JoinSelectedLobby();
