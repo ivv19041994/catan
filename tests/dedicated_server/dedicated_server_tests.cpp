@@ -138,6 +138,90 @@ int main() { return test::Run({
         test::Check(!service.GetSnapshot(first.host.lobby_token, second.host.player_token, error),
             "credentials cannot cross lobby boundary");
     }},
+    {"dedicated state restores multiple lobbies games and original credentials", [] {
+        auto service = DeterministicService();
+        const auto waiting_host = service.CreateLobby("Waiting host", "Waiting room");
+        const auto waiting_guest = service.JoinLobby(waiting_host.lobby_token, "Waiting guest");
+        test::Check(service.SetReady(waiting_host.lobby_token, waiting_host.player_token, true).ok,
+            "waiting room mutation succeeds before save");
+        const auto playing = CreateStartedRoom(service, " Persistent");
+        std::string error;
+        const auto before = service.GetSnapshot(playing.host.lobby_token, playing.guest.player_token, error);
+        test::Check(before && before->playing, "started room exists before save");
+
+        const std::string state = service.SerializeState();
+        auto restored = DeterministicService();
+        const auto result = restored.RestoreState(state);
+        test::Check(result.ok, "complete multi-lobby state restores: " + result.message);
+        test::Equal(restored.LobbyCount(), std::size_t{2}, "both lobbies survive restart");
+        test::Equal(restored.SerializeState(), state, "full dedicated state round-trips byte for byte");
+
+        const auto waiting = restored.GetSnapshot(waiting_host.lobby_token,
+            waiting_guest.player_token, error);
+        test::Check(waiting && !waiting->playing && waiting->lobby_players.size() == 2,
+            "waiting lobby and guest token survive restart");
+        test::Check(waiting->lobby_players.front().ready, "ready state survives restart");
+        const auto after = restored.GetSnapshot(playing.host.lobby_token,
+            playing.guest.player_token, error);
+        test::Check(after && after->playing, "active game and player token survive restart");
+        test::Equal(after->revision, before->revision, "game revision survives restart");
+        test::Equal(after->current_player, before->current_player, "current player survives restart");
+        test::Equal(after->hexes.size(), before->hexes.size(), "board survives restart");
+        test::Equal(after->valid_nodes, before->valid_nodes, "legal setup targets survive restart");
+        test::Check(!restored.GetSnapshot(playing.host.lobby_token,
+            waiting_guest.player_token, error), "restored credentials remain isolated by lobby");
+    }},
+    {"restored active game continues from its exact setup state", [] {
+        auto service = DeterministicService();
+        const auto room = CreateStartedRoom(service);
+        std::string error;
+        const auto before = service.GetSnapshot(room.host.lobby_token, room.host.player_token, error);
+        const auto& current = IdentityFor(room, before->current_player);
+        CommandArgs settlement; settlement.first = before->valid_nodes.front();
+        test::Check(service.Execute(room.host.lobby_token, current.player_token,
+            Command::BuildSettlement, settlement).ok, "settlement is placed before restart");
+
+        auto restored = DeterministicService();
+        const auto restore = restored.RestoreState(service.SerializeState());
+        test::Check(restore.ok, "mid-turn game restores: " + restore.message);
+        const auto resumed = restored.GetSnapshot(room.host.lobby_token, current.player_token, error);
+        test::Check(resumed && !resumed->valid_roads.empty(), "restored setup requires adjacent road");
+        CommandArgs road; road.first = resumed->valid_roads.front();
+        test::Check(restored.Execute(room.host.lobby_token, current.player_token,
+            Command::BuildRoad, road).ok, "same authenticated player continues after restart");
+    }},
+    {"invalid dedicated state is rejected atomically", [] {
+        auto source = DeterministicService();
+        source.CreateLobby("Alice", "Source");
+        const std::string valid = source.SerializeState();
+
+        auto target = DeterministicService();
+        const auto existing = target.CreateLobby("Existing", "Must remain");
+        test::Check(!target.RestoreState(valid.substr(0, valid.size() / 2)).ok,
+            "truncated state is rejected");
+        test::Equal(target.LobbyCount(), std::size_t{1}, "failed restore keeps live state intact");
+        std::string error;
+        test::Check(target.GetSnapshot(existing.lobby_token, existing.player_token, error).has_value(),
+            "existing credentials remain valid after failed restore");
+
+        std::string trailing = valid + "junk";
+        test::Check(!target.RestoreState(trailing).ok, "trailing bytes are rejected");
+        std::string wrong_signature = valid;
+        wrong_signature.front() = 'X';
+        test::Check(!target.RestoreState(wrong_signature).ok, "wrong signature is rejected");
+        std::string unsupported_version = valid;
+        unsupported_version[std::string_view("CATAN_DEDICATED_STATE").size()] = 99;
+        test::Check(!target.RestoreState(unsupported_version).ok, "unsupported version is rejected");
+    }},
+    {"restore enforces configured multi-lobby limit", [] {
+        auto source = DeterministicService();
+        source.CreateLobby("One", "One");
+        source.CreateLobby("Two", "Two");
+        auto limited = DeterministicService(1);
+        const auto result = limited.RestoreState(source.SerializeState());
+        test::Check(!result.ok, "oversized persisted service is rejected");
+        test::Equal(limited.LobbyCount(), std::size_t{0}, "limit failure imports no partial lobby");
+    }},
     {"commands require authenticated current player", [] {
         auto service = DeterministicService();
         const auto room = CreateStartedRoom(service);

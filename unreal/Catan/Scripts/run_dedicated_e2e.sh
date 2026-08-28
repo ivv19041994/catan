@@ -27,7 +27,7 @@ cmake -S "$repo_dir" -B "$build_dir" -DCATAN_BUILD_CONSOLE=OFF -DCATAN_BUILD_TES
 cmake --build "$build_dir" --target catan-dedicated-server catan-dedicated-probe \
   catan_dedicated_server_tests -j 4
 
-"$build_dir/catan-dedicated-server" --bind 127.0.0.1 --port 0 >"$log_dir/server.log" 2>&1 &
+"$build_dir/catan-dedicated-server" --bind 127.0.0.1 --port 0 --no-persistence >"$log_dir/server.log" 2>&1 &
 server_pid="$!"
 port=""
 for _ in {1..100}; do
