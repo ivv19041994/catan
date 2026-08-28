@@ -9,8 +9,22 @@ struct FCatanResourcePileVisual
     bool bVisible = false;
 };
 
+struct FCatanResourceBankLabelVisual
+{
+    float ForegroundWorldSize = 72.0f;
+    float OutlineWorldSize = 79.0f;
+    float OutlineDepthOffset = -1.0f;
+    FColor ForegroundColor = FColor::White;
+    FColor OutlineColor = FColor::Black;
+};
+
 struct FCatanResourceBankVisualPolicy
 {
+    static FCatanResourceBankLabelVisual LabelStyle()
+    {
+        return {};
+    }
+
     static FCatanResourcePileVisual Resolve(int32 RawCount)
     {
         FCatanResourcePileVisual Result;

@@ -15,9 +15,12 @@ public:
 
 protected:
     virtual TSharedRef<SWidget> HandleGenerateWidget(TSharedPtr<FString> Item) const override;
+    virtual void HandleSelectionChanged(TSharedPtr<FString> Item,
+        ESelectInfo::Type SelectionType) override;
 
 private:
     int32 PopupFontSize = 22;
     float MinimumPopupRowHeight = 48.0f;
     FMargin PopupPadding = FMargin(16.0f, 9.0f);
+    mutable bool bGeneratingSelectedContent = false;
 };

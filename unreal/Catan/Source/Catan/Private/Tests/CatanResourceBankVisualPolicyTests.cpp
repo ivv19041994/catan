@@ -26,5 +26,11 @@ bool FCatanResourceBankVisualPolicyTest::RunTest(const FString& Parameters)
         FCatanResourceBankVisualPolicy::Resolve(-1).Count, 0);
     TestEqual(TEXT("values above physical supply clamp to nineteen"),
         FCatanResourceBankVisualPolicy::Resolve(20).Count, 19);
+    const FCatanResourceBankLabelVisual Label = FCatanResourceBankVisualPolicy::LabelStyle();
+    TestEqual(TEXT("bank number foreground stays white"), Label.ForegroundColor, FColor::White);
+    TestEqual(TEXT("bank number outline is black"), Label.OutlineColor, FColor::Black);
+    TestTrue(TEXT("outline glyph is larger than foreground glyph"),
+        Label.OutlineWorldSize > Label.ForegroundWorldSize);
+    TestTrue(TEXT("outline sits behind the foreground number"), Label.OutlineDepthOffset < 0.0f);
     return true;
 }

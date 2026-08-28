@@ -1051,6 +1051,8 @@ void ACatanBoardActor::BuildDice()
 void ACatanBoardActor::BuildResourceBank()
 {
     UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    const FCatanResourceBankLabelVisual LabelStyle =
+        FCatanResourceBankVisualPolicy::LabelStyle();
     constexpr ECatanResource Resources[] = {
         ECatanResource::Wood, ECatanResource::Clay, ECatanResource::Hay,
         ECatanResource::Sheep, ECatanResource::Stone};
@@ -1064,20 +1066,38 @@ void ACatanBoardActor::BuildResourceBank()
         Stack->SetCastShadow(true);
         BankCardStacks.Add(Stack);
 
+        auto ConfigureLabel = [this, &Position](UTextRenderComponent* Label,
+            float WorldSize, FColor Color, float DepthOffset)
+        {
+            Label->SetupAttachment(SceneRoot);
+            Label->RegisterComponent();
+            Label->SetRelativeLocation(Position + FVector(0, 0, 82.0f + DepthOffset));
+            Label->SetRelativeRotation(FRotator(90, 180, 0));
+            Label->SetHorizontalAlignment(EHTA_Center);
+            Label->SetVerticalAlignment(EVRTA_TextCenter);
+            Label->SetWorldSize(WorldSize);
+            Label->SetTextRenderColor(Color);
+            Label->SetText(FText::AsNumber(19));
+        };
+
+        UTextRenderComponent* Outline = NewObject<UTextRenderComponent>(this,
+            *FString::Printf(TEXT("ResourceBankLabelOutline%d"), Index));
+        ConfigureLabel(Outline, LabelStyle.OutlineWorldSize,
+            LabelStyle.OutlineColor, LabelStyle.OutlineDepthOffset);
+        Outline->SetCastShadow(false);
+        BankCardLabelOutlines.Add(Outline);
+
         UTextRenderComponent* Label = NewObject<UTextRenderComponent>(this,
             *FString::Printf(TEXT("ResourceBankLabel%d"), Index));
-        Label->SetupAttachment(SceneRoot);
-        Label->RegisterComponent();
-        Label->SetRelativeLocation(Position + FVector(0, 0, 82.0f));
-        Label->SetRelativeRotation(FRotator(90, 180, 0));
-        Label->SetHorizontalAlignment(EHTA_Center);
-        Label->SetVerticalAlignment(EVRTA_TextCenter);
-        Label->SetWorldSize(72.0f);
-        Label->SetTextRenderColor(FColor::White);
-        Label->SetText(FText::AsNumber(19));
+        ConfigureLabel(Label, LabelStyle.ForegroundWorldSize,
+            LabelStyle.ForegroundColor, 0.0f);
         Label->SetCastShadow(true);
         BankCardLabels.Add(Label);
     }
+    UE_LOG(LogTemp, Display,
+        TEXT("CATAN_BANK_NUMBER_STYLE foreground=white outline=black size=%.0f/%.0f depth=%.1f"),
+        LabelStyle.ForegroundWorldSize, LabelStyle.OutlineWorldSize,
+        LabelStyle.OutlineDepthOffset);
 }
 
 void ACatanBoardActor::PlayFeedbackTone(float Frequency, float Duration, float Volume)
@@ -1240,6 +1260,16 @@ void ACatanBoardActor::RefreshPieces()
                 (static_cast<float>(Index) - 2.0f) * BankStackSpacing,
                 BankTableY, BankCardBaseZ + Height + 8.0f));
             BankCardLabels[Index]->SetText(FText::AsNumber(Count));
+        }
+        if (BankCardLabelOutlines.IsValidIndex(Index))
+        {
+            const FCatanResourceBankLabelVisual LabelStyle =
+                FCatanResourceBankVisualPolicy::LabelStyle();
+            BankCardLabelOutlines[Index]->SetHiddenInGame(!Pile.bVisible);
+            BankCardLabelOutlines[Index]->SetRelativeLocation(FVector(
+                (static_cast<float>(Index) - 2.0f) * BankStackSpacing,
+                BankTableY, BankCardBaseZ + Height + 8.0f + LabelStyle.OutlineDepthOffset));
+            BankCardLabelOutlines[Index]->SetText(FText::AsNumber(Count));
         }
     }
     if (bBankChanged)

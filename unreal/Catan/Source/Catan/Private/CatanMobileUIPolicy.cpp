@@ -11,3 +11,13 @@ FCatanComboBoxMetrics CatanMobileUIPolicy::ComboBoxMetrics(int32 RequestedFontSi
     Result.MaximumListHeight = bMobile ? 620.0f : 420.0f;
     return Result;
 }
+
+bool CatanMobileUIPolicy::ShouldUsePopupRowLayout(bool bIsOpen,
+    bool bGeneratingSelectedContent)
+{
+    // UComboBoxString calls the same generator for list rows and for the
+    // selected content while the menu is still open. Only real list rows may
+    // inherit the large touch target; otherwise the closed field expands to
+    // the selected row height and moves the surrounding form.
+    return bIsOpen && !bGeneratingSelectedContent;
+}
