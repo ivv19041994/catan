@@ -177,6 +177,11 @@ public:
         std::string_view player_token, std::string& error);
     std::size_t LobbyCount() const;
 
+    // Server-owned persistence. The payload contains private authentication
+    // tokens and must never be sent to a client or stored in a public place.
+    std::string SerializeState() const;
+    Result RestoreState(std::string_view state);
+
 private:
     struct Lobby;
     std::size_t max_lobbies_;

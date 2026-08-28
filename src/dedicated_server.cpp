@@ -4,11 +4,13 @@
 #include <array>
 #include <cctype>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <random>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace ivv::catan::dedicated {
 namespace {
@@ -145,6 +147,91 @@ int PendingDevelopmentCount(const Player& player)
 }
 
 bool ValidResource(int value) { return value >= 0 && value < 5; }
+
+constexpr std::string_view StateMagic{"CATAN_DEDICATED_STATE"};
+constexpr std::uint32_t StateVersion = 1;
+constexpr std::uint32_t MaximumStoredString = 16 * 1024 * 1024;
+
+class StateWriter {
+public:
+    void Raw(std::string_view value) { data_.append(value); }
+    void U8(std::uint8_t value) { data_.push_back(static_cast<char>(value)); }
+    void Bool(bool value) { U8(value ? 1 : 0); }
+    void U32(std::uint32_t value)
+    {
+        for (unsigned shift = 0; shift < 32; shift += 8)
+            U8(static_cast<std::uint8_t>((value >> shift) & 0xff));
+    }
+    void U64(std::uint64_t value)
+    {
+        for (unsigned shift = 0; shift < 64; shift += 8)
+            U8(static_cast<std::uint8_t>((value >> shift) & 0xff));
+    }
+    void I32(std::int32_t value) { U32(static_cast<std::uint32_t>(value)); }
+    void String(std::string_view value)
+    {
+        if (value.size() > MaximumStoredString)
+            throw std::length_error("Dedicated server state field is too large");
+        U32(static_cast<std::uint32_t>(value.size()));
+        Raw(value);
+    }
+    std::string Finish() && { return std::move(data_); }
+
+private:
+    std::string data_;
+};
+
+class StateReader {
+public:
+    explicit StateReader(std::string_view data) : data_(data) {}
+
+    std::string_view Raw(std::size_t count)
+    {
+        if (count > data_.size() - offset_)
+            throw std::invalid_argument("Dedicated server state is truncated");
+        const std::string_view result = data_.substr(offset_, count);
+        offset_ += count;
+        return result;
+    }
+    std::uint8_t U8() { return static_cast<std::uint8_t>(Raw(1)[0]); }
+    bool Bool()
+    {
+        const std::uint8_t value = U8();
+        if (value > 1) throw std::invalid_argument("Dedicated server state has an invalid boolean");
+        return value != 0;
+    }
+    std::uint32_t U32()
+    {
+        std::uint32_t result = 0;
+        for (unsigned shift = 0; shift < 32; shift += 8)
+            result |= static_cast<std::uint32_t>(U8()) << shift;
+        return result;
+    }
+    std::uint64_t U64()
+    {
+        std::uint64_t result = 0;
+        for (unsigned shift = 0; shift < 64; shift += 8)
+            result |= static_cast<std::uint64_t>(U8()) << shift;
+        return result;
+    }
+    std::int32_t I32() { return static_cast<std::int32_t>(U32()); }
+    std::string String()
+    {
+        const std::uint32_t size = U32();
+        if (size > MaximumStoredString)
+            throw std::invalid_argument("Dedicated server state field is too large");
+        return std::string(Raw(size));
+    }
+    void RequireFinished() const
+    {
+        if (offset_ != data_.size())
+            throw std::invalid_argument("Dedicated server state has trailing data");
+    }
+
+private:
+    std::string_view data_;
+    std::size_t offset_ = 0;
+};
 
 } // namespace
 
@@ -625,6 +712,149 @@ std::size_t Service::LobbyCount() const
 {
     std::lock_guard lock(mutex_);
     return lobbies_.size();
+}
+
+std::string Service::SerializeState() const
+{
+    std::lock_guard lock(mutex_);
+    StateWriter writer;
+    writer.Raw(StateMagic);
+    writer.U32(StateVersion);
+    writer.U32(static_cast<std::uint32_t>(lobbies_.size()));
+
+    std::vector<const Lobby*> ordered;
+    ordered.reserve(lobbies_.size());
+    for (const auto& [unused, lobby] : lobbies_) ordered.push_back(lobby.get());
+    std::sort(ordered.begin(), ordered.end(), [](const Lobby* left, const Lobby* right) {
+        return left->token < right->token;
+    });
+
+    for (const Lobby* lobby : ordered) {
+        writer.String(lobby->token);
+        writer.String(lobby->name);
+        writer.U64(lobby->revision);
+        writer.I32(lobby->board_action);
+        writer.I32(lobby->pending_robber_hex);
+        writer.String(lobby->active_trade_target);
+        writer.String(lobby->status);
+
+        writer.U32(static_cast<std::uint32_t>(lobby->robber_victims.size()));
+        for (const std::string& victim : lobby->robber_victims) writer.String(victim);
+        writer.U32(static_cast<std::uint32_t>(lobby->events.size()));
+        for (const std::string& event : lobby->events) writer.String(event);
+
+        writer.U32(static_cast<std::uint32_t>(lobby->players.size()));
+        for (const AuthPlayer& player : lobby->players) {
+            writer.I32(player.id);
+            writer.String(player.name);
+            writer.String(player.token);
+            writer.Bool(player.ready);
+            writer.Bool(player.host);
+        }
+        writer.Bool(lobby->game != nullptr);
+        if (lobby->game) writer.String(lobby->game->SerializeState());
+    }
+    return std::move(writer).Finish();
+}
+
+Result Service::RestoreState(std::string_view state)
+{
+    std::lock_guard lock(mutex_);
+    try {
+        StateReader reader(state);
+        if (reader.Raw(StateMagic.size()) != StateMagic)
+            return {false, "Dedicated server state has an invalid signature"};
+        if (reader.U32() != StateVersion)
+            return {false, "Dedicated server state version is not supported"};
+        const std::uint32_t lobby_count = reader.U32();
+        if (lobby_count > max_lobbies_)
+            return {false, "Dedicated server state exceeds the configured lobby limit"};
+
+        std::unordered_map<std::string, std::unique_ptr<Lobby>> restored;
+        std::unordered_set<std::string> private_tokens;
+        for (std::uint32_t lobby_index = 0; lobby_index < lobby_count; ++lobby_index) {
+            auto lobby = std::make_unique<Lobby>();
+            lobby->token = reader.String();
+            lobby->name = reader.String();
+            lobby->revision = reader.U64();
+            lobby->board_action = reader.I32();
+            lobby->pending_robber_hex = reader.I32();
+            lobby->active_trade_target = reader.String();
+            lobby->status = reader.String();
+            if (lobby->token.empty() || lobby->token.size() > 128
+                || lobby->name.empty() || lobby->name.size() > 40 || lobby->revision == 0
+                || lobby->board_action < 0 || lobby->board_action > 4
+                || lobby->pending_robber_hex < -1 || lobby->pending_robber_hex > 18
+                || lobby->status.size() > 1024)
+                throw std::invalid_argument("Dedicated server state has invalid lobby metadata");
+
+            const std::uint32_t victim_count = reader.U32();
+            if (victim_count > 3)
+                throw std::invalid_argument("Dedicated server state has too many robber victims");
+            for (std::uint32_t index = 0; index < victim_count; ++index)
+                lobby->robber_victims.push_back(reader.String());
+            const std::uint32_t event_count = reader.U32();
+            if (event_count > 40)
+                throw std::invalid_argument("Dedicated server state has too many events");
+            for (std::uint32_t index = 0; index < event_count; ++index) {
+                std::string event = reader.String();
+                if (event.size() > 1024)
+                    throw std::invalid_argument("Dedicated server state event is too large");
+                lobby->events.push_back(std::move(event));
+            }
+
+            const std::uint32_t player_count = reader.U32();
+            if (player_count < 1 || player_count > 4)
+                throw std::invalid_argument("Dedicated server state has an invalid player count");
+            int host_count = 0;
+            std::unordered_set<std::string> player_names;
+            for (std::uint32_t index = 0; index < player_count; ++index) {
+                AuthPlayer player;
+                player.id = reader.I32();
+                player.name = reader.String();
+                player.token = reader.String();
+                player.ready = reader.Bool();
+                player.host = reader.Bool();
+                if (player.id != static_cast<int>(index) || player.name.empty()
+                    || player.name.size() > 24 || player.token.empty() || player.token.size() > 128
+                    || !player_names.insert(Lower(player.name)).second
+                    || !private_tokens.insert(player.token).second)
+                    throw std::invalid_argument("Dedicated server state has invalid player credentials");
+                if (player.host) ++host_count;
+                lobby->players.push_back(std::move(player));
+            }
+            if (host_count != 1 || !lobby->players.front().host)
+                throw std::invalid_argument("Dedicated server state has an invalid lobby host");
+            auto is_player = [&lobby](const std::string& name) {
+                return std::any_of(lobby->players.begin(), lobby->players.end(),
+                    [&name](const AuthPlayer& player) { return player.name == name; });
+            };
+            if ((!lobby->active_trade_target.empty() && !is_player(lobby->active_trade_target))
+                || std::any_of(lobby->robber_victims.begin(), lobby->robber_victims.end(),
+                    [&is_player](const std::string& name) { return !is_player(name); }))
+                throw std::invalid_argument("Dedicated server state references an unknown player");
+
+            if (reader.Bool()) {
+                lobby->game = GameController::DeserializeState(reader.String());
+                const std::vector<std::string> game_names = lobby->game->GetPlayerNames();
+                if (game_names.size() != lobby->players.size())
+                    throw std::invalid_argument("Dedicated game players do not match lobby credentials");
+                for (const AuthPlayer& player : lobby->players)
+                    if (std::find(game_names.begin(), game_names.end(), player.name) == game_names.end())
+                        throw std::invalid_argument("Dedicated game players do not match lobby credentials");
+            } else if (lobby->pending_robber_hex != -1 || !lobby->robber_victims.empty()
+                || !lobby->active_trade_target.empty() || lobby->board_action != 0) {
+                throw std::invalid_argument("Waiting lobby contains active game state");
+            }
+            if (!restored.emplace(lobby->token, std::move(lobby)).second)
+                throw std::invalid_argument("Dedicated server state contains a duplicate lobby token");
+        }
+        reader.RequireFinished();
+        lobbies_.swap(restored);
+        return {true, "Dedicated server state restored"};
+    } catch (const std::exception& exception) {
+        return {false, exception.what()};
+    }
 }
 
 } // namespace ivv::catan::dedicated

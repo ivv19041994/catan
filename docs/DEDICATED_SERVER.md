@@ -9,7 +9,8 @@ Build and run:
 ```sh
 cmake -S . -B build -DCATAN_BUILD_CONSOLE=OFF
 cmake --build build --target catan-dedicated-server
-./build/catan-dedicated-server --bind 0.0.0.0 --port 17777
+./build/catan-dedicated-server --bind 0.0.0.0 --port 17777 \
+  --state-file ./data/catan-dedicated.state
 ```
 
 Allow inbound TCP `17777` in the host firewall. In the game's **Online** menu,
@@ -27,6 +28,22 @@ The current transport is plain TCP and is intended for a trusted local network;
 tokens prevent one client from reading another player's private state, but they
 do not protect against packet capture. Internet deployment should put the
 service behind an encrypted tunnel until TLS transport is added.
+
+## Persistent multi-lobby state
+
+Persistence is enabled by default. The server atomically saves all waiting and
+active lobbies to `catan-dedicated.state` in its current working directory after
+every successful mutation and during a clean shutdown. Use `--state-file PATH`
+to put it in a dedicated data directory, or `--no-persistence` only for an
+explicitly disposable server. On restart the same lobby tokens, private player
+tokens, ready flags and in-progress `GameController` states are restored, so
+existing clients can continue using their credentials.
+
+The state file contains every player's private authentication token. It is
+created with owner-only permissions on macOS and Linux and must not be served as
+public content or included in diagnostics. A malformed, truncated, unsupported
+or over-limit state file makes startup fail without replacing the file; fix the
+path or restore a known-good copy instead of silently losing rooms.
 
 Run server-only and Unreal end-to-end checks:
 

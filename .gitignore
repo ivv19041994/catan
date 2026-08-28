@@ -4,3 +4,5 @@
 /unreal/Catan/Intermediate/
 /unreal/Catan/Saved/
 *.xcworkspace
+catan-dedicated.state
+catan-dedicated.state.tmp

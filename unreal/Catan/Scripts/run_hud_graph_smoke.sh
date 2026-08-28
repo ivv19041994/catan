@@ -111,7 +111,7 @@ stop_pid "$host_leave_host_pid"
 print "Checking dedicated guest leave and host-close propagation..."
 cmake -S "$repo_dir" -B "$build_dir" -DCATAN_BUILD_CONSOLE=OFF -DCATAN_BUILD_TESTS=ON >/dev/null
 cmake --build "$build_dir" --target catan-dedicated-server -j 4 >/dev/null
-"$build_dir/catan-dedicated-server" --bind 127.0.0.1 --port 0 >"$log_dir/server.log" 2>&1 &
+"$build_dir/catan-dedicated-server" --bind 127.0.0.1 --port 0 --no-persistence >"$log_dir/server.log" 2>&1 &
 server_pid="$!"
 pids+=("$server_pid")
 server_port=""
