@@ -34,6 +34,13 @@ bool FCatanTextResourcesTest::RunTest(const FString&)
         FCatanTextResources::MissingTranslations(ECatanLanguage::Russian, OnboardingKeys).Num(), 0);
     TestFalse(TEXT("missing Russian keys are detectable"),
         FCatanTextResources::HasTranslation(ECatanLanguage::Russian, TEXT("Missing key")));
+    const TArray<FString> PolishKeys = {
+        TEXT("EFFECTS VOLUME"), TEXT("MUSIC VOLUME"), TEXT("HAPTIC FEEDBACK"),
+        TEXT("COLOR ACCESSIBILITY"), TEXT("ON"), TEXT("OFF"), TEXT("STANDARD"),
+        TEXT("HIGH CONTRAST"), TEXT("DEUTERANOPIA"), TEXT("PROTANOPIA"),
+        TEXT("TRITANOPIA"), TEXT("Resource names remain visible in every color mode.")};
+    TestEqual(TEXT("Russian polish settings have no fallback strings"),
+        FCatanTextResources::MissingTranslations(ECatanLanguage::Russian, PolishKeys).Num(), 0);
     const TArray<FString> RuntimeKeys = {
         TEXT("Ready to host or join a game"), TEXT("Waiting for the dedicated server..."),
         TEXT("Enter server IP and optional port"), TEXT("Malformed create response"),
@@ -66,6 +73,10 @@ bool FCatanUserSettingsPersistenceTest::RunTest(const FString&)
     Saved.PlayerName = TEXT("  Test\tPlayer\n ");
     Saved.Language = ECatanLanguage::Russian;
     Saved.bOnboardingCompleted = true;
+    Saved.EffectsVolume = 0.5f;
+    Saved.MusicVolume = 0.25f;
+    Saved.bHapticsEnabled = false;
+    Saved.ColorVisionMode = ECatanColorVisionMode::Deuteranopia;
     FCatanUserSettings::Save(Saved, Filename);
     const FCatanUserPreferences Loaded = FCatanUserSettings::Load(Filename);
 
@@ -73,6 +84,15 @@ bool FCatanUserSettingsPersistenceTest::RunTest(const FString&)
         FString(TEXT("Test Player")));
     TestEqual(TEXT("language is persisted"), Loaded.Language, ECatanLanguage::Russian);
     TestTrue(TEXT("completed onboarding is persisted"), Loaded.bOnboardingCompleted);
+    TestTrue(TEXT("effects volume is persisted"), FMath::IsNearlyEqual(Loaded.EffectsVolume, 0.5f));
+    TestTrue(TEXT("music volume is persisted"), FMath::IsNearlyEqual(Loaded.MusicVolume, 0.25f));
+    TestFalse(TEXT("haptics preference is persisted"), Loaded.bHapticsEnabled);
+    TestEqual(TEXT("color accessibility mode is persisted"), Loaded.ColorVisionMode,
+        ECatanColorVisionMode::Deuteranopia);
+    TestEqual(TEXT("volume is clamped"), FCatanUserSettings::NormalizeVolume(7.0f), 1.0f);
+    TestEqual(TEXT("unknown color mode is safe"),
+        FCatanUserSettings::ParseColorVisionMode(TEXT("future-mode")),
+        ECatanColorVisionMode::Standard);
     TestEqual(TEXT("empty names use the documented default"),
         FCatanUserSettings::NormalizePlayerName(TEXT(" \n ")), FString(TEXT("Player")));
     TestEqual(TEXT("names are capped at 24 characters"),

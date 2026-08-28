@@ -27,6 +27,11 @@ bool FCatanMobileComboBoxMetricsTest::RunTest(const FString&)
         CatanMobileUIPolicy::ShouldUsePopupRowLayout(true, true));
     TestFalse(TEXT("closed combo content never inherits popup row size"),
         CatanMobileUIPolicy::ShouldUsePopupRowLayout(false, false));
+    TestTrue(TEXT("mobile buttons meet the large touch target"),
+        CatanMobileUIPolicy::MinimumTouchTargetHeight(true) >= 72.0f);
+    TestTrue(TEXT("desktop controls remain compact"),
+        CatanMobileUIPolicy::MinimumTouchTargetHeight(false)
+            < CatanMobileUIPolicy::MinimumTouchTargetHeight(true));
     return true;
 }
 #endif

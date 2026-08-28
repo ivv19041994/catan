@@ -38,6 +38,13 @@ FCatanUserPreferences FCatanUserSettings::Load(const FString& Filename)
             if (Section->GetString(TEXT("Language"), Value))
                 Result.Language = FCatanTextResources::ParseLanguage(Value);
             Section->GetBool(TEXT("OnboardingCompleted"), Result.bOnboardingCompleted);
+            if (Section->GetString(TEXT("EffectsVolume"), Value))
+                Result.EffectsVolume = NormalizeVolume(FCString::Atof(*Value));
+            if (Section->GetString(TEXT("MusicVolume"), Value))
+                Result.MusicVolume = NormalizeVolume(FCString::Atof(*Value));
+            Section->GetBool(TEXT("HapticsEnabled"), Result.bHapticsEnabled);
+            if (Section->GetString(TEXT("ColorVisionMode"), Value))
+                Result.ColorVisionMode = ParseColorVisionMode(Value);
         }
     }
     else
@@ -48,6 +55,14 @@ FCatanUserPreferences FCatanUserSettings::Load(const FString& Filename)
             Result.Language = FCatanTextResources::ParseLanguage(Value);
         if (GConfig) GConfig->GetBool(SettingsSection, TEXT("OnboardingCompleted"),
             Result.bOnboardingCompleted, ConfigFilename);
+        if (GConfig && GConfig->GetString(SettingsSection, TEXT("EffectsVolume"), Value, ConfigFilename))
+            Result.EffectsVolume = NormalizeVolume(FCString::Atof(*Value));
+        if (GConfig && GConfig->GetString(SettingsSection, TEXT("MusicVolume"), Value, ConfigFilename))
+            Result.MusicVolume = NormalizeVolume(FCString::Atof(*Value));
+        if (GConfig) GConfig->GetBool(SettingsSection, TEXT("HapticsEnabled"),
+            Result.bHapticsEnabled, ConfigFilename);
+        if (GConfig && GConfig->GetString(SettingsSection, TEXT("ColorVisionMode"), Value, ConfigFilename))
+            Result.ColorVisionMode = ParseColorVisionMode(Value);
     }
     return Result;
 }
@@ -68,6 +83,15 @@ void FCatanUserSettings::Save(const FCatanUserPreferences& Preferences, const FS
         Section.Add(TEXT("OnboardingCompleted"), FConfigValue(
             Preferences.bOnboardingCompleted ? TEXT("True") : TEXT("False"),
             FConfigValue::EValueType::Set));
+        Section.Add(TEXT("EffectsVolume"), FConfigValue(FString::SanitizeFloat(
+            NormalizeVolume(Preferences.EffectsVolume)), FConfigValue::EValueType::Set));
+        Section.Add(TEXT("MusicVolume"), FConfigValue(FString::SanitizeFloat(
+            NormalizeVolume(Preferences.MusicVolume)), FConfigValue::EValueType::Set));
+        Section.Add(TEXT("HapticsEnabled"), FConfigValue(
+            Preferences.bHapticsEnabled ? TEXT("True") : TEXT("False"),
+            FConfigValue::EValueType::Set));
+        Section.Add(TEXT("ColorVisionMode"), FConfigValue(
+            ColorVisionModeCode(Preferences.ColorVisionMode), FConfigValue::EValueType::Set));
         Config.Remove(SettingsSection);
         Config.Add(SettingsSection, MoveTemp(Section));
         Config.Dirty = true;
@@ -81,6 +105,14 @@ void FCatanUserSettings::Save(const FCatanUserPreferences& Preferences, const FS
         *FCatanTextResources::LanguageCode(Preferences.Language), ConfigFilename);
     GConfig->SetBool(SettingsSection, TEXT("OnboardingCompleted"),
         Preferences.bOnboardingCompleted, ConfigFilename);
+    GConfig->SetFloat(SettingsSection, TEXT("EffectsVolume"),
+        NormalizeVolume(Preferences.EffectsVolume), ConfigFilename);
+    GConfig->SetFloat(SettingsSection, TEXT("MusicVolume"),
+        NormalizeVolume(Preferences.MusicVolume), ConfigFilename);
+    GConfig->SetBool(SettingsSection, TEXT("HapticsEnabled"),
+        Preferences.bHapticsEnabled, ConfigFilename);
+    GConfig->SetString(SettingsSection, TEXT("ColorVisionMode"),
+        *ColorVisionModeCode(Preferences.ColorVisionMode), ConfigFilename);
     GConfig->Flush(false, ConfigFilename);
 }
 
@@ -92,6 +124,36 @@ FString FCatanUserSettings::NormalizePlayerName(const FString& Name)
     Result.ReplaceInline(TEXT("\n"), TEXT(" "));
     while (Result.Contains(TEXT("  "))) Result.ReplaceInline(TEXT("  "), TEXT(" "));
     return Result.IsEmpty() ? TEXT("Player") : Result;
+}
+
+float FCatanUserSettings::NormalizeVolume(float Volume)
+{
+    return FMath::Clamp(FMath::IsFinite(Volume) ? Volume : 0.0f, 0.0f, 1.0f);
+}
+
+FString FCatanUserSettings::ColorVisionModeCode(ECatanColorVisionMode Mode)
+{
+    switch (Mode)
+    {
+    case ECatanColorVisionMode::HighContrast: return TEXT("high-contrast");
+    case ECatanColorVisionMode::Deuteranopia: return TEXT("deuteranopia");
+    case ECatanColorVisionMode::Protanopia: return TEXT("protanopia");
+    case ECatanColorVisionMode::Tritanopia: return TEXT("tritanopia");
+    default: return TEXT("standard");
+    }
+}
+
+ECatanColorVisionMode FCatanUserSettings::ParseColorVisionMode(const FString& Code)
+{
+    if (Code.Equals(TEXT("high-contrast"), ESearchCase::IgnoreCase))
+        return ECatanColorVisionMode::HighContrast;
+    if (Code.Equals(TEXT("deuteranopia"), ESearchCase::IgnoreCase))
+        return ECatanColorVisionMode::Deuteranopia;
+    if (Code.Equals(TEXT("protanopia"), ESearchCase::IgnoreCase))
+        return ECatanColorVisionMode::Protanopia;
+    if (Code.Equals(TEXT("tritanopia"), ESearchCase::IgnoreCase))
+        return ECatanColorVisionMode::Tritanopia;
+    return ECatanColorVisionMode::Standard;
 }
 
 FCatanDedicatedSession FCatanUserSettings::LoadDedicatedSession(const FString& Filename)

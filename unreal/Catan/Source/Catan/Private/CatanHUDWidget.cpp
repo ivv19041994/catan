@@ -14,6 +14,8 @@
 #include "CatanMobileUIPolicy.h"
 #include "CatanTouchComboBoxString.h"
 #include "CatanPlayerStatusPanelPolicy.h"
+#include "CatanAccessibilityPolicy.h"
+#include "CatanBoardActor.h"
 #include "CommonTextBlock.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -24,6 +26,7 @@
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
+#include "Components/PanelWidget.h"
 #include "Components/Spacer.h"
 #include "Components/ScrollBox.h"
 #include "Components/SizeBox.h"
@@ -35,6 +38,7 @@
 #include "Components/WrapBoxSlot.h"
 #include "Blueprint/WidgetTree.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Engine/Texture2D.h"
 #include "Misc/CommandLine.h"
@@ -151,14 +155,9 @@ FString CostLine(const TCHAR* Name, const FCatanResourceView& Have,
         Name, Wood, Clay, Hay, Sheep, Stone);
 }
 
-FLinearColor ResourceColor(int32 Index)
+FLinearColor ResourceColor(int32 Index, ECatanColorVisionMode Mode)
 {
-    static const FLinearColor Colors[] = {
-        FLinearColor(0.08f, 0.52f, 0.16f), FLinearColor(0.76f, 0.18f, 0.05f),
-        FLinearColor(0.95f, 0.70f, 0.06f), FLinearColor(0.48f, 0.82f, 0.28f),
-        FLinearColor(0.42f, 0.48f, 0.58f)
-    };
-    return Colors[FMath::Clamp(Index, 0, 4)];
+    return FCatanAccessibilityPolicy::ResourceColor(Index, Mode);
 }
 
 }
@@ -171,6 +170,10 @@ TSharedRef<SWidget> UCatanHUDWidget::RebuildWidget()
         FString LanguageOverride;
         if (FParse::Value(FCommandLine::Get(), TEXT("CatanLanguage="), LanguageOverride))
             UserPreferences.Language = FCatanTextResources::ParseLanguage(LanguageOverride);
+        FString ColorVisionOverride;
+        if (FParse::Value(FCommandLine::Get(), TEXT("CatanColorVision="), ColorVisionOverride))
+            UserPreferences.ColorVisionMode =
+                FCatanUserSettings::ParseColorVisionMode(ColorVisionOverride);
         BuildLayout();
     }
     return Super::RebuildWidget();
@@ -181,6 +184,7 @@ void UCatanHUDWidget::NativeConstruct()
     Super::NativeConstruct();
     GameSubsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>();
     NetworkSubsystem = GetGameInstance()->GetSubsystem<UCatanNetworkSubsystem>();
+    ApplyAccessibilityPalette();
     if (GameSubsystem)
     {
         GameSubsystem->OnGameStateChanged.AddDynamic(this, &UCatanHUDWidget::Refresh);
@@ -245,6 +249,105 @@ void UCatanHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
             : 1.0f;
         PlayersText->SetRenderScale(FVector2D(Scale));
     }
+    if (!bButtonAuditReported && bUIPreviewReported
+        && FParse::Param(FCommandLine::Get(), TEXT("CatanButtonAudit"))
+        && ++ButtonAuditStableFrames >= 3)
+    {
+        AuditButtonAccessibility(MyGeometry);
+        bButtonAuditReported = true;
+    }
+}
+
+void UCatanHUDWidget::AuditButtonAccessibility(const FGeometry& RootGeometry)
+{
+    FString Preview;
+    FParse::Value(FCommandLine::Get(), TEXT("CatanUIPreview="), Preview);
+    TSet<FString> CriticalLabels;
+    if (Preview.Equals(TEXT("PlayerTrade"), ESearchCase::IgnoreCase))
+        CriticalLabels = {TEXT("SEND OFFER"), TEXT("CLOSE")};
+    else if (Preview.Equals(TEXT("Bank"), ESearchCase::IgnoreCase))
+        CriticalLabels = {TEXT("CONFIRM BANK TRADE"), TEXT("CLOSE")};
+    else if (Preview.Equals(TEXT("Discard"), ESearchCase::IgnoreCase))
+        CriticalLabels = {TEXT("CONFIRM DISCARD")};
+    else if (Preview.Equals(TEXT("DevelopmentPlenty"), ESearchCase::IgnoreCase)
+        || Preview.Equals(TEXT("DevelopmentMonopoly"), ESearchCase::IgnoreCase))
+        CriticalLabels = {TEXT("CONFIRM"), TEXT("BACK")};
+    else if (Preview.Equals(TEXT("Settings"), ESearchCase::IgnoreCase))
+        CriticalLabels = {TEXT("SAVE SETTINGS"), TEXT("BACK")};
+    else if (Preview.Equals(TEXT("FinalDashboard"), ESearchCase::IgnoreCase))
+        CriticalLabels = {TEXT("NEW GAME"), TEXT("EXIT")};
+
+    const auto Contains = [](const FSlateRect& Outer, const FSlateRect& Inner)
+    {
+        constexpr float Tolerance = 1.0f;
+        return Inner.Left >= Outer.Left - Tolerance && Inner.Top >= Outer.Top - Tolerance
+            && Inner.Right <= Outer.Right + Tolerance && Inner.Bottom <= Outer.Bottom + Tolerance;
+    };
+    const FSlateRect RootRect = RootGeometry.GetLayoutBoundingRect();
+    const FSlateRect ModalRect = ModalBorder
+        ? ModalBorder->GetCachedGeometry().GetLayoutBoundingRect() : RootRect;
+    const float MinimumTouch = CatanMobileUIPolicy::MinimumTouchTargetHeight(PLATFORM_ANDROID);
+    int32 VisibleButtons = 0;
+    int32 TouchFailures = 0;
+    int32 BoundsFailures = 0;
+    int32 ScrollReachable = 0;
+    TSet<FString> CriticalFound;
+
+    TArray<UWidget*> Widgets;
+    WidgetTree->GetAllWidgets(Widgets);
+    for (UWidget* Widget : Widgets)
+    {
+        UButton* Button = Cast<UButton>(Widget);
+        if (!Button) continue;
+        bool bActive = true;
+        bool bInsideModal = false;
+        bool bInsideScroll = false;
+        UWidget* Child = Button;
+        while (Child)
+        {
+            const ESlateVisibility Visibility = Child->GetVisibility();
+            if (Visibility == ESlateVisibility::Collapsed || Visibility == ESlateVisibility::Hidden)
+            {
+                bActive = false;
+                break;
+            }
+            UPanelWidget* Parent = Child->GetParent();
+            if (const UWidgetSwitcher* Switcher = Cast<UWidgetSwitcher>(Parent))
+                if (Switcher->GetActiveWidget() != Child) bActive = false;
+            if (Child == ModalBorder) bInsideModal = true;
+            if (Cast<UScrollBox>(Child)) bInsideScroll = true;
+            Child = Parent;
+        }
+        if (!bActive) continue;
+        const FGeometry Geometry = Button->GetCachedGeometry();
+        const FVector2D LocalSize = Geometry.GetLocalSize();
+        if (LocalSize.X <= 1.0f || LocalSize.Y <= 1.0f) continue;
+        ++VisibleButtons;
+
+        FString SemanticLabel;
+        for (const TPair<TWeakObjectPtr<UButton>, FString>& Entry : AuditedActionButtons)
+            if (Entry.Key.Get() == Button) { SemanticLabel = Entry.Value; break; }
+        const bool bCritical = CriticalLabels.Contains(SemanticLabel);
+        if (bCritical) CriticalFound.Add(SemanticLabel);
+        if (LocalSize.X + 0.5f < MinimumTouch || LocalSize.Y + 0.5f < MinimumTouch)
+            ++TouchFailures;
+
+        const FSlateRect ButtonRect = Geometry.GetLayoutBoundingRect();
+        const bool bWithinRoot = Contains(RootRect, ButtonRect);
+        const bool bWithinModal = !bInsideModal || Contains(ModalRect, ButtonRect);
+        if (!bWithinRoot || !bWithinModal)
+        {
+            if (bInsideScroll && !bCritical) ++ScrollReachable;
+            else ++BoundsFailures;
+        }
+    }
+    const int32 CriticalExpected = CriticalLabels.Num();
+    const int32 CriticalVisible = CriticalFound.Num();
+    if (CriticalVisible != CriticalExpected) ++BoundsFailures;
+    UE_LOG(LogTemp, Display,
+        TEXT("CATAN_BUTTON_AUDIT mode=%s buttons=%d touchFailures=%d boundsFailures=%d critical=%d/%d scrollReachable=%d minTouch=%d"),
+        *Preview, VisibleButtons, TouchFailures, BoundsFailures, CriticalVisible, CriticalExpected,
+        ScrollReachable, FMath::RoundToInt(MinimumTouch));
 }
 
 void UCatanHUDWidget::BuildLayout()
@@ -284,22 +387,16 @@ void UCatanHUDWidget::BuildLayout()
     HandTitleText = AddText(PlayerPanel, TEXT("YOUR HAND"), 22);
     UHorizontalBox* ResourceBadges = WidgetTree->ConstructWidget<UHorizontalBox>();
     PlayerPanel->AddChildToVerticalBox(ResourceBadges);
-    struct FResourceBadge { FString Name; FLinearColor Color; };
-    const FResourceBadge Badges[] = {
-        {TEXT("WOOD"), FLinearColor(0.08f, 0.52f, 0.16f)},
-        {TEXT("CLAY"), FLinearColor(0.76f, 0.18f, 0.05f)},
-        {TEXT("HAY"), FLinearColor(0.95f, 0.70f, 0.06f)},
-        {TEXT("SHEEP"), FLinearColor(0.48f, 0.82f, 0.28f)},
-        {TEXT("ORE"), FLinearColor(0.42f, 0.48f, 0.58f)}
-    };
-    for (const FResourceBadge& Badge : Badges)
+    const FString BadgeNames[] = {TEXT("WOOD"), TEXT("CLAY"), TEXT("HAY"), TEXT("SHEEP"), TEXT("ORE")};
+    for (int32 BadgeIndex = 0; BadgeIndex < 5; ++BadgeIndex)
     {
         UVerticalBox* BadgeBox = WidgetTree->ConstructWidget<UVerticalBox>();
         UHorizontalBoxSlot* BadgeSlot = ResourceBadges->AddChildToHorizontalBox(BadgeBox);
         BadgeSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         BadgeSlot->SetPadding(FMargin(3));
         UBorder* Icon = WidgetTree->ConstructWidget<UBorder>();
-        Icon->SetBrushColor(Badge.Color);
+        Icon->SetBrushColor(ResourceColor(BadgeIndex, UserPreferences.ColorVisionMode));
+        RegisterResourcePalette(Icon, BadgeIndex);
         Icon->SetPadding(FMargin(8));
         UCommonTextBlock* Count = WidgetTree->ConstructWidget<UCommonTextBlock>();
         Count->SetText(FText::AsNumber(0));
@@ -308,7 +405,7 @@ void UCatanHUDWidget::BuildLayout()
         Icon->SetContent(Count);
         ResourceCountTexts.Add(Count);
         BadgeBox->AddChildToVerticalBox(Icon);
-        UCommonTextBlock* Name = AddText(BadgeBox, Badge.Name, 10);
+        UCommonTextBlock* Name = AddText(BadgeBox, BadgeNames[BadgeIndex], 10);
         Name->SetJustification(ETextJustify::Center);
     }
     RightDetailsButton = AddButton(PlayerPanel, TEXT("SHOW PLAYERS & COSTS"));
@@ -408,7 +505,8 @@ void UCatanHUDWidget::BuildLayout()
     {
         const FString& ResourceName = ResourceNames[ResourceIndex];
         UBorder* Card = WidgetTree->ConstructWidget<UBorder>();
-        Card->SetBrushColor(ResourceColor(ResourceIndex));
+        Card->SetBrushColor(ResourceColor(ResourceIndex, UserPreferences.ColorVisionMode));
+        RegisterResourcePalette(Card, ResourceIndex);
         Card->SetPadding(FMargin(10));
         UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
         Card->SetContent(Row);
@@ -427,7 +525,8 @@ void UCatanHUDWidget::BuildLayout()
         Input->OnSelectionChanged.AddDynamic(this, &UCatanHUDWidget::UpdateDropConfirmation);
         USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
         InputSize->SetMinDesiredWidth(150.0f);
-        InputSize->SetMinDesiredHeight(56.0f);
+        InputSize->SetMinDesiredHeight(
+            CatanMobileUIPolicy::MinimumTouchTargetHeight(PLATFORM_ANDROID));
         InputSize->AddChild(Input);
         Row->AddChildToHorizontalBox(InputSize);
         DropInputs.Add(Input);
@@ -473,7 +572,8 @@ void UCatanHUDWidget::BuildLayout()
     for (int32 Index = 0; Index < ResourceNames.Num(); ++Index)
     {
         UBorder* Card = WidgetTree->ConstructWidget<UBorder>();
-        Card->SetBrushColor(ResourceColor(Index));
+        Card->SetBrushColor(ResourceColor(Index, UserPreferences.ColorVisionMode));
+        RegisterResourcePalette(Card, Index);
         Card->SetPadding(FMargin(6));
         UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
         Card->SetContent(Row);
@@ -491,7 +591,8 @@ void UCatanHUDWidget::BuildLayout()
         Input->OnSelectionChanged.AddDynamic(this, &UCatanHUDWidget::UpdatePlentySelection);
         USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
         InputSize->SetMinDesiredWidth(150.0f);
-        InputSize->SetMinDesiredHeight(56.0f);
+        InputSize->SetMinDesiredHeight(
+            CatanMobileUIPolicy::MinimumTouchTargetHeight(PLATFORM_ANDROID));
         InputSize->AddChild(Input);
         Row->AddChildToHorizontalBox(InputSize);
         PlentyPanel->AddChildToVerticalBox(Card)->SetPadding(FMargin(2));
@@ -516,7 +617,8 @@ void UCatanHUDWidget::BuildLayout()
     for (int32 Index = 0; Index < ResourceNames.Num(); ++Index)
     {
         UButton* Button = WidgetTree->ConstructWidget<UButton>();
-        Button->SetBackgroundColor(ResourceColor(Index));
+        Button->SetBackgroundColor(ResourceColor(Index, UserPreferences.ColorVisionMode));
+        RegisterResourcePalette(Button, Index);
         UCommonTextBlock* Text = WidgetTree->ConstructWidget<UCommonTextBlock>();
         Text->SetText(FText::FromString(Localize(ResourceNames[Index])));
         RegisterLocalizedText(Text, ResourceNames[Index]);
@@ -524,7 +626,8 @@ void UCatanHUDWidget::BuildLayout()
         FSlateFontInfo Font = Text->GetFont(); Font.Size = 22; Text->SetFont(Font);
         Button->AddChild(Text);
         USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>();
-        Size->SetMinDesiredHeight(58.0f);
+        Size->SetMinDesiredHeight(
+            CatanMobileUIPolicy::MinimumTouchTargetHeight(PLATFORM_ANDROID));
         Size->AddChild(Button);
         MonopolyPanel->AddChildToVerticalBox(Size)->SetPadding(FMargin(2));
         MonopolyResourceButtons.Add(Button);
@@ -569,7 +672,8 @@ void UCatanHUDWidget::BuildLayout()
         TArray<TObjectPtr<UButton>>& Buttons)
     {
         UButton* Button = WidgetTree->ConstructWidget<UButton>();
-        Button->SetBackgroundColor(ResourceColor(Index));
+        Button->SetBackgroundColor(ResourceColor(Index, UserPreferences.ColorVisionMode));
+        RegisterResourcePalette(Button, Index);
         UCommonTextBlock* Text = WidgetTree->ConstructWidget<UCommonTextBlock>();
         Text->SetText(FText::FromString(Localize(Name)));
         RegisterLocalizedText(Text, Name);
@@ -578,7 +682,8 @@ void UCatanHUDWidget::BuildLayout()
         Button->AddChild(Text);
         USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>();
         Size->SetMinDesiredWidth(170.0f);
-        Size->SetMinDesiredHeight(56.0f);
+        Size->SetMinDesiredHeight(
+            CatanMobileUIPolicy::MinimumTouchTargetHeight(PLATFORM_ANDROID));
         Size->AddChild(Button);
         UVerticalBoxSlot* Slot = Parent->AddChildToVerticalBox(Size);
         Slot->SetPadding(FMargin(2));
@@ -631,7 +736,8 @@ void UCatanHUDWidget::BuildLayout()
     TradingPlayer = WidgetTree->ConstructWidget<UCatanTouchComboBoxString>();
     ConfigureComboBox(TradingPlayer, 22);
     USizeBox* RecipientSize = WidgetTree->ConstructWidget<USizeBox>();
-    RecipientSize->SetMinDesiredHeight(56.0f);
+    RecipientSize->SetMinDesiredHeight(
+        CatanMobileUIPolicy::MinimumTouchTargetHeight(PLATFORM_ANDROID));
     RecipientSize->AddChild(TradingPlayer);
     PlayerTradePanel->AddChildToVerticalBox(RecipientSize);
     UHorizontalBox* PlayerColumns = WidgetTree->ConstructWidget<UHorizontalBox>();
@@ -647,7 +753,8 @@ void UCatanHUDWidget::BuildLayout()
         for (int32 Index = 0; Index < 5; ++Index)
         {
             UBorder* Card = WidgetTree->ConstructWidget<UBorder>();
-            Card->SetBrushColor(ResourceColor(Index));
+            Card->SetBrushColor(ResourceColor(Index, UserPreferences.ColorVisionMode));
+            RegisterResourcePalette(Card, Index);
             Card->SetPadding(FMargin(6));
             UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>();
             Card->SetContent(Row);
@@ -665,7 +772,8 @@ void UCatanHUDWidget::BuildLayout()
             Input->SetSelectedOption(TEXT("0"));
             USizeBox* InputSize = WidgetTree->ConstructWidget<USizeBox>();
             InputSize->SetMinDesiredWidth(150.0f);
-            InputSize->SetMinDesiredHeight(56.0f);
+            InputSize->SetMinDesiredHeight(
+                CatanMobileUIPolicy::MinimumTouchTargetHeight(PLATFORM_ANDROID));
             InputSize->AddChild(Input);
             Row->AddChildToHorizontalBox(InputSize);
             UVerticalBoxSlot* CardSlot = Column->AddChildToVerticalBox(Card);
@@ -697,8 +805,21 @@ void UCatanHUDWidget::BuildLayout()
 
     UVerticalBox* WinnerPanel = WidgetTree->ConstructWidget<UVerticalBox>();
     ModalSwitcher->AddChild(WinnerPanel);
-    AddText(WinnerPanel, TEXT("GAME OVER"), 32);
-    WinnerText = AddText(WinnerPanel, FString(), 22);
+    UCommonTextBlock* GameOverTitle = AddText(WinnerPanel, TEXT("GAME OVER"), 32);
+    GameOverTitle->SetJustification(ETextJustify::Center);
+    WinnerText = AddText(WinnerPanel, FString(), 30);
+    WinnerText->SetJustification(ETextJustify::Center);
+    UCommonTextBlock* FinalScoreTitle = AddText(WinnerPanel, TEXT("FINAL SCORE"), 22);
+    FinalScoreTitle->SetJustification(ETextJustify::Center);
+    USizeBox* StandingsSize = WidgetTree->ConstructWidget<USizeBox>();
+    StandingsSize->SetHeightOverride(330.0f);
+    WinnerPanel->AddChildToVerticalBox(StandingsSize)->SetPadding(FMargin(4));
+    UScrollBox* StandingsScroll = WidgetTree->ConstructWidget<UScrollBox>();
+    StandingsScroll->SetOrientation(EOrientation::Orient_Vertical);
+    StandingsScroll->SetAlwaysShowScrollbar(true);
+    StandingsSize->SetContent(StandingsScroll);
+    WinnerStandingsBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    StandingsScroll->AddChild(WinnerStandingsBox);
     UButton* NewGame = AddButton(WinnerPanel, TEXT("NEW GAME"));
     UButton* ExitGame = AddButton(WinnerPanel, TEXT("EXIT"));
     NewGame->OnClicked.AddDynamic(this, &UCatanHUDWidget::StartNewGame);
@@ -826,8 +947,12 @@ void UCatanHUDWidget::BuildLayout()
     UButton* BotBack = AddButton(BotPanel, TEXT("BACK"));
     BotBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMainSetup);
 
+    UScrollBox* SettingsScroll = WidgetTree->ConstructWidget<UScrollBox>();
+    SettingsScroll->SetOrientation(EOrientation::Orient_Vertical);
+    SettingsScroll->SetConsumeMouseWheel(EConsumeMouseWheel::WhenScrollingPossible);
+    SetupSwitcher->AddChild(SettingsScroll);
     UVerticalBox* SettingsPanel = WidgetTree->ConstructWidget<UVerticalBox>();
-    SetupSwitcher->AddChild(SettingsPanel);
+    SettingsScroll->AddChild(SettingsPanel);
     AddText(SettingsPanel, TEXT("SETTINGS"), 27);
     AddText(SettingsPanel, TEXT("PLAYER NAME"), 18);
     SettingsNameInput = WidgetTree->ConstructWidget<UEditableTextBox>();
@@ -842,8 +967,39 @@ void UCatanHUDWidget::BuildLayout()
     SettingsLanguageInput->AddOption(TEXT("Русский"));
     SettingsLanguageInput->SetSelectedIndex(UserPreferences.Language == ECatanLanguage::Russian ? 1 : 0);
     SettingsPanel->AddChildToVerticalBox(SettingsLanguageInput);
-    UButton* SaveSettingsButton = AddButton(SettingsPanel, TEXT("SAVE SETTINGS"));
-    UButton* SettingsBack = AddButton(SettingsPanel, TEXT("BACK"));
+    auto AddSettingsCombo = [this, SettingsPanel](const FString& Label,
+        const TArray<FString>& Options, int32 SelectedIndex)
+    {
+        AddText(SettingsPanel, Label, 18);
+        UComboBoxString* Combo = WidgetTree->ConstructWidget<UCatanTouchComboBoxString>();
+        ConfigureComboBox(Combo, 22);
+        for (const FString& Option : Options) Combo->AddOption(Localize(Option));
+        Combo->SetSelectedIndex(FMath::Clamp(SelectedIndex, 0, Options.Num() - 1));
+        SettingsPanel->AddChildToVerticalBox(Combo)->SetPadding(FMargin(2, 3));
+        return Combo;
+    };
+    const TArray<FString> VolumeOptions = {TEXT("0%"), TEXT("25%"), TEXT("50%"), TEXT("75%"), TEXT("100%")};
+    SettingsEffectsInput = AddSettingsCombo(TEXT("EFFECTS VOLUME"), VolumeOptions,
+        FMath::RoundToInt(UserPreferences.EffectsVolume * 4.0f));
+    SettingsMusicInput = AddSettingsCombo(TEXT("MUSIC VOLUME"), VolumeOptions,
+        FMath::RoundToInt(UserPreferences.MusicVolume * 4.0f));
+    SettingsHapticsInput = AddSettingsCombo(TEXT("HAPTIC FEEDBACK"),
+        {TEXT("ON"), TEXT("OFF")}, UserPreferences.bHapticsEnabled ? 0 : 1);
+    SettingsColorVisionInput = AddSettingsCombo(TEXT("COLOR ACCESSIBILITY"),
+        {TEXT("STANDARD"), TEXT("HIGH CONTRAST"), TEXT("DEUTERANOPIA"),
+            TEXT("PROTANOPIA"), TEXT("TRITANOPIA")},
+        static_cast<int32>(UserPreferences.ColorVisionMode));
+    AddText(SettingsPanel, TEXT("Resource names remain visible in every color mode."), 14);
+    UHorizontalBox* SettingsActions = WidgetTree->ConstructWidget<UHorizontalBox>();
+    SettingsPanel->AddChildToVerticalBox(SettingsActions)->SetPadding(FMargin(2, 4));
+    UVerticalBox* SaveSettingsBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    UVerticalBox* SettingsBackBox = WidgetTree->ConstructWidget<UVerticalBox>();
+    SettingsActions->AddChildToHorizontalBox(SaveSettingsBox)
+        ->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+    SettingsActions->AddChildToHorizontalBox(SettingsBackBox)
+        ->SetSize(FSlateChildSize(ESlateSizeRule::Automatic));
+    UButton* SaveSettingsButton = AddButton(SaveSettingsBox, TEXT("SAVE SETTINGS"));
+    UButton* SettingsBack = AddButton(SettingsBackBox, TEXT("BACK"));
     SaveSettingsButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::SaveSettings);
     SettingsBack->OnClicked.AddDynamic(this, &UCatanHUDWidget::ShowMainSetup);
 
@@ -1119,14 +1275,17 @@ UButton* UCatanHUDWidget::AddButton(UVerticalBox* Parent, const FString& Label)
     Text->SetText(FText::FromString(Localize(Label)));
     RegisterLocalizedText(Text, Label);
     Text->SetJustification(ETextJustify::Center);
-    Text->SetMargin(FMargin(16, 12));
+    Text->SetMargin(PLATFORM_ANDROID ? FMargin(18, 15) : FMargin(16, 12));
     Button->AddChild(Text);
     USizeBox* TouchTarget = WidgetTree->ConstructWidget<USizeBox>();
-    TouchTarget->SetMinDesiredWidth(112.0f);
-    TouchTarget->SetMinDesiredHeight(56.0f);
+    TouchTarget->SetMinDesiredWidth(
+        CatanMobileUIPolicy::MinimumTouchTargetWidth(PLATFORM_ANDROID));
+    TouchTarget->SetMinDesiredHeight(
+        CatanMobileUIPolicy::MinimumTouchTargetHeight(PLATFORM_ANDROID));
     TouchTarget->AddChild(Button);
     UVerticalBoxSlot* Slot = Parent->AddChildToVerticalBox(TouchTarget);
     Slot->SetPadding(FMargin(2, 4));
+    AuditedActionButtons.Emplace(Button, Label);
     return Button;
 }
 
@@ -1138,6 +1297,78 @@ FString UCatanHUDWidget::Localize(const FString& Key) const
 void UCatanHUDWidget::RegisterLocalizedText(UCommonTextBlock* Widget, const FString& Key)
 {
     if (Widget && !Key.IsEmpty()) LocalizedTexts.Emplace(Widget, Key);
+}
+
+void UCatanHUDWidget::RegisterResourcePalette(UWidget* Widget, int32 ResourceIndex)
+{
+    if (!Widget) return;
+    ResourcePaletteWidgets.Add(Widget);
+    ResourcePaletteIndices.Add(FMath::Clamp(ResourceIndex, 0, 4));
+}
+
+void UCatanHUDWidget::ApplyAccessibilityPalette()
+{
+    for (int32 Index = 0; Index < ResourcePaletteWidgets.Num()
+        && Index < ResourcePaletteIndices.Num(); ++Index)
+    {
+        const FLinearColor Color = ResourceColor(
+            ResourcePaletteIndices[Index], UserPreferences.ColorVisionMode);
+        if (UBorder* Border = Cast<UBorder>(ResourcePaletteWidgets[Index]))
+            Border->SetBrushColor(Color);
+        else if (UButton* Button = Cast<UButton>(ResourcePaletteWidgets[Index]))
+            Button->SetBackgroundColor(Color);
+    }
+    UE_LOG(LogTemp, Display, TEXT("CATAN_ACCESSIBILITY palette=%s widgets=%d labels=always"),
+        *FCatanUserSettings::ColorVisionModeCode(UserPreferences.ColorVisionMode),
+        ResourcePaletteWidgets.Num());
+}
+
+void UCatanHUDWidget::PopulateFinalDashboard(const FCatanGameView& View)
+{
+    if (!WinnerText || !WinnerStandingsBox) return;
+    WinnerText->SetText(FText::FromString(FString::Printf(TEXT("★ %s %s"),
+        *View.Winner, *Localize(TEXT("WINS!")))));
+    WinnerStandingsBox->ClearChildren();
+    TArray<const FCatanPlayerView*> RankedPlayers;
+    for (const FCatanPlayerView& Player : View.Players) RankedPlayers.Add(&Player);
+    RankedPlayers.Sort([](const FCatanPlayerView& Left, const FCatanPlayerView& Right)
+    {
+        if (Left.VictoryPoints != Right.VictoryPoints)
+            return Left.VictoryPoints > Right.VictoryPoints;
+        return Left.Name < Right.Name;
+    });
+    int32 RevealedVictoryCards = 0;
+    for (int32 Rank = 0; Rank < RankedPlayers.Num(); ++Rank)
+    {
+        const FCatanPlayerView& Player = *RankedPlayers[Rank];
+        RevealedVictoryCards += Player.VictoryPointCards;
+        UBorder* Card = WidgetTree->ConstructWidget<UBorder>();
+        const bool bWinner = Player.Name == View.Winner;
+        Card->SetBrushColor(bWinner
+            ? FLinearColor(0.52f, 0.34f, 0.04f, 0.96f)
+            : FLinearColor(0.05f + Rank * 0.012f, 0.08f, 0.13f, 0.96f));
+        Card->SetPadding(FMargin(16, 10));
+        WinnerStandingsBox->AddChildToVerticalBox(Card)->SetPadding(FMargin(2, 4));
+        UVerticalBox* Content = WidgetTree->ConstructWidget<UVerticalBox>();
+        Card->SetContent(Content);
+        UCommonTextBlock* Name = AddText(Content,
+            FString::Printf(TEXT("%d. %s — %d %s"), Rank + 1, *Player.Name,
+                Player.VictoryPoints, *Localize(TEXT("VP"))), bWinner ? 25 : 22);
+        Name->SetColorAndOpacity(FSlateColor(bWinner
+            ? FLinearColor(1.0f, 0.88f, 0.28f) : FLinearColor(0.92f, 0.95f, 1.0f)));
+        AddText(Content, FString::Printf(TEXT("%d %s  •  %d %s  •  %d %s"),
+            Player.VictoryPointCards, *Localize(TEXT("VP cards")),
+            Player.DevelopmentCards, *Localize(TEXT("dev cards")),
+            Player.ResourceCards, *Localize(TEXT("final resource cards"))), 17);
+        AddText(Content, FString::Printf(TEXT("%s %d %s, %d %s, %d %s"),
+            *Localize(TEXT("Remaining:")), Player.FreeSettlements,
+            *Localize(TEXT("settlements")), Player.FreeCities,
+            *Localize(TEXT("cities")), Player.FreeRoads,
+            *Localize(TEXT("remaining roads"))), 15);
+    }
+    UE_LOG(LogTemp, Display,
+        TEXT("CATAN_FINAL_DASHBOARD rows=%d winner=%s vpCardsRevealed=%d scroll=1 touch=72"),
+        RankedPlayers.Num(), *View.Winner, RevealedVictoryCards);
 }
 
 void UCatanHUDWidget::ApplyLanguage()
@@ -1542,7 +1773,7 @@ void UCatanHUDWidget::Refresh()
         else if (SetupPage == SetupBotsIndex)
             SetModalSize(760.0f, 540.0f);
         else if (SetupPage == SetupSettingsIndex)
-            SetModalSize(760.0f, 560.0f);
+            SetModalSize(900.0f, 720.0f);
         else if (SetupPage == SetupOnboardingIndex)
             SetModalSize(900.0f, OnboardingSwitcher
                 && OnboardingSwitcher->GetActiveWidgetIndex() > 0 ? 460.0f : 560.0f);
@@ -1554,24 +1785,10 @@ void UCatanHUDWidget::Refresh()
     }
     else if (View.Phase == ECatanGamePhase::Finished)
     {
-        SetModalSize(760.0f, 650.0f);
+        SetModalSize(860.0f, 720.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(5);
-        FString Standings = FString::Printf(TEXT("%s %s\n\n%s\n"), *View.Winner,
-            *Localize(TEXT("WINS!")), *Localize(TEXT("FINAL SCORE")));
-        for (const FCatanPlayerView& Player : View.Players)
-        {
-            Standings += FString::Printf(
-                TEXT("%s — %d %s | %d %s | %d %s | %d %s\n  %s %d %s, %d %s, %d %s\n"),
-                *Player.Name, Player.VictoryPoints, *Localize(TEXT("VP")),
-                Player.VictoryPointCards, *Localize(TEXT("VP cards")),
-                Player.DevelopmentCards, *Localize(TEXT("dev cards")),
-                Player.ResourceCards, *Localize(TEXT("final resource cards")),
-                *Localize(TEXT("Remaining:")), Player.FreeSettlements,
-                *Localize(TEXT("settlements")), Player.FreeCities, *Localize(TEXT("cities")),
-                Player.FreeRoads, *Localize(TEXT("remaining roads")));
-        }
-        WinnerText->SetText(FText::FromString(Standings));
+        PopulateFinalDashboard(View);
         bDevelopmentPanelOpen = false;
         bTradePanelOpen = false;
     }
@@ -1601,7 +1818,7 @@ void UCatanHUDWidget::Refresh()
     }
     else if (View.Phase == ECatanGamePhase::DropCards && bLocalTurn && LocalPlayer)
     {
-        SetModalSize(900.0f, 620.0f);
+        SetModalSize(900.0f, 780.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(0);
         DropTitle->SetText(FText::FromString(Localize(TEXT("DISCARD")) + FString::Printf(TEXT(" %d "),
@@ -1698,7 +1915,7 @@ void UCatanHUDWidget::Refresh()
     }
     else if (bTradePanelOpen && LocalPlayer && bLocalTurn && bPlay)
     {
-        SetModalSize(1040.0f, 760.0f);
+        SetModalSize(1040.0f, 900.0f);
         ModalBorder->SetVisibility(ESlateVisibility::Visible);
         ModalSwitcher->SetActiveWidgetIndex(3);
         CurrentBankTradeRates = LocalPlayer->TradeRates;
@@ -1844,9 +2061,50 @@ void UCatanHUDWidget::ApplyUIPreview()
         }
         ActionBorder->SetVisibility(ESlateVisibility::Visible);
     }
+    else if (Preview.Equals(TEXT("Settings"), ESearchCase::IgnoreCase))
+    {
+        bSetupPanelOpen = true;
+        SetModalSize(900.0f, 720.0f);
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(6);
+        SetupSwitcher->SetActiveWidgetIndex(SetupSettingsIndex);
+        UE_LOG(LogTemp, Display,
+            TEXT("CATAN_POLISH_SETTINGS effects=5 music=5 haptics=2 palettes=5 touch=%d scroll=1"),
+            FMath::RoundToInt(CatanMobileUIPolicy::MinimumTouchTargetHeight(PLATFORM_ANDROID)));
+        UE_LOG(LogTemp, Display, TEXT("CATAN_SETTINGS_PREVIEW name=%s language=%s"),
+            *UserPreferences.PlayerName, *FCatanTextResources::LanguageCode(UserPreferences.Language));
+    }
+    else if (Preview.Equals(TEXT("FinalDashboard"), ESearchCase::IgnoreCase))
+    {
+        bSetupPanelOpen = false;
+        SetModalSize(860.0f, 720.0f);
+        ModalBorder->SetVisibility(ESlateVisibility::Visible);
+        ModalSwitcher->SetActiveWidgetIndex(5);
+        FCatanGameView FinalView;
+        FinalView.Phase = ECatanGamePhase::Finished;
+        FinalView.Winner = TEXT("Player");
+        auto AddPlayer = [&FinalView](const FString& Name, int32 Points, int32 VictoryCards,
+            int32 DevelopmentCards, int32 Resources)
+        {
+            FCatanPlayerView& Player = FinalView.Players.Emplace_GetRef();
+            Player.Name = Name;
+            Player.VictoryPoints = Points;
+            Player.VictoryPointCards = VictoryCards;
+            Player.DevelopmentCards = DevelopmentCards;
+            Player.ResourceCards = Resources;
+            Player.FreeSettlements = FMath::Max(0, 5 - Points / 2);
+            Player.FreeCities = FMath::Max(0, 4 - Points / 3);
+            Player.FreeRoads = FMath::Max(0, 15 - Points);
+        };
+        AddPlayer(TEXT("Bot 2"), 7, 1, 2, 5);
+        AddPlayer(TEXT("Player"), 10, 2, 3, 8);
+        AddPlayer(TEXT("Bot 1"), 8, 0, 1, 4);
+        AddPlayer(TEXT("Bot 3"), 6, 1, 2, 6);
+        PopulateFinalDashboard(FinalView);
+    }
     else if (Preview.Equals(TEXT("Bank"), ESearchCase::IgnoreCase))
     {
-        SetModalSize(1040.0f, 760.0f);
+        SetModalSize(1040.0f, 900.0f);
         ModalSwitcher->SetActiveWidgetIndex(3);
         TradeModeSwitcher->SetActiveWidgetIndex(0);
         CurrentBankTradeRates.Wood = 4;
@@ -1860,7 +2118,7 @@ void UCatanHUDWidget::ApplyUIPreview()
     }
     else if (Preview.Equals(TEXT("PlayerTrade"), ESearchCase::IgnoreCase))
     {
-        SetModalSize(1040.0f, 760.0f);
+        SetModalSize(1040.0f, 900.0f);
         ModalSwitcher->SetActiveWidgetIndex(3);
         TradeModeSwitcher->SetActiveWidgetIndex(1);
         if (TradingPlayer->GetOptionCount() == 0)
@@ -1877,14 +2135,18 @@ void UCatanHUDWidget::ApplyUIPreview()
         PreviewResources.Stone = 7;
         UpdatePlayerTradeLimits(PreviewResources);
         if (!bUIPreviewReported && OfferedInputs.Num() == 5 && RequestedInputs.Num() == 5)
+        {
             UE_LOG(LogTemp, Display, TEXT("CATAN_PLAYER_TRADE_LIMITS max=%d,%d,%d,%d,%d receive=%d"),
                 OfferedInputs[0]->GetOptionCount() - 1, OfferedInputs[1]->GetOptionCount() - 1,
                 OfferedInputs[2]->GetOptionCount() - 1, OfferedInputs[3]->GetOptionCount() - 1,
                 OfferedInputs[4]->GetOptionCount() - 1, RequestedInputs[0]->GetOptionCount() - 1);
+            UE_LOG(LogTemp, Display,
+                TEXT("CATAN_PLAYER_TRADE_LAYOUT modalHeight=900 rows=5 actions=2 scrollFallback=1"));
+        }
     }
     else if (Preview.Equals(TEXT("Discard"), ESearchCase::IgnoreCase))
     {
-        SetModalSize(900.0f, 620.0f);
+        SetModalSize(900.0f, 780.0f);
         ModalSwitcher->SetActiveWidgetIndex(0);
         DropTitle->SetText(FText::FromString(TEXT("DISCARD 4 RESOURCES — PLAYER")));
         FCatanResourceView PreviewResources;
@@ -1916,7 +2178,7 @@ void UCatanHUDWidget::ApplyUIPreview()
     }
     else if (Preview.Equals(TEXT("DevelopmentPlenty"), ESearchCase::IgnoreCase))
     {
-        SetModalSize(760.0f, 650.0f);
+        SetModalSize(760.0f, 780.0f);
         ModalSwitcher->SetActiveWidgetIndex(2);
         DevelopmentModeSwitcher->SetActiveWidgetIndex(1);
         ResetPlentyInputs();
@@ -1955,14 +2217,6 @@ void UCatanHUDWidget::ApplyUIPreview()
         SetModalSize(760.0f, 540.0f);
         ModalSwitcher->SetActiveWidgetIndex(6);
         SetupSwitcher->SetActiveWidgetIndex(SetupBotsIndex);
-    }
-    else if (Preview.Equals(TEXT("Settings"), ESearchCase::IgnoreCase))
-    {
-        SetModalSize(760.0f, 560.0f);
-        ModalSwitcher->SetActiveWidgetIndex(6);
-        SetupSwitcher->SetActiveWidgetIndex(SetupSettingsIndex);
-        UE_LOG(LogTemp, Display, TEXT("CATAN_SETTINGS_PREVIEW name=%s language=%s"),
-            *UserPreferences.PlayerName, *FCatanTextResources::LanguageCode(UserPreferences.Language));
     }
     else if (Preview.Equals(TEXT("Onboarding"), ESearchCase::IgnoreCase))
     {
@@ -2309,16 +2563,34 @@ void UCatanHUDWidget::SaveSettings()
         SettingsNameInput ? SettingsNameInput->GetText().ToString() : UserPreferences.PlayerName);
     UserPreferences.Language = SettingsLanguageInput && SettingsLanguageInput->GetSelectedIndex() == 1
         ? ECatanLanguage::Russian : ECatanLanguage::English;
+    UserPreferences.EffectsVolume = SettingsEffectsInput
+        ? SettingsEffectsInput->GetSelectedIndex() / 4.0f : UserPreferences.EffectsVolume;
+    UserPreferences.MusicVolume = SettingsMusicInput
+        ? SettingsMusicInput->GetSelectedIndex() / 4.0f : UserPreferences.MusicVolume;
+    UserPreferences.bHapticsEnabled = !SettingsHapticsInput
+        || SettingsHapticsInput->GetSelectedIndex() == 0;
+    UserPreferences.ColorVisionMode = SettingsColorVisionInput
+        ? static_cast<ECatanColorVisionMode>(FMath::Clamp(
+            SettingsColorVisionInput->GetSelectedIndex(), 0, 4))
+        : UserPreferences.ColorVisionMode;
     FCatanUserSettings::Save(UserPreferences);
     ApplyLanguage();
+    ApplyAccessibilityPalette();
+    if (AActor* Board = UGameplayStatics::GetActorOfClass(
+        GetWorld(), ACatanBoardActor::StaticClass()))
+        CastChecked<ACatanBoardActor>(Board)->ApplyUserPreferences(UserPreferences);
     ToastText->SetText(FText::FromString(Localize(TEXT("Settings saved"))));
     ToastBorder->SetVisibility(ESlateVisibility::HitTestInvisible);
     ToastBorder->SetRenderOpacity(1.0f);
     ToastRemaining = 2.5f;
     ShowMainSetup();
     Refresh();
-    UE_LOG(LogTemp, Display, TEXT("CATAN_SETTINGS saved name=%s language=%s"),
-        *UserPreferences.PlayerName, *FCatanTextResources::LanguageCode(UserPreferences.Language));
+    UE_LOG(LogTemp, Display,
+        TEXT("CATAN_SETTINGS saved name=%s language=%s effects=%.2f music=%.2f haptics=%d palette=%s"),
+        *UserPreferences.PlayerName, *FCatanTextResources::LanguageCode(UserPreferences.Language),
+        UserPreferences.EffectsVolume, UserPreferences.MusicVolume,
+        UserPreferences.bHapticsEnabled,
+        *FCatanUserSettings::ColorVisionModeCode(UserPreferences.ColorVisionMode));
 }
 
 void UCatanHUDWidget::ShowMainSetup()
@@ -2523,7 +2795,7 @@ void UCatanHUDWidget::ShowYearOfPlentyParameters()
 {
     ResetPlentyInputs();
     if (DevelopmentModeSwitcher) DevelopmentModeSwitcher->SetActiveWidgetIndex(1);
-    SetModalSize(760.0f, 650.0f);
+    SetModalSize(760.0f, 780.0f);
 }
 
 void UCatanHUDWidget::ShowMonopolyParameters()

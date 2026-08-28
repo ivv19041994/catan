@@ -110,6 +110,8 @@ test_combo_preview() {
       || fail "Other Player give limits do not match the local hand"
     rg -q 'CATAN_RESOURCE_LABELS .*semanticLeak=0' "$log_file" \
       || fail "an internal semantic resource key leaked into the visible UI"
+    rg -q 'CATAN_PLAYER_TRADE_LAYOUT modalHeight=900 rows=5 actions=2 scrollFallback=1' "$log_file" \
+      || fail "PlayerTrade does not reserve room for all rows and action buttons"
   fi
   if [[ "$mode" == "Discard" ]]; then
     rg -q 'CATAN_DISCARD_LIMITS max=8,8,8,8,8 integerDropdowns=1' "$log_file" \
@@ -399,7 +401,8 @@ test_settings_preview() {
   print "Testing persistent settings page and Cyrillic rendering..."
   adb logcat -c
   adb shell am force-stop "$package_name"
-  adb shell am start -n "$activity" --es cmdline "'-CatanUIPreview=Settings -CatanLanguage=ru'" >/dev/null \
+  adb shell am start -n "$activity" --es cmdline \
+    "'-CatanUIPreview=Settings -CatanLanguage=ru -CatanColorVision=high-contrast'" >/dev/null \
     || fail "settings preview launch failed"
   for attempt in {1..60}; do
     capture_app_log
@@ -407,15 +410,48 @@ test_settings_preview() {
       rg -n "$fatal_pattern" "$log_file" | tail -n 30 >&2 || true
       fail "settings preview crashed during startup"
     fi
-    rg -q 'CATAN_SETTINGS_PREVIEW name=.* language=ru' "$log_file" && break
+    rg -q 'CATAN_SETTINGS_PREVIEW name=.* language=ru' "$log_file" \
+      && rg -q 'CATAN_POLISH_SETTINGS effects=5 music=5 haptics=2 palettes=5 touch=72 scroll=1' "$log_file" \
+      && rg -q 'CATAN_ACCESSIBILITY palette=high-contrast .*labels=always' "$log_file" && break
     sleep 1
   done
   rg -q 'CATAN_SETTINGS_PREVIEW name=.* language=ru' "$log_file" \
     || fail "settings persistence marker was not observed"
+  rg -q 'CATAN_POLISH_SETTINGS effects=5 music=5 haptics=2 palettes=5 touch=72 scroll=1' "$log_file" \
+    || fail "polish settings controls or mobile touch targets are incomplete"
+  rg -q 'CATAN_ACCESSIBILITY palette=high-contrast .*labels=always' "$log_file" \
+    || fail "high-contrast resource palette was not applied"
+  adb shell input swipe 1200 680 1200 300 600
+  sleep 1
   assert_modal_hides_actions
   assert_running_without_fatal "settings page failed"
   adb exec-out screencap -p >"$output"
   [[ -s "$output" ]] || fail "settings page screenshot is empty"
+}
+
+test_final_dashboard_preview() {
+  local output="$log_dir/final-dashboard.png"
+  print "Testing scrollable four-player final dashboard..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline \
+    "'-CatanUIPreview=FinalDashboard -CatanLanguage=ru'" >/dev/null \
+    || fail "final dashboard preview launch failed"
+  for attempt in {1..60}; do
+    capture_app_log
+    if rg -q "$fatal_pattern" "$log_file"; then fail "final dashboard crashed"; fi
+    rg -q 'CATAN_FINAL_DASHBOARD rows=4 winner=Player vpCardsRevealed=4 scroll=1 touch=72' "$log_file" \
+      && break
+    sleep 1
+  done
+  rg -q 'CATAN_FINAL_DASHBOARD rows=4 winner=Player vpCardsRevealed=4 scroll=1 touch=72' "$log_file" \
+    || fail "final dashboard did not reveal and rank all four players"
+  assert_modal_hides_actions
+  adb shell input swipe 1200 650 1200 320 500
+  sleep 1
+  assert_running_without_fatal "final dashboard swipe failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "final dashboard screenshot is empty"
 }
 
 test_online_navigation() {
@@ -558,7 +594,7 @@ adb exec-out screencap -p >"$screenshot"
 [[ -s "$screenshot" ]] || fail "Android screenshot is empty"
 
 test_combo_preview PlayerTrade 1200 350
-test_combo_preview Discard 1600 320
+test_combo_preview Discard 1600 265
 test_combo_preview DevelopmentPlenty 1550 390
 test_development_monopoly_preview
 test_online_navigation
@@ -575,6 +611,7 @@ test_onboarding_preview ru welcome
 test_onboarding_preview ru controls
 test_onboarding_preview ru turn
 test_settings_preview
+test_final_dashboard_preview
 test_hud_graph
 test_four_player_status_panel
 test_failed_connections

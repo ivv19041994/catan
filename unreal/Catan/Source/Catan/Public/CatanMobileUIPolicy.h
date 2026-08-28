@@ -17,4 +17,6 @@ namespace CatanMobileUIPolicy
     CATAN_API FCatanComboBoxMetrics ComboBoxMetrics(int32 RequestedFontSize, bool bMobile);
     CATAN_API bool ShouldUsePopupRowLayout(bool bIsOpen,
         bool bGeneratingSelectedContent);
+    CATAN_API float MinimumTouchTargetHeight(bool bMobile);
+    CATAN_API float MinimumTouchTargetWidth(bool bMobile);
 }
