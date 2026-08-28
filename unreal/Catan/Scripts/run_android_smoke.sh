@@ -108,6 +108,8 @@ test_combo_preview() {
   if [[ "$mode" == "PlayerTrade" ]]; then
     rg -q 'CATAN_PLAYER_TRADE_LIMITS max=1,2,3,4,7 receive=5' "$log_file" \
       || fail "Other Player give limits do not match the local hand"
+    rg -q 'CATAN_RESOURCE_LABELS .*semanticLeak=0' "$log_file" \
+      || fail "an internal semantic resource key leaked into the visible UI"
   fi
   if [[ "$mode" == "Discard" ]]; then
     rg -q 'CATAN_DISCARD_LIMITS max=8,8,8,8,8 integerDropdowns=1' "$log_file" \
@@ -215,6 +217,101 @@ test_resource_bank_visual() {
   assert_running_without_fatal "resource-bank number outline failed"
   adb exec-out screencap -p >"$output"
   [[ -s "$output" ]] || fail "resource-bank outline screenshot is empty"
+}
+
+test_onboarding_preview() {
+  local language="$1"
+  local page="$2"
+  local output="$log_dir/onboarding-$language-$page.png"
+  print "Testing $language onboarding page $page and localization..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline \
+    "'-CatanUIPreview=Onboarding -CatanLanguage=$language -CatanOnboardingPage=$page'" >/dev/null \
+    || fail "$language onboarding preview launch failed"
+  local preview_ready=0
+  local onboarding_ready=0
+  local localization_ready=0
+  for attempt in {1..60}; do
+    capture_app_log
+    if rg -q "$fatal_pattern" "$log_file"; then
+      fail "$language onboarding preview crashed"
+    fi
+    rg -q 'CATAN_UI_PREVIEW ready mode=Onboarding' "$log_file" && preview_ready=1
+    if [[ "$page" == "welcome" ]]; then
+      rg -q "CATAN_ONBOARDING page=welcome step=1/3 language=$language touchTargets=56" \
+        "$log_file" && onboarding_ready=1
+    elif [[ "$page" == "controls" ]]; then
+      rg -q 'CATAN_ONBOARDING page=controls step=2/3' "$log_file" && onboarding_ready=1
+    else
+      rg -q 'CATAN_ONBOARDING page=turn step=3/3' "$log_file" && onboarding_ready=1
+    fi
+    rg -q "CATAN_LOCALIZATION_AUDIT language=$language keys=17 missing=0" \
+      "$log_file" && localization_ready=1
+    (( preview_ready && onboarding_ready && localization_ready )) && break
+    sleep 1
+  done
+  (( preview_ready )) || fail "$language onboarding preview marker was not observed"
+  (( onboarding_ready )) || fail "$language onboarding page was not mobile-ready"
+  (( localization_ready )) || fail "$language onboarding has missing translations"
+  assert_modal_hides_actions
+  # The preview markers are emitted on frame zero, before Android has necessarily
+  # presented the first Slate/RHI frame. Never accept a splash or magenta clear
+  # buffer as visual evidence.
+  sleep 3
+  assert_running_without_fatal "$language onboarding failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "$language onboarding screenshot is empty"
+}
+
+test_event_history_preview() {
+  local output="$log_dir/event-history-ru.png"
+  print "Testing localized Russian game history..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline \
+    "'-CatanUIPreview=History -CatanLanguage=ru'" >/dev/null \
+    || fail "Russian event-history preview launch failed"
+  local preview_ready=0
+  local history_ready=0
+  for attempt in {1..60}; do
+    capture_app_log
+    if rg -q "$fatal_pattern" "$log_file"; then
+      fail "Russian event-history preview crashed"
+    fi
+    rg -q 'CATAN_UI_PREVIEW ready mode=History' "$log_file" && preview_ready=1
+    rg -q 'CATAN_EVENT_HISTORY language=ru translated=4 fallback=0' "$log_file" \
+      && history_ready=1
+    (( preview_ready && history_ready )) && break
+    sleep 1
+  done
+  (( preview_ready )) || fail "Russian event-history preview marker was not observed"
+  (( history_ready )) || fail "Russian game history contains untranslated known events"
+  sleep 3
+  assert_running_without_fatal "Russian event-history preview failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "Russian event-history screenshot is empty"
+}
+
+test_russian_action_label_preview() {
+  local output="$log_dir/action-label-city-ru.png"
+  print "Testing collision-free Russian city action label..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline \
+    "'-CatanUIPreview=ActionLabels -CatanLanguage=ru'" >/dev/null \
+    || fail "Russian action-label preview launch failed"
+  for attempt in {1..60}; do
+    capture_app_log
+    rg -q 'CATAN_ACTION_LABEL city=ЗАМОК collisionFree=1' "$log_file" && break
+    sleep 1
+  done
+  rg -q 'CATAN_ACTION_LABEL city=ЗАМОК collisionFree=1' "$log_file" \
+    || fail "city action label is not the nominative Russian ЗАМОК"
+  sleep 3
+  assert_running_without_fatal "Russian action-label preview failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "Russian action-label screenshot is empty"
 }
 
 test_development_monopoly_preview() {
@@ -364,10 +461,10 @@ test_hud_graph() {
     if rg -q "$fatal_pattern" "$log_file"; then
       fail "HUD graph crashed"
     fi
-    rg -q 'CATAN_HUD_GRAPH PASS edges=38 failures=0' "$log_file" && break
+    rg -q 'CATAN_HUD_GRAPH PASS edges=43 failures=0' "$log_file" && break
     sleep 1
   done
-  rg -q 'CATAN_HUD_GRAPH PASS edges=38 failures=0' "$log_file" \
+  rg -q 'CATAN_HUD_GRAPH PASS edges=43 failures=0' "$log_file" \
     || fail "complete HUD graph did not pass"
   assert_running_without_fatal "HUD graph failed after traversal"
   adb exec-out screencap -p >"$output"
@@ -471,6 +568,12 @@ test_local_network_page
 test_combo_preview Bots 1200 390
 test_bank_preview
 test_resource_bank_visual
+test_event_history_preview
+test_russian_action_label_preview
+test_onboarding_preview en welcome
+test_onboarding_preview ru welcome
+test_onboarding_preview ru controls
+test_onboarding_preview ru turn
 test_settings_preview
 test_hud_graph
 test_four_player_status_panel

@@ -7,6 +7,7 @@ struct FCatanUserPreferences
 {
     FString PlayerName = TEXT("Player");
     ECatanLanguage Language = ECatanLanguage::English;
+    bool bOnboardingCompleted = false;
 };
 
 struct FCatanDedicatedSession
