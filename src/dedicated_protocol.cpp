@@ -244,11 +244,54 @@ std::string HandleRequest(Service& service, std::string_view request)
         if (!result.ok) return Error(result.message);
         return "OK\tCREATED\t" + result.lobby_token + '\t' + result.player_token + '\t' + HexEncode(result.player_name);
     }
+    if (fields[0] == "CREATE2" && fields.size() == 4) {
+        auto player = HexDecode(fields[2]); auto lobby = HexDecode(fields[3]);
+        if (!player || !lobby) return Error("Invalid text encoding");
+        const auto result = service.CreateLobby(*player, *lobby, fields[1]);
+        if (!result.ok) return Error(result.message);
+        return "OK\tCREATED\t" + result.lobby_token + '\t' + result.player_token + '\t' + HexEncode(result.player_name);
+    }
     if (fields[0] == "JOIN" && fields.size() == 3) {
         auto player = HexDecode(fields[2]); if (!player) return Error("Invalid text encoding");
         const auto result = service.JoinLobby(fields[1], *player);
         if (!result.ok) return Error(result.message);
         return "OK\tJOINED\t" + result.lobby_token + '\t' + result.player_token + '\t' + HexEncode(result.player_name);
+    }
+    if (fields[0] == "JOIN2" && fields.size() == 4) {
+        auto player = HexDecode(fields[3]); if (!player) return Error("Invalid text encoding");
+        const auto result = service.JoinLobby(fields[2], *player, fields[1]);
+        if (!result.ok) return Error(result.message);
+        return "OK\tJOINED\t" + result.lobby_token + '\t' + result.player_token + '\t' + HexEncode(result.player_name);
+    }
+    if (fields[0] == "RESUME" && fields.size() == 3) {
+        const auto result = service.ResumeLobby(fields[1], fields[2]);
+        if (!result.ok) return Error(result.message);
+        return "OK\tRESUMED\t" + result.lobby_token + '\t' + HexEncode(result.player_name);
+    }
+    if (fields[0] == "LEAVE2" && fields.size() == 4) {
+        const auto result = service.LeaveLobby(fields[1], fields[2], fields[3]);
+        return result.ok ? "OK\tLEFT\t" + HexEncode(result.message) : Error(result.message);
+    }
+    if (fields[0] == "READY2" && fields.size() == 5) {
+        int ready = 0;
+        if (!ParseInt(fields[4], ready) || (ready != 0 && ready != 1)) return Error("Invalid ready value");
+        const auto result = service.SetReady(fields[1], fields[2], ready != 0, fields[3]);
+        return result.ok ? "OK\tRESULT\t" + HexEncode(result.message) : Error(result.message);
+    }
+    if (fields[0] == "START2" && fields.size() == 4) {
+        const auto result = service.StartGame(fields[1], fields[2], fields[3]);
+        return result.ok ? "OK\tRESULT\t" + HexEncode(result.message) : Error(result.message);
+    }
+    if (fields[0] == "COMMAND2" && fields.size() == 10) {
+        int command = 0; CommandArgs args;
+        if (!ParseInt(fields[4], command) || command < 0 || command > static_cast<int>(Command::SelectBoardAction)
+            || !ParseInt(fields[5], args.first) || !ParseInt(fields[6], args.second)) return Error("Invalid command arguments");
+        auto text = HexDecode(fields[7]);
+        if (!text || !ParseResources(fields[8], args.first_resources) || !ParseResources(fields[9], args.second_resources))
+            return Error("Invalid command arguments");
+        args.text = *text;
+        const auto result = service.Execute(fields[1], fields[2], static_cast<Command>(command), args, fields[3]);
+        return result.ok ? "OK\tRESULT\t" + HexEncode(result.message) : Error(result.message);
     }
     if (fields.size() >= 3 && (fields[0] == "LEAVE" || fields[0] == "READY"
         || fields[0] == "START" || fields[0] == "SNAPSHOT" || fields[0] == "COMMAND")) {

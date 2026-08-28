@@ -96,6 +96,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> ManualAddressInput;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> DedicatedAddressInput;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> DedicatedLobbyTokenInput;
+    UPROPERTY(Transient) TObjectPtr<UButton> ResumeDedicatedButton;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> LobbyResults;
     UPROPERTY(Transient) TArray<TObjectPtr<UCommonTextBlock>> NetworkStatusTexts;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> LobbyPlayersText;
@@ -226,6 +227,7 @@ private:
     UFUNCTION() void JoinManualLobby();
     UFUNCTION() void CreateDedicatedLobby();
     UFUNCTION() void JoinDedicatedLobby();
+    UFUNCTION() void ResumeDedicatedLobby();
     UFUNCTION() void CopyDedicatedLobbyToken();
     UFUNCTION() void ToggleLobbyReady();
     UFUNCTION() void StartLobbyMatch();

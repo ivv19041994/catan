@@ -7,8 +7,10 @@
 #include "IPAddress.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "HAL/PlatformProcess.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/CommandLine.h"
+#include "Misc/Guid.h"
 #include "Misc/Parse.h"
 #include "Containers/Ticker.h"
 #include "Sockets.h"
@@ -47,12 +49,97 @@ FString ResourceField(const FCatanResourceView& Value)
     return FString::Printf(TEXT("%d,%d,%d,%d,%d"), Value.Wood, Value.Clay,
         Value.Hay, Value.Sheep, Value.Stone);
 }
+
+FString NewDedicatedRequestId()
+{
+    return FGuid::NewGuid().ToString(EGuidFormats::Digits);
+}
+
+bool ExchangeDedicatedRequest(const FString& Host, int32 Port, const FString& Request,
+    FString& Response, FString& Failure)
+{
+    ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+    bool bValidAddress = false;
+    TSharedRef<FInternetAddr> Address = Sockets->CreateInternetAddr(FNetworkProtocolTypes::IPv4);
+    Address->SetIp(*Host, bValidAddress);
+    Address->SetPort(Port);
+    FSocket* Socket = bValidAddress
+        ? Sockets->CreateSocket(NAME_Stream, TEXT("Catan dedicated client"), FNetworkProtocolTypes::IPv4)
+        : nullptr;
+    if (!Socket)
+    {
+        Failure = FString::Printf(TEXT("Could not create connection to %s:%d"), *Host, Port);
+        return false;
+    }
+    Socket->SetNonBlocking(true);
+    bool bConnected = Socket->Connect(*Address);
+    if (!bConnected)
+    {
+        const ESocketErrors Error = Sockets->GetLastErrorCode();
+        if ((Error == SE_EWOULDBLOCK || Error == SE_EINPROGRESS)
+            && Socket->Wait(ESocketWaitConditions::WaitForWrite, FTimespan::FromSeconds(3.0)))
+            bConnected = Socket->GetConnectionState() == SCS_Connected;
+    }
+    if (!bConnected) Failure = FString::Printf(TEXT("Could not connect to %s:%d"), *Host, Port);
+    if (Failure.IsEmpty())
+    {
+        const FString Line = Request + TEXT("\n");
+        FTCHARToUTF8 Utf8(*Line);
+        int32 TotalSent = 0;
+        while (TotalSent < Utf8.Length())
+        {
+            if (!Socket->Wait(ESocketWaitConditions::WaitForWrite, FTimespan::FromSeconds(3.0)))
+            {
+                Failure = TEXT("Dedicated server send timed out");
+                break;
+            }
+            int32 Sent = 0;
+            if (!Socket->Send(reinterpret_cast<const uint8*>(Utf8.Get()) + TotalSent,
+                Utf8.Length() - TotalSent, Sent) || Sent <= 0)
+            {
+                Failure = TEXT("Dedicated server send failed");
+                break;
+            }
+            TotalSent += Sent;
+        }
+        TArray<uint8> Bytes;
+        bool bCompleteLine = false;
+        while (Failure.IsEmpty() && Bytes.Num() <= 1024 * 1024)
+        {
+            if (!Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromSeconds(3.0)))
+            {
+                Failure = TEXT("Dedicated server response timed out");
+                break;
+            }
+            uint8 Buffer[4096];
+            int32 Read = 0;
+            if (!Socket->Recv(Buffer, sizeof(Buffer), Read) || Read <= 0) break;
+            Bytes.Append(Buffer, Read);
+            if (Bytes.Contains(static_cast<uint8>('\n'))) { bCompleteLine = true; break; }
+        }
+        if (Bytes.Num() > 1024 * 1024) Failure = TEXT("Dedicated server response is too large");
+        if (Failure.IsEmpty() && !bCompleteLine) Failure = TEXT("Dedicated server returned a truncated response");
+        if (Failure.IsEmpty())
+        {
+            const int32 Newline = Bytes.Find(static_cast<uint8>('\n'));
+            Bytes.SetNum(Newline);
+            Bytes.Add(0);
+            Response = UTF8_TO_TCHAR(reinterpret_cast<const ANSICHAR*>(Bytes.GetData()));
+            Response.TrimEndInline();
+            if (Response.IsEmpty()) Failure = TEXT("Dedicated server returned no response");
+        }
+    }
+    Socket->Close();
+    Sockets->DestroySocket(Socket);
+    return Failure.IsEmpty();
+}
 }
 
 void UCatanNetworkSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
     ConfigureLanAdapter();
+    SavedDedicatedSession = FCatanUserSettings::LoadDedicatedSession();
     Status = TEXT("Ready to host or join a game");
     if (GEngine)
     {
@@ -118,15 +205,23 @@ void UCatanNetworkSubsystem::Initialize(FSubsystemCollectionBase& Collection)
         FParse::Value(FCommandLine::Get(), TEXT("CatanDedicatedLobbyName="), DedicatedLobbyName);
         FString JoinToken;
         FParse::Value(FCommandLine::Get(), TEXT("CatanDedicatedJoin="), JoinToken);
+        FString ResumeLobbyToken;
+        FString ResumePlayerToken;
+        FParse::Value(FCommandLine::Get(), TEXT("CatanDedicatedResumeLobby="), ResumeLobbyToken);
+        FParse::Value(FCommandLine::Get(), TEXT("CatanDedicatedPlayerToken="), ResumePlayerToken);
         bDedicatedAutoReady = FParse::Param(FCommandLine::Get(), TEXT("CatanDedicatedAutoReady"));
         bDedicatedE2E = FParse::Param(FCommandLine::Get(), TEXT("CatanDedicatedE2E"));
         FParse::Value(FCommandLine::Get(), TEXT("CatanDedicatedAutoStart="), DedicatedAutoStartPlayers);
         TWeakObjectPtr<UCatanNetworkSubsystem> WeakThis(this);
         FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
-            [WeakThis, DedicatedServerAddress, DedicatedLobbyName, JoinToken, AutoName](float)
+            [WeakThis, DedicatedServerAddress, DedicatedLobbyName, JoinToken,
+                ResumeLobbyToken, ResumePlayerToken, AutoName](float)
             {
                 if (!WeakThis.IsValid()) return false;
-                if (JoinToken.IsEmpty())
+                if (!ResumeLobbyToken.IsEmpty() && !ResumePlayerToken.IsEmpty())
+                    WeakThis->ResumeDedicatedLobby(DedicatedServerAddress,
+                        ResumeLobbyToken, ResumePlayerToken);
+                else if (JoinToken.IsEmpty())
                     WeakThis->CreateDedicatedLobby(DedicatedServerAddress, AutoName, DedicatedLobbyName);
                 else
                     WeakThis->JoinDedicatedLobby(DedicatedServerAddress, JoinToken, AutoName);
@@ -193,41 +288,13 @@ void UCatanNetworkSubsystem::SendDedicatedRequest(const FString& Request,
     {
         FString Response;
         FString Failure;
-        ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
-        bool bValidAddress = false;
-        TSharedRef<FInternetAddr> Address = Sockets->CreateInternetAddr(FNetworkProtocolTypes::IPv4);
-        Address->SetIp(*Host, bValidAddress);
-        Address->SetPort(Port);
-        FSocket* Socket = bValidAddress
-            ? Sockets->CreateSocket(NAME_Stream, TEXT("Catan dedicated client"), FNetworkProtocolTypes::IPv4)
-            : nullptr;
-        if (!Socket || !Socket->Connect(*Address)) Failure = FString::Printf(TEXT("Could not connect to %s:%d"), *Host, Port);
-        if (Socket && Failure.IsEmpty())
+        for (int32 Attempt = 0; Attempt < 3; ++Attempt)
         {
-            const FString Line = Request + TEXT("\n");
-            FTCHARToUTF8 Utf8(*Line);
-            int32 TotalSent = 0;
-            while (TotalSent < Utf8.Length())
-            {
-                int32 Sent = 0;
-                if (!Socket->Send(reinterpret_cast<const uint8*>(Utf8.Get()) + TotalSent,
-                    Utf8.Length() - TotalSent, Sent) || Sent <= 0) { Failure = TEXT("Dedicated server send failed"); break; }
-                TotalSent += Sent;
-            }
-            TArray<uint8> Bytes;
-            while (Failure.IsEmpty() && Bytes.Num() <= 1024 * 1024)
-            {
-                uint8 Buffer[4096]; int32 Read = 0;
-                if (!Socket->Recv(Buffer, sizeof(Buffer), Read) || Read <= 0) break;
-                Bytes.Append(Buffer, Read);
-                if (Bytes.Contains(static_cast<uint8>('\n'))) break;
-            }
-            Bytes.Add(0);
-            Response = UTF8_TO_TCHAR(reinterpret_cast<const ANSICHAR*>(Bytes.GetData()));
-            Response.TrimEndInline();
-            if (Response.IsEmpty() && Failure.IsEmpty()) Failure = TEXT("Dedicated server returned no response");
+            Response.Reset();
+            Failure.Reset();
+            if (ExchangeDedicatedRequest(Host, Port, Request, Response, Failure)) break;
+            if (Attempt < 2) FPlatformProcess::Sleep(0.2f * static_cast<float>(Attempt + 1));
         }
-        if (Socket) { Socket->Close(); Sockets->DestroySocket(Socket); }
         AsyncTask(ENamedThreads::GameThread, [WeakThis, Generation, Response, Failure, OnSuccess = MoveTemp(OnSuccess)]() mutable
         {
             if (!WeakThis.IsValid() || WeakThis->DedicatedGeneration != Generation) return;
@@ -244,17 +311,31 @@ void UCatanNetworkSubsystem::SendDedicatedRequest(const FString& Request,
                     WeakThis->CompleteReturnToMenu();
                     return;
                 }
+                if (WeakThis->bDedicatedResumeInProgress)
+                {
+                    WeakThis->bDedicatedResumeInProgress = false;
+                    if (Message.Contains(TEXT("Lobby token is invalid"))
+                        || Message.Contains(TEXT("Player token is invalid")))
+                        WeakThis->ClearDedicatedSession();
+                }
                 if (WeakThis->bDedicatedActive
                     && (Message.Contains(TEXT("Lobby token is invalid"))
                         || Message.Contains(TEXT("Player token is invalid"))))
                 {
                     WeakThis->bLeaveInProgress = true;
+                    WeakThis->bClearDedicatedSessionOnReturn = true;
                     WeakThis->ReturnToMenuStatus = FString::Printf(
                         TEXT("Dedicated lobby closed: %s"), *Message);
                     WeakThis->CompleteReturnToMenu();
                     return;
                 }
                 WeakThis->Status = Message;
+                if (WeakThis->bDedicatedActive)
+                {
+                    WeakThis->bDedicatedRecovering = true;
+                    UE_LOG(LogCatanLan, Warning,
+                        TEXT("CATAN_DEDICATED_RECONNECT waiting error=%s"), *Message);
+                }
                 if (WeakThis->bDedicatedPlaying) WeakThis->DedicatedView.StatusMessage = Message;
                 WeakThis->OnNetworkChanged.Broadcast();
                 if (UCatanGameSubsystem* GameSubsystem = WeakThis->GetGameInstance()
@@ -291,20 +372,17 @@ void UCatanNetworkSubsystem::CreateDedicatedLobby(const FString& Address,
     if (!ParseDedicatedAddress(Address)) { Status = TEXT("Enter server IP and optional port"); OnNetworkChanged.Broadcast(); return; }
     Status = FString::Printf(TEXT("Connecting to dedicated server %s..."), *DedicatedAddress);
     OnNetworkChanged.Broadcast();
-    SendDedicatedRequest(FString::Printf(TEXT("CREATE\t%s\t%s"), *EncodeField(PlayerName), *EncodeField(LobbyName)),
+    SendDedicatedRequest(FString::Printf(TEXT("CREATE2\t%s\t%s\t%s"),
+        *NewDedicatedRequestId(), *EncodeField(PlayerName), *EncodeField(LobbyName)),
         [this](const TArray<FString>& Fields)
         {
             if (Fields.Num() != 5 || Fields[1] != TEXT("CREATED")) { Status = TEXT("Malformed create response"); OnNetworkChanged.Broadcast(); return; }
-            DedicatedLobbyToken = Fields[2]; DedicatedPlayerToken = Fields[3];
             const auto Name = ivv::catan::dedicated::protocol::HexDecode(ToUtf8(Fields[4]));
-            DedicatedPlayerName = Name ? ToFString(*Name) : TEXT("Player");
-            bDedicatedActive = true;
+            const FString PlayerName = Name ? ToFString(*Name) : TEXT("Player");
             UE_LOG(LogCatanLan, Display, TEXT("CATAN_DEDICATED_CREATED lobby=%s name=%s"),
-                *DedicatedLobbyToken, *DedicatedPlayerName);
-            Status = TEXT("Dedicated lobby created. Share the lobby token.");
-            DedicatedPollTicker = FTSTicker::GetCoreTicker().AddTicker(
-                FTickerDelegate::CreateUObject(this, &UCatanNetworkSubsystem::TickDedicatedPoll), 0.25f);
-            PollDedicatedSnapshot(); OnNetworkChanged.Broadcast();
+                *Fields[2], *PlayerName);
+            ActivateDedicatedSession(Fields[2], Fields[3], PlayerName,
+                TEXT("Dedicated lobby created. Share the lobby token."));
         });
 }
 
@@ -316,35 +394,115 @@ void UCatanNetworkSubsystem::JoinDedicatedLobby(const FString& Address,
     const FString CleanToken = LobbyToken.TrimStartAndEnd().ToUpper();
     Status = FString::Printf(TEXT("Joining dedicated lobby on %s..."), *DedicatedAddress);
     OnNetworkChanged.Broadcast();
-    SendDedicatedRequest(FString::Printf(TEXT("JOIN\t%s\t%s"), *CleanToken, *EncodeField(PlayerName)),
+    SendDedicatedRequest(FString::Printf(TEXT("JOIN2\t%s\t%s\t%s"),
+        *NewDedicatedRequestId(), *CleanToken, *EncodeField(PlayerName)),
         [this](const TArray<FString>& Fields)
         {
             if (Fields.Num() != 5 || Fields[1] != TEXT("JOINED")) { Status = TEXT("Malformed join response"); OnNetworkChanged.Broadcast(); return; }
-            DedicatedLobbyToken = Fields[2]; DedicatedPlayerToken = Fields[3];
             const auto Name = ivv::catan::dedicated::protocol::HexDecode(ToUtf8(Fields[4]));
-            DedicatedPlayerName = Name ? ToFString(*Name) : TEXT("Player");
-            bDedicatedActive = true;
+            const FString PlayerName = Name ? ToFString(*Name) : TEXT("Player");
             UE_LOG(LogCatanLan, Display, TEXT("CATAN_DEDICATED_JOINED lobby=%s name=%s"),
-                *DedicatedLobbyToken, *DedicatedPlayerName);
-            Status = TEXT("Joined dedicated lobby");
-            DedicatedPollTicker = FTSTicker::GetCoreTicker().AddTicker(
-                FTickerDelegate::CreateUObject(this, &UCatanNetworkSubsystem::TickDedicatedPoll), 0.25f);
-            PollDedicatedSnapshot(); OnNetworkChanged.Broadcast();
+                *Fields[2], *PlayerName);
+            ActivateDedicatedSession(Fields[2], Fields[3], PlayerName,
+                TEXT("Joined dedicated lobby"));
         });
+}
+
+void UCatanNetworkSubsystem::ResumeDedicatedLobby(const FString& Address,
+    const FString& LobbyToken, const FString& PlayerToken)
+{
+    ResetDedicatedConnection();
+    if (!ParseDedicatedAddress(Address))
+    {
+        Status = TEXT("Saved dedicated server address is invalid");
+        OnNetworkChanged.Broadcast();
+        return;
+    }
+    const FString CleanLobbyToken = LobbyToken.TrimStartAndEnd().ToUpper();
+    const FString CleanPlayerToken = PlayerToken.TrimStartAndEnd();
+    if (CleanLobbyToken.IsEmpty() || CleanPlayerToken.IsEmpty())
+    {
+        Status = TEXT("Saved dedicated credentials are incomplete");
+        OnNetworkChanged.Broadcast();
+        return;
+    }
+    Status = FString::Printf(TEXT("Reconnecting to dedicated server %s..."), *DedicatedAddress);
+    bDedicatedResumeInProgress = true;
+    OnNetworkChanged.Broadcast();
+    SendDedicatedRequest(FString::Printf(TEXT("RESUME\t%s\t%s"),
+        *CleanLobbyToken, *CleanPlayerToken),
+        [this, CleanPlayerToken](const TArray<FString>& Fields)
+        {
+            if (Fields.Num() != 4 || Fields[1] != TEXT("RESUMED"))
+            {
+                Status = TEXT("Malformed resume response");
+                OnNetworkChanged.Broadcast();
+                return;
+            }
+            const auto Name = ivv::catan::dedicated::protocol::HexDecode(ToUtf8(Fields[3]));
+            const FString PlayerName = Name ? ToFString(*Name) : TEXT("Player");
+            UE_LOG(LogCatanLan, Display, TEXT("CATAN_DEDICATED_RESUMED lobby=%s name=%s"),
+                *Fields[2], *PlayerName);
+            ActivateDedicatedSession(Fields[2], CleanPlayerToken, PlayerName,
+                TEXT("Dedicated session restored"));
+        });
+}
+
+void UCatanNetworkSubsystem::ResumeSavedDedicatedLobby()
+{
+    if (!SavedDedicatedSession.IsValid())
+    {
+        Status = TEXT("No saved dedicated session");
+        OnNetworkChanged.Broadcast();
+        return;
+    }
+    ResumeDedicatedLobby(SavedDedicatedSession.Address, SavedDedicatedSession.LobbyToken,
+        SavedDedicatedSession.PlayerToken);
+}
+
+void UCatanNetworkSubsystem::ActivateDedicatedSession(const FString& LobbyToken,
+    const FString& PlayerToken, const FString& PlayerName, const FString& StatusMessage)
+{
+    DedicatedLobbyToken = LobbyToken;
+    DedicatedPlayerToken = PlayerToken;
+    DedicatedPlayerName = PlayerName;
+    bDedicatedActive = true;
+    bDedicatedResumeInProgress = false;
+    bClearDedicatedSessionOnReturn = false;
+    Status = StatusMessage;
+    RememberDedicatedSession();
+    DedicatedPollTicker = FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateUObject(this, &UCatanNetworkSubsystem::TickDedicatedPoll), 0.25f);
+    PollDedicatedSnapshot();
+    OnNetworkChanged.Broadcast();
+}
+
+void UCatanNetworkSubsystem::RememberDedicatedSession()
+{
+    SavedDedicatedSession = {DedicatedAddress, DedicatedLobbyToken,
+        DedicatedPlayerToken, DedicatedPlayerName};
+    if (!bDedicatedE2E) FCatanUserSettings::SaveDedicatedSession(SavedDedicatedSession);
+}
+
+void UCatanNetworkSubsystem::ClearDedicatedSession()
+{
+    SavedDedicatedSession = {};
+    if (!bDedicatedE2E) FCatanUserSettings::ClearDedicatedSession();
 }
 
 void UCatanNetworkSubsystem::SetDedicatedReady(bool bReady)
 {
     if (!bDedicatedActive) return;
-    SendDedicatedRequest(FString::Printf(TEXT("READY\t%s\t%s\t%d"),
-        *DedicatedLobbyToken, *DedicatedPlayerToken, bReady ? 1 : 0),
+    SendDedicatedRequest(FString::Printf(TEXT("READY2\t%s\t%s\t%s\t%d"),
+        *DedicatedLobbyToken, *DedicatedPlayerToken, *NewDedicatedRequestId(), bReady ? 1 : 0),
         [this](const TArray<FString>&) { PollDedicatedSnapshot(); });
 }
 
 void UCatanNetworkSubsystem::StartDedicatedGame()
 {
     if (!bDedicatedActive) return;
-    SendDedicatedRequest(FString::Printf(TEXT("START\t%s\t%s"), *DedicatedLobbyToken, *DedicatedPlayerToken),
+    SendDedicatedRequest(FString::Printf(TEXT("START2\t%s\t%s\t%s"),
+        *DedicatedLobbyToken, *DedicatedPlayerToken, *NewDedicatedRequestId()),
         [this](const TArray<FString>&) { PollDedicatedSnapshot(); });
 }
 
@@ -372,6 +530,12 @@ void UCatanNetworkSubsystem::ApplyDedicatedSnapshot(const FString& EncodedPayloa
     const auto Snapshot = Payload
         ? ivv::catan::dedicated::protocol::DeserializeSnapshot(*Payload, ParseError) : std::nullopt;
     if (!Snapshot) { Status = ParseError.empty() ? TEXT("Invalid dedicated snapshot") : ToFString(ParseError); OnNetworkChanged.Broadcast(); return; }
+    if (bDedicatedRecovering)
+    {
+        bDedicatedRecovering = false;
+        UE_LOG(LogCatanLan, Display, TEXT("CATAN_DEDICATED_RECONNECTED revision=%llu player=%s"),
+            static_cast<unsigned long long>(Snapshot->revision), *DedicatedPlayerName);
+    }
     DedicatedLobbyPlayers.Reset();
     for (const auto& Source : Snapshot->lobby_players)
     {
@@ -475,8 +639,9 @@ bool UCatanNetworkSubsystem::SendDedicatedCommand(ECatanServerCommand Command, i
 {
     if (!bDedicatedActive || !bDedicatedPlaying) { Error = TEXT("Not connected to a dedicated game"); return false; }
     if (bDedicatedRequestInFlight) { Error = TEXT("Synchronizing with dedicated server"); return false; }
-    const FString Request = FString::Printf(TEXT("COMMAND\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s"),
-        *DedicatedLobbyToken, *DedicatedPlayerToken, static_cast<int32>(Command), First, Second,
+    const FString Request = FString::Printf(TEXT("COMMAND2\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s"),
+        *DedicatedLobbyToken, *DedicatedPlayerToken, *NewDedicatedRequestId(),
+        static_cast<int32>(Command), First, Second,
         *EncodeField(Text), *ResourceField(FirstResources), *ResourceField(SecondResources));
     SendDedicatedRequest(Request, [this](const TArray<FString>& Fields)
     {
@@ -499,6 +664,8 @@ void UCatanNetworkSubsystem::ResetDedicatedConnection()
     bDedicatedActive = bDedicatedPlaying = bDedicatedBoardShown = false;
     bDedicatedRequestInFlight = false;
     bDedicatedReadyRequested = bDedicatedE2EFinished = false;
+    bDedicatedResumeInProgress = false;
+    bDedicatedRecovering = false;
     DedicatedLobbyToken.Reset(); DedicatedPlayerToken.Reset(); DedicatedPlayerName.Reset();
     DedicatedLobbyPlayers.Reset(); DedicatedView = {};
 }
@@ -907,9 +1074,13 @@ void UCatanNetworkSubsystem::LeaveToMenu()
         FTSTicker::GetCoreTicker().RemoveTicker(DedicatedPollTicker);
         DedicatedPollTicker.Reset();
         bDedicatedRequestInFlight = false;
-        SendDedicatedRequest(FString::Printf(TEXT("LEAVE\t%s\t%s"),
-            *DedicatedLobbyToken, *DedicatedPlayerToken),
-            [this](const TArray<FString>&) { CompleteReturnToMenu(); });
+        SendDedicatedRequest(FString::Printf(TEXT("LEAVE2\t%s\t%s\t%s"),
+            *DedicatedLobbyToken, *DedicatedPlayerToken, *NewDedicatedRequestId()),
+            [this](const TArray<FString>&)
+            {
+                bClearDedicatedSessionOnReturn = true;
+                CompleteReturnToMenu();
+            });
         return;
     }
     IOnlineSubsystem* Online = IOnlineSubsystem::Get();
@@ -962,6 +1133,8 @@ void UCatanNetworkSubsystem::CompleteReturnToMenu()
 {
     const FString CompletionStatus = ReturnToMenuStatus.IsEmpty()
         ? TEXT("Returned to main menu") : ReturnToMenuStatus;
+    if (bClearDedicatedSessionOnReturn) ClearDedicatedSession();
+    bClearDedicatedSessionOnReturn = false;
     ResetDedicatedConnection();
     StopDiscoverySockets();
     DiscoveredLobbies.Reset();

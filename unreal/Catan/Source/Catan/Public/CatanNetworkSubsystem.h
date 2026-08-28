@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "CatanNetworkTypes.h"
+#include "CatanUserSettings.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "Containers/Ticker.h"
@@ -37,6 +38,9 @@ public:
         const FString& PlayerName, const FString& LobbyName);
     UFUNCTION(BlueprintCallable) void JoinDedicatedLobby(const FString& Address,
         const FString& LobbyToken, const FString& PlayerName);
+    UFUNCTION(BlueprintCallable) void ResumeDedicatedLobby(const FString& Address,
+        const FString& LobbyToken, const FString& PlayerToken);
+    UFUNCTION(BlueprintCallable) void ResumeSavedDedicatedLobby();
     UFUNCTION(BlueprintCallable) void SetDedicatedReady(bool bReady);
     UFUNCTION(BlueprintCallable) void StartDedicatedGame();
     UFUNCTION(BlueprintCallable) void LeaveToMenu();
@@ -54,6 +58,8 @@ public:
     const FString& GetDedicatedPlayerToken() const { return DedicatedPlayerToken; }
     const FString& GetDedicatedAddress() const { return DedicatedAddress; }
     const FString& GetDedicatedPlayerName() const { return DedicatedPlayerName; }
+    bool HasSavedDedicatedSession() const { return SavedDedicatedSession.IsValid(); }
+    const FCatanDedicatedSession& GetSavedDedicatedSession() const { return SavedDedicatedSession; }
     bool SendDedicatedCommand(ECatanServerCommand Command, int32 First, int32 Second,
         const FString& Text, const FCatanResourceView& FirstResources,
         const FCatanResourceView& SecondResources, FString& Error);
@@ -96,12 +102,16 @@ private:
     bool bDedicatedReadyRequested = false;
     bool bDedicatedE2E = false;
     bool bDedicatedE2EFinished = false;
+    bool bDedicatedResumeInProgress = false;
+    bool bDedicatedRecovering = false;
     int32 DedicatedAutoStartPlayers = 0;
     uint64 DedicatedGeneration = 0;
     bool bLeaveInProgress = false;
     bool bHostingSavedLobby = false;
     TArray<FString> SavedExpectedPlayerNames;
     FString ReturnToMenuStatus;
+    FCatanDedicatedSession SavedDedicatedSession;
+    bool bClearDedicatedSessionOnReturn = false;
 
     void ConfigureLanAdapter();
     void BeginHostLobby(const FString& PlayerName, const FString& LobbyName);
@@ -125,4 +135,8 @@ private:
     void PollDedicatedSnapshot();
     void ApplyDedicatedSnapshot(const FString& EncodedPayload);
     void ResetDedicatedConnection();
+    void ActivateDedicatedSession(const FString& LobbyToken, const FString& PlayerToken,
+        const FString& PlayerName, const FString& StatusMessage);
+    void RememberDedicatedSession();
+    void ClearDedicatedSession();
 };

@@ -44,6 +44,26 @@ bool FCatanUserSettingsPersistenceTest::RunTest(const FString&)
     TestEqual(TEXT("names are capped at 24 characters"),
         FCatanUserSettings::NormalizePlayerName(TEXT("123456789012345678901234567890")).Len(), 24);
 
+    FCatanDedicatedSession Session;
+    Session.Address = TEXT(" 192.168.1.20:17777\n");
+    Session.LobbyToken = TEXT("ABCD-EFGH");
+    Session.PlayerToken = TEXT("private-player-token-123456");
+    Session.PlayerName = TEXT(" Test Player ");
+    FCatanUserSettings::SaveDedicatedSession(Session, Filename);
+    const FCatanDedicatedSession LoadedSession = FCatanUserSettings::LoadDedicatedSession(Filename);
+    TestTrue(TEXT("dedicated reconnect credentials are persisted"), LoadedSession.IsValid());
+    TestEqual(TEXT("dedicated address is normalized"), LoadedSession.Address,
+        FString(TEXT("192.168.1.20:17777")));
+    TestEqual(TEXT("private player token round-trips"), LoadedSession.PlayerToken,
+        FString(TEXT("private-player-token-123456")));
+    TestEqual(TEXT("saving dedicated credentials preserves user settings"),
+        FCatanUserSettings::Load(Filename).Language, ECatanLanguage::Russian);
+    FCatanUserSettings::ClearDedicatedSession(Filename);
+    TestFalse(TEXT("cleared dedicated session cannot reconnect"),
+        FCatanUserSettings::LoadDedicatedSession(Filename).IsValid());
+    TestEqual(TEXT("clearing dedicated session preserves the player name"),
+        FCatanUserSettings::Load(Filename).PlayerName, FString(TEXT("Test Player")));
+
     IFileManager::Get().Delete(*Filename, false, true);
     return true;
 }

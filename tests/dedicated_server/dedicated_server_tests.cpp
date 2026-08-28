@@ -138,6 +138,138 @@ int main() { return test::Run({
         test::Check(!service.GetSnapshot(first.host.lobby_token, second.host.player_token, error),
             "credentials cannot cross lobby boundary");
     }},
+    {"v2 identity requests are idempotent and reject request-id reuse", [] {
+        auto service = DeterministicService();
+        const std::string create_request = "CREATE2\tcreate-request-0001\t416c696365\t526f6f6d";
+        const std::string created = protocol::HandleRequest(service, create_request);
+        test::Equal(protocol::HandleRequest(service, create_request), created,
+            "lost create response can be replayed exactly");
+        test::Equal(service.LobbyCount(), std::size_t{1}, "create replay owns one lobby");
+        const auto create_fields = protocol::Split(created, '\t');
+        const std::string conflict = protocol::HandleRequest(service,
+            "CREATE2\tcreate-request-0001\t4d616c6c6f7279\t4f74686572");
+        test::Check(conflict.starts_with("ERR\t"), "same id with different create payload is denied");
+
+        const std::string join_request = "JOIN2\tjoin-request-000001\t" + create_fields[2] + "\t426f62";
+        const std::string joined = protocol::HandleRequest(service, join_request);
+        test::Equal(protocol::HandleRequest(service, join_request), joined,
+            "lost join response returns the original player token");
+        std::string error;
+        const auto join_fields = protocol::Split(joined, '\t');
+        const auto snapshot = service.GetSnapshot(create_fields[2], join_fields[3], error);
+        test::Check(snapshot && snapshot->lobby_players.size() == 2,
+            "join replay creates exactly one guest");
+
+        auto restored = DeterministicService();
+        test::Check(restored.RestoreState(service.SerializeState()).ok, "replay cache persists");
+        test::Equal(protocol::HandleRequest(restored, create_request), created,
+            "create response remains idempotent after server restart");
+        test::Equal(protocol::HandleRequest(restored, join_request), joined,
+            "join response remains idempotent after server restart");
+    }},
+    {"authenticated v2 mutations execute once even after state advances", [] {
+        auto service = DeterministicService();
+        const auto host = service.CreateLobby("Alice", "Room");
+        const auto guest = service.JoinLobby(host.lobby_token, "Bob");
+        const auto ready = service.SetReady(host.lobby_token, host.player_token, true,
+            "ready-request-0001");
+        std::string error;
+        const auto ready_view = service.GetSnapshot(host.lobby_token, host.player_token, error);
+        test::Check(ready.ok && ready_view, "first ready mutation succeeds");
+        test::Check(service.SetReady(host.lobby_token, host.player_token, true,
+            "ready-request-0001").ok, "ready replay succeeds");
+        const auto replay_view = service.GetSnapshot(host.lobby_token, host.player_token, error);
+        test::Equal(replay_view->revision, ready_view->revision, "ready replay does not increment revision");
+        test::Check(!service.SetReady(host.lobby_token, host.player_token, false,
+            "ready-request-0001").ok, "same id cannot change ready payload");
+
+        service.SetReady(host.lobby_token, guest.player_token, true, "ready-request-0002");
+        test::Check(service.StartGame(host.lobby_token, host.player_token,
+            "start-request-0001").ok, "first start succeeds");
+        test::Check(service.StartGame(host.lobby_token, host.player_token,
+            "start-request-0001").ok, "start replay succeeds after game exists");
+
+        const auto setup = service.GetSnapshot(host.lobby_token, host.player_token, error);
+        const IdentityResult& current = setup->current_player == host.player_name ? host : guest;
+        CommandArgs settlement; settlement.first = setup->valid_nodes.front();
+        const auto built = service.Execute(host.lobby_token, current.player_token,
+            Command::BuildSettlement, settlement, "command-request-01");
+        const auto built_view = service.GetSnapshot(host.lobby_token, current.player_token, error);
+        test::Check(built.ok && built_view, "first command succeeds");
+        test::Check(service.Execute(host.lobby_token, current.player_token,
+            Command::BuildSettlement, settlement, "command-request-01").ok,
+            "command replay returns original success");
+        const auto replayed = service.GetSnapshot(host.lobby_token, current.player_token, error);
+        test::Equal(replayed->revision, built_view->revision, "command replay does not mutate game twice");
+        auto restored = DeterministicService();
+        test::Check(restored.RestoreState(service.SerializeState()).ok,
+            "command replay cache survives server restart");
+        test::Check(restored.Execute(host.lobby_token, current.player_token,
+            Command::BuildSettlement, settlement, "command-request-01").ok,
+            "lost command response replays after restart");
+        const auto restored_view = restored.GetSnapshot(host.lobby_token, current.player_token, error);
+        test::Equal(restored_view->revision, built_view->revision,
+            "post-restart replay does not mutate game twice");
+        ++settlement.first;
+        test::Check(!service.Execute(host.lobby_token, current.player_token,
+            Command::BuildSettlement, settlement, "command-request-01").ok,
+            "same command id cannot target another node");
+    }},
+    {"idempotent leave can be retried after it removes its player or lobby", [] {
+        auto service = DeterministicService();
+        const auto host = service.CreateLobby("Alice", "Room");
+        const auto guest = service.JoinLobby(host.lobby_token, "Bob");
+        const auto guest_leave = service.LeaveLobby(host.lobby_token, guest.player_token,
+            "leave-guest-request-01");
+        test::Check(guest_leave.ok, "guest leaves once");
+        test::Equal(service.LeaveLobby(host.lobby_token, guest.player_token,
+            "leave-guest-request-01").message, guest_leave.message,
+            "guest retry succeeds after credential removal");
+        const auto host_leave = service.LeaveLobby(host.lobby_token, host.player_token,
+            "leave-host-request-001");
+        test::Check(host_leave.ok && service.LobbyCount() == 0, "host closes lobby once");
+        test::Equal(service.LeaveLobby(host.lobby_token, host.player_token,
+            "leave-host-request-001").message, host_leave.message,
+            "host retry succeeds after lobby removal");
+    }},
+    {"oversized v2 identity token and command fields are rejected before persistence", [] {
+        auto service = DeterministicService();
+        test::Check(!service.CreateLobby(std::string(257, 'A'), "Room",
+            "oversized-create-0001").ok, "oversized identity is rejected");
+        test::Equal(service.LobbyCount(), std::size_t{0}, "oversized create leaves no lobby");
+        const auto room = CreateStartedRoom(service);
+        test::Check(!service.ResumeLobby(std::string(129, 'A'), room.host.player_token).ok,
+            "oversized lobby token is rejected");
+        std::string error;
+        const auto view = service.GetSnapshot(room.host.lobby_token, room.host.player_token, error);
+        const IdentityResult& current = IdentityFor(room, view->current_player);
+        CommandArgs args;
+        args.text.assign(257, 'X');
+        test::Check(!service.Execute(room.host.lobby_token, current.player_token,
+            Command::Pass, args, "oversized-command-001").ok,
+            "ignored oversized command text cannot poison replay state");
+        auto restored = DeterministicService();
+        test::Check(restored.RestoreState(service.SerializeState()).ok,
+            "state remains self-consistent after rejected oversized requests");
+    }},
+    {"resume authenticates an existing waiting or active player without joining twice", [] {
+        auto service = DeterministicService();
+        const auto first = CreateStartedRoom(service, " Resume");
+        const auto second = service.CreateLobby("Other", "Other room");
+        const auto resumed = service.ResumeLobby(first.host.lobby_token, first.guest.player_token);
+        test::Check(resumed.ok && resumed.player_name == first.guest.player_name,
+            "active guest resumes with original identity");
+        test::Equal(service.LobbyCount(), std::size_t{2}, "resume creates no lobby");
+        test::Check(!service.ResumeLobby(first.host.lobby_token, second.player_token).ok,
+            "token from another lobby cannot resume");
+        const std::string wire = protocol::HandleRequest(service,
+            "RESUME\t" + first.host.lobby_token + "\t" + first.host.player_token);
+        const auto fields = protocol::Split(wire, '\t');
+        test::Check(fields.size() == 4 && fields[0] == "OK" && fields[1] == "RESUMED",
+            "resume is exposed by the dedicated protocol");
+        test::Check(wire.find(first.host.player_token) == std::string::npos,
+            "resume response does not echo private player token");
+    }},
     {"dedicated state restores multiple lobbies games and original credentials", [] {
         auto service = DeterministicService();
         const auto waiting_host = service.CreateLobby("Waiting host", "Waiting room");
@@ -221,6 +353,23 @@ int main() { return test::Run({
         const auto result = limited.RestoreState(source.SerializeState());
         test::Check(!result.ok, "oversized persisted service is rejected");
         test::Equal(limited.LobbyCount(), std::size_t{0}, "limit failure imports no partial lobby");
+    }},
+    {"dedicated state version one remains readable", [] {
+        auto source = DeterministicService();
+        const auto room = source.CreateLobby("Alice", "Legacy room");
+        std::string version_one = source.SerializeState();
+        test::Check(version_one.size() > 4, "version two state has replay-count trailer");
+        version_one.resize(version_one.size() - 4);
+        constexpr std::size_t version_offset = std::string_view("CATAN_DEDICATED_STATE").size();
+        version_one[version_offset] = 1;
+        version_one[version_offset + 1] = 0;
+        version_one[version_offset + 2] = 0;
+        version_one[version_offset + 3] = 0;
+        auto restored = DeterministicService();
+        test::Check(restored.RestoreState(version_one).ok, "version one snapshot restores");
+        std::string error;
+        test::Check(restored.GetSnapshot(room.lobby_token, room.player_token, error).has_value(),
+            "version one credentials remain valid");
     }},
     {"commands require authenticated current player", [] {
         auto service = DeterministicService();

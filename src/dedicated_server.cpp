@@ -149,8 +149,49 @@ int PendingDevelopmentCount(const Player& player)
 bool ValidResource(int value) { return value >= 0 && value < 5; }
 
 constexpr std::string_view StateMagic{"CATAN_DEDICATED_STATE"};
-constexpr std::uint32_t StateVersion = 1;
+constexpr std::uint32_t StateVersion = 2;
 constexpr std::uint32_t MaximumStoredString = 16 * 1024 * 1024;
+constexpr std::size_t MaximumReplayEntries = 2048;
+
+bool ValidRequestId(std::string_view value)
+{
+    return value.empty() || (value.size() >= 8 && value.size() <= 128
+        && std::all_of(value.begin(), value.end(), [](unsigned char character) {
+            return std::isalnum(character) || character == '-' || character == '_';
+        }));
+}
+
+bool ValidTokenInput(std::string_view value)
+{
+    return !value.empty() && value.size() <= 128
+        && std::all_of(value.begin(), value.end(), [](unsigned char character) {
+            return std::isalnum(character) || character == '-' || character == '_';
+        });
+}
+
+void AppendFingerprintField(std::string& target, std::string_view value)
+{
+    target += std::to_string(value.size());
+    target.push_back(':');
+    target.append(value);
+    target.push_back('|');
+}
+
+std::string Fingerprint(std::string_view operation,
+    std::initializer_list<std::string_view> fields)
+{
+    std::string result;
+    AppendFingerprintField(result, operation);
+    for (std::string_view field : fields) AppendFingerprintField(result, field);
+    return result;
+}
+
+std::string ResourceFingerprint(const Resources& value)
+{
+    return std::to_string(value.wood) + ',' + std::to_string(value.clay) + ','
+        + std::to_string(value.hay) + ',' + std::to_string(value.sheep) + ','
+        + std::to_string(value.stone);
+}
 
 class StateWriter {
 public:
@@ -277,6 +318,14 @@ struct Service::Lobby {
     }
 };
 
+struct Service::ReplayEntry {
+    std::string request_id;
+    std::string fingerprint;
+    bool identity = false;
+    IdentityResult identity_result;
+    Result result;
+};
+
 Service::Service(std::size_t max_lobbies, TokenFactory token_factory)
     : max_lobbies_(std::max<std::size_t>(1, max_lobbies)), token_factory_(std::move(token_factory))
 {
@@ -301,6 +350,59 @@ Service::Service(std::size_t max_lobbies, TokenFactory token_factory)
 
 Service::~Service() = default;
 
+bool Service::TryReplayIdentity(std::string_view request_id, std::string_view fingerprint,
+    IdentityResult& output) const
+{
+    if (request_id.empty()) return false;
+    const auto found = std::find_if(replay_entries_.begin(), replay_entries_.end(),
+        [request_id](const ReplayEntry& entry) { return entry.request_id == request_id; });
+    if (found == replay_entries_.end()) return false;
+    if (!found->identity || found->fingerprint != fingerprint) {
+        output = {false, "Request id was already used for a different operation"};
+        return true;
+    }
+    output = found->identity_result;
+    return true;
+}
+
+bool Service::TryReplayResult(std::string_view request_id, std::string_view fingerprint,
+    Result& output) const
+{
+    if (request_id.empty()) return false;
+    const auto found = std::find_if(replay_entries_.begin(), replay_entries_.end(),
+        [request_id](const ReplayEntry& entry) { return entry.request_id == request_id; });
+    if (found == replay_entries_.end()) return false;
+    if (found->identity || found->fingerprint != fingerprint) {
+        output = {false, "Request id was already used for a different operation"};
+        return true;
+    }
+    output = found->result;
+    return true;
+}
+
+void Service::RememberIdentity(std::string_view request_id, std::string fingerprint,
+    const IdentityResult& result)
+{
+    if (request_id.empty() || !result.ok) return;
+    if (replay_entries_.size() >= MaximumReplayEntries) replay_entries_.erase(replay_entries_.begin());
+    ReplayEntry& entry = replay_entries_.emplace_back();
+    entry.request_id = request_id;
+    entry.fingerprint = std::move(fingerprint);
+    entry.identity = true;
+    entry.identity_result = result;
+}
+
+void Service::RememberResult(std::string_view request_id, std::string fingerprint,
+    const Result& result)
+{
+    if (request_id.empty() || !result.ok) return;
+    if (replay_entries_.size() >= MaximumReplayEntries) replay_entries_.erase(replay_entries_.begin());
+    ReplayEntry& entry = replay_entries_.emplace_back();
+    entry.request_id = request_id;
+    entry.fingerprint = std::move(fingerprint);
+    entry.result = result;
+}
+
 std::string Service::NewToken(std::size_t length, bool lobby)
 {
     for (int attempt = 0; attempt < 1000; ++attempt) {
@@ -319,9 +421,16 @@ std::string Service::NewToken(std::size_t length, bool lobby)
     throw std::runtime_error("Could not generate a unique security token");
 }
 
-IdentityResult Service::CreateLobby(std::string player_name, std::string lobby_name)
+IdentityResult Service::CreateLobby(std::string player_name, std::string lobby_name,
+    std::string_view request_id)
 {
     std::lock_guard lock(mutex_);
+    if (!ValidRequestId(request_id)) return {false, "Request id is invalid"};
+    if (player_name.size() > 256 || lobby_name.size() > 256)
+        return {false, "Lobby identity is too large"};
+    const std::string fingerprint = Fingerprint("CREATE", {player_name, lobby_name});
+    IdentityResult replay;
+    if (TryReplayIdentity(request_id, fingerprint, replay)) return replay;
     if (lobbies_.size() >= max_lobbies_)
         return {false, "Dedicated server reached its lobby limit"};
     auto lobby = std::make_unique<Lobby>();
@@ -340,12 +449,20 @@ IdentityResult Service::CreateLobby(std::string player_name, std::string lobby_n
     result.player_name = host.name;
     lobby->players.push_back(std::move(host));
     lobbies_.emplace(lobby->token, std::move(lobby));
+    RememberIdentity(request_id, fingerprint, result);
     return result;
 }
 
-IdentityResult Service::JoinLobby(std::string_view lobby_token, std::string player_name)
+IdentityResult Service::JoinLobby(std::string_view lobby_token, std::string player_name,
+    std::string_view request_id)
 {
     std::lock_guard lock(mutex_);
+    if (!ValidRequestId(request_id)) return {false, "Request id is invalid"};
+    if (!ValidTokenInput(lobby_token)) return {false, "Lobby token is invalid"};
+    if (player_name.size() > 256) return {false, "Player name is too large"};
+    const std::string fingerprint = Fingerprint("JOIN", {lobby_token, player_name});
+    IdentityResult replay;
+    if (TryReplayIdentity(request_id, fingerprint, replay)) return replay;
     const auto found = lobbies_.find(std::string(lobby_token));
     if (found == lobbies_.end()) return {false, "Lobby token is invalid"};
     Lobby& lobby = *found->second;
@@ -363,12 +480,36 @@ IdentityResult Service::JoinLobby(std::string_view lobby_token, std::string play
     result.player_name = player.name;
     lobby.players.push_back(std::move(player));
     ++lobby.revision;
+    RememberIdentity(request_id, fingerprint, result);
     return result;
 }
 
-Result Service::LeaveLobby(std::string_view lobby_token, std::string_view player_token)
+IdentityResult Service::ResumeLobby(std::string_view lobby_token, std::string_view player_token)
 {
     std::lock_guard lock(mutex_);
+    if (!ValidTokenInput(lobby_token)) return {false, "Lobby token is invalid"};
+    if (!ValidTokenInput(player_token)) return {false, "Player token is invalid"};
+    const auto found = lobbies_.find(std::string(lobby_token));
+    if (found == lobbies_.end()) return {false, "Lobby token is invalid"};
+    const AuthPlayer* player = found->second->Authenticate(player_token);
+    if (!player) return {false, "Player token is invalid"};
+    IdentityResult result{true, "Dedicated session resumed"};
+    result.lobby_token = found->second->token;
+    result.player_token = player->token;
+    result.player_name = player->name;
+    return result;
+}
+
+Result Service::LeaveLobby(std::string_view lobby_token, std::string_view player_token,
+    std::string_view request_id)
+{
+    std::lock_guard lock(mutex_);
+    if (!ValidRequestId(request_id)) return {false, "Request id is invalid"};
+    if (!ValidTokenInput(lobby_token)) return {false, "Lobby token is invalid"};
+    if (!ValidTokenInput(player_token)) return {false, "Player token is invalid"};
+    const std::string fingerprint = Fingerprint("LEAVE", {lobby_token, player_token});
+    Result replay;
+    if (TryReplayResult(request_id, fingerprint, replay)) return replay;
     const auto found = lobbies_.find(std::string(lobby_token));
     if (found == lobbies_.end()) return {false, "Lobby token is invalid"};
     Lobby& lobby = *found->second;
@@ -377,7 +518,9 @@ Result Service::LeaveLobby(std::string_view lobby_token, std::string_view player
     if (lobby.game) return {false, "The game has already started"};
     if (authenticated->host) {
         lobbies_.erase(found);
-        return {true, "Lobby closed"};
+        const Result result{true, "Lobby closed"};
+        RememberResult(request_id, fingerprint, result);
+        return result;
     }
     const std::string player_name = authenticated->name;
     lobby.players.erase(std::remove_if(lobby.players.begin(), lobby.players.end(),
@@ -387,12 +530,22 @@ Result Service::LeaveLobby(std::string_view lobby_token, std::string_view player
     lobby.status = player_name + " left the lobby";
     lobby.events.push_back(lobby.status);
     ++lobby.revision;
-    return {true, lobby.status};
+    const Result result{true, lobby.status};
+    RememberResult(request_id, fingerprint, result);
+    return result;
 }
 
-Result Service::SetReady(std::string_view lobby_token, std::string_view player_token, bool ready)
+Result Service::SetReady(std::string_view lobby_token, std::string_view player_token, bool ready,
+    std::string_view request_id)
 {
     std::lock_guard lock(mutex_);
+    if (!ValidRequestId(request_id)) return {false, "Request id is invalid"};
+    if (!ValidTokenInput(lobby_token)) return {false, "Lobby token is invalid"};
+    if (!ValidTokenInput(player_token)) return {false, "Player token is invalid"};
+    const std::string fingerprint = Fingerprint("READY",
+        {lobby_token, player_token, ready ? std::string_view("1") : std::string_view("0")});
+    Result replay;
+    if (TryReplayResult(request_id, fingerprint, replay)) return replay;
     const auto found = lobbies_.find(std::string(lobby_token));
     if (found == lobbies_.end()) return {false, "Lobby token is invalid"};
     Lobby& lobby = *found->second;
@@ -402,12 +555,21 @@ Result Service::SetReady(std::string_view lobby_token, std::string_view player_t
     player->ready = ready;
     lobby.status = ready ? player->name + " is ready" : player->name + " is not ready";
     ++lobby.revision;
-    return {true, lobby.status};
+    const Result result{true, lobby.status};
+    RememberResult(request_id, fingerprint, result);
+    return result;
 }
 
-Result Service::StartGame(std::string_view lobby_token, std::string_view player_token)
+Result Service::StartGame(std::string_view lobby_token, std::string_view player_token,
+    std::string_view request_id)
 {
     std::lock_guard lock(mutex_);
+    if (!ValidRequestId(request_id)) return {false, "Request id is invalid"};
+    if (!ValidTokenInput(lobby_token)) return {false, "Lobby token is invalid"};
+    if (!ValidTokenInput(player_token)) return {false, "Player token is invalid"};
+    const std::string fingerprint = Fingerprint("START", {lobby_token, player_token});
+    Result replay;
+    if (TryReplayResult(request_id, fingerprint, replay)) return replay;
     const auto found = lobbies_.find(std::string(lobby_token));
     if (found == lobbies_.end()) return {false, "Lobby token is invalid"};
     Lobby& lobby = *found->second;
@@ -427,13 +589,28 @@ Result Service::StartGame(std::string_view lobby_token, std::string_view player_
     lobby.status = "Game started";
     lobby.events.push_back(lobby.status);
     ++lobby.revision;
-    return {true, lobby.status};
+    const Result result{true, lobby.status};
+    RememberResult(request_id, fingerprint, result);
+    return result;
 }
 
 Result Service::Execute(std::string_view lobby_token, std::string_view player_token,
-    Command command, const CommandArgs& args)
+    Command command, const CommandArgs& args, std::string_view request_id)
 {
     std::lock_guard lock(mutex_);
+    if (!ValidRequestId(request_id)) return {false, "Request id is invalid"};
+    if (!ValidTokenInput(lobby_token)) return {false, "Lobby token is invalid"};
+    if (!ValidTokenInput(player_token)) return {false, "Player token is invalid"};
+    if (args.text.size() > 256) return {false, "Command text is too large"};
+    const std::string command_text = std::to_string(static_cast<int>(command));
+    const std::string first = std::to_string(args.first);
+    const std::string second = std::to_string(args.second);
+    const std::string first_resources = ResourceFingerprint(args.first_resources);
+    const std::string second_resources = ResourceFingerprint(args.second_resources);
+    const std::string fingerprint = Fingerprint("COMMAND", {lobby_token, player_token,
+        command_text, first, second, args.text, first_resources, second_resources});
+    Result replay;
+    if (TryReplayResult(request_id, fingerprint, replay)) return replay;
     const auto found = lobbies_.find(std::string(lobby_token));
     if (found == lobbies_.end()) return {false, "Lobby token is invalid"};
     Lobby& lobby = *found->second;
@@ -445,13 +622,15 @@ Result Service::Execute(std::string_view lobby_token, std::string_view player_to
     if (!trade_response && game.GetCurrentPlayer() != player->name)
         return {false, "It is not your turn"};
 
-    auto complete = [&lobby](std::string message) {
+    auto complete = [this, &lobby, request_id, &fingerprint](std::string message) {
         lobby.board_action = 0;
         lobby.status = std::move(message);
         lobby.events.push_back(lobby.status);
         if (lobby.events.size() > 40) lobby.events.erase(lobby.events.begin());
         ++lobby.revision;
-        return Result{true, lobby.status};
+        const Result result{true, lobby.status};
+        RememberResult(request_id, fingerprint, result);
+        return result;
     };
 
     try {
@@ -480,7 +659,9 @@ Result Service::Execute(std::string_view lobby_token, std::string_view player_to
                 lobby.robber_victims.assign(victims.begin(), victims.end());
                 lobby.status = "Choose a player to steal from";
                 ++lobby.revision;
-                return {true, lobby.status};
+                const Result result{true, lobby.status};
+                RememberResult(request_id, fingerprint, result);
+                return result;
             }
             game.BanditMove(player->name, static_cast<std::size_t>(args.first));
             return complete("Robber moved");
@@ -560,7 +741,9 @@ Result Service::Execute(std::string_view lobby_token, std::string_view player_to
             lobby.board_action = args.first;
             lobby.status = "Select a target on the board";
             ++lobby.revision;
-            return {true, lobby.status};
+            const Result result{true, lobby.status};
+            RememberResult(request_id, fingerprint, result);
+            return result;
         }
     } catch (const std::exception& exception) {
         return {false, exception.what()};
@@ -572,6 +755,8 @@ std::optional<Snapshot> Service::GetSnapshot(std::string_view lobby_token,
     std::string_view player_token, std::string& error)
 {
     std::lock_guard lock(mutex_);
+    if (!ValidTokenInput(lobby_token)) { error = "Lobby token is invalid"; return std::nullopt; }
+    if (!ValidTokenInput(player_token)) { error = "Player token is invalid"; return std::nullopt; }
     const auto found = lobbies_.find(std::string(lobby_token));
     if (found == lobbies_.end()) { error = "Lobby token is invalid"; return std::nullopt; }
     Lobby& lobby = *found->second;
@@ -754,6 +939,18 @@ std::string Service::SerializeState() const
         writer.Bool(lobby->game != nullptr);
         if (lobby->game) writer.String(lobby->game->SerializeState());
     }
+    writer.U32(static_cast<std::uint32_t>(replay_entries_.size()));
+    for (const ReplayEntry& entry : replay_entries_) {
+        writer.String(entry.request_id);
+        writer.String(entry.fingerprint);
+        writer.Bool(entry.identity);
+        if (entry.identity) {
+            writer.String(entry.identity_result.message);
+            writer.String(entry.identity_result.lobby_token);
+            writer.String(entry.identity_result.player_token);
+            writer.String(entry.identity_result.player_name);
+        } else writer.String(entry.result.message);
+    }
     return std::move(writer).Finish();
 }
 
@@ -764,7 +961,8 @@ Result Service::RestoreState(std::string_view state)
         StateReader reader(state);
         if (reader.Raw(StateMagic.size()) != StateMagic)
             return {false, "Dedicated server state has an invalid signature"};
-        if (reader.U32() != StateVersion)
+        const std::uint32_t version = reader.U32();
+        if (version < 1 || version > StateVersion)
             return {false, "Dedicated server state version is not supported"};
         const std::uint32_t lobby_count = reader.U32();
         if (lobby_count > max_lobbies_)
@@ -849,8 +1047,49 @@ Result Service::RestoreState(std::string_view state)
             if (!restored.emplace(lobby->token, std::move(lobby)).second)
                 throw std::invalid_argument("Dedicated server state contains a duplicate lobby token");
         }
+        std::vector<ReplayEntry> restored_replays;
+        if (version >= 2) {
+            const std::uint32_t replay_count = reader.U32();
+            if (replay_count > MaximumReplayEntries)
+                throw std::invalid_argument("Dedicated server state has too many replay records");
+            std::unordered_set<std::string> request_ids;
+            restored_replays.reserve(replay_count);
+            for (std::uint32_t index = 0; index < replay_count; ++index) {
+                ReplayEntry entry;
+                entry.request_id = reader.String();
+                entry.fingerprint = reader.String();
+                entry.identity = reader.Bool();
+                if (!ValidRequestId(entry.request_id) || entry.request_id.empty()
+                    || entry.fingerprint.empty() || entry.fingerprint.size() > 4096
+                    || !request_ids.insert(entry.request_id).second)
+                    throw std::invalid_argument("Dedicated server state has an invalid replay record");
+                if (entry.identity) {
+                    entry.identity_result.ok = true;
+                    entry.identity_result.message = reader.String();
+                    entry.identity_result.lobby_token = reader.String();
+                    entry.identity_result.player_token = reader.String();
+                    entry.identity_result.player_name = reader.String();
+                    if (entry.identity_result.lobby_token.empty()
+                        || entry.identity_result.lobby_token.size() > 128
+                        || entry.identity_result.player_token.empty()
+                        || entry.identity_result.player_token.size() > 128
+                        || entry.identity_result.player_name.empty()
+                        || entry.identity_result.player_name.size() > 24)
+                        throw std::invalid_argument("Dedicated server state has an invalid identity replay");
+                } else {
+                    entry.result.ok = true;
+                    entry.result.message = reader.String();
+                }
+                const std::string& message = entry.identity
+                    ? entry.identity_result.message : entry.result.message;
+                if (message.size() > 1024)
+                    throw std::invalid_argument("Dedicated server replay message is too large");
+                restored_replays.push_back(std::move(entry));
+            }
+        }
         reader.RequireFinished();
         lobbies_.swap(restored);
+        replay_entries_.swap(restored_replays);
         return {true, "Dedicated server state restored"};
     } catch (const std::exception& exception) {
         return {false, exception.what()};
