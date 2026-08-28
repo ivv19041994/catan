@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate version contract
+        run: |
+          tag=""
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then tag="$GITHUB_REF_NAME"; fi
+          scripts/validate_release_version.sh "$tag"
+
+  package-dedicated:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, test and package
+        run: scripts/package_dedicated_release.sh build-release dist/release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dedicated-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            dist/release/*.tar.gz
+            dist/release/*.sha256
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: package-dedicated
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dedicated-*
+          path: dist
+          merge-multiple: true
+      - name: Build merged checksum manifest
+        run: cat dist/*.sha256 | sort -k2 > dist/SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+            dist/SHA256SUMS

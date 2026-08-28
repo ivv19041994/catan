@@ -59,6 +59,10 @@ cmake --build build-server --target catan-dedicated-server --parallel
 Расширенное описание протокола, токенов и UE e2e находится в
 [`docs/DEDICATED_SERVER.md`](docs/DEDICATED_SERVER.md).
 
+Версионированные архивы сервера для macOS/Linux и Shipping APK создаются
+release pipeline. Единый номер версии, tag-релизы, checksum-манифесты и команды
+локальной UE-сборки описаны в [`docs/RELEASING.md`](docs/RELEASING.md).
+
 Цели CMake:
 
 - `catan_engine` — библиотека игровой логики;

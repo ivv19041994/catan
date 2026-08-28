@@ -1,4 +1,6 @@
 /build/
+/build-release/
+/dist/
 /unreal/Catan/Binaries/
 /unreal/Catan/DerivedDataCache/
 /unreal/Catan/Intermediate/

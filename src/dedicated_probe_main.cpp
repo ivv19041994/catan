@@ -17,6 +17,10 @@ int main(int argc, char** argv)
     int timeout_ms = 5000;
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
+        if (argument == "--version") {
+            std::cout << "catan-dedicated-probe " CATAN_VERSION "\n";
+            return 0;
+        }
         if ((argument == "--host" || argument == "--port" || argument == "--request"
             || argument == "--timeout-ms") && index + 1 < argc) {
             if (argument == "--host") host = argv[++index];
