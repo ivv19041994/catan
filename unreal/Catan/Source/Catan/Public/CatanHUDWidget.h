@@ -19,6 +19,7 @@ class UScrollBox;
 class USizeBox;
 class UWidgetSwitcher;
 class UWrapBox;
+class UWidget;
 enum class ECatanDevelopmentCard : uint8;
 
 UCLASS()
@@ -85,12 +86,17 @@ private:
     UPROPERTY(Transient) TObjectPtr<UButton> AcceptDealButton;
     UPROPERTY(Transient) TObjectPtr<UButton> CancelDealButton;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> WinnerText;
+    UPROPERTY(Transient) TObjectPtr<UVerticalBox> WinnerStandingsBox;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> AvailabilityText;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> BuildCostText;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> PlayerCount;
     UPROPERTY(Transient) TObjectPtr<UCommonTextBlock> MainPlayerNameText;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> SettingsNameInput;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> SettingsLanguageInput;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> SettingsEffectsInput;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> SettingsMusicInput;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> SettingsHapticsInput;
+    UPROPERTY(Transient) TObjectPtr<UComboBoxString> SettingsColorVisionInput;
     UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> OnboardingSwitcher;
     UPROPERTY(Transient) TObjectPtr<UEditableTextBox> OnboardingNameInput;
     UPROPERTY(Transient) TObjectPtr<UComboBoxString> OnboardingLanguageInput;
@@ -143,6 +149,8 @@ private:
     bool bRightDetailsOpen = false;
     bool bTradeInputsNeedReset = true;
     bool bUIPreviewReported = false;
+    bool bButtonAuditReported = false;
+    int32 ButtonAuditStableFrames = 0;
     bool bAutoLeaveScheduled = false;
     int32 PreviousPlayerStatusCount = INDEX_NONE;
     ECatanResource BankFromSelection = ECatanResource::Wood;
@@ -153,6 +161,9 @@ private:
     FCatanResourceView CurrentBankTradeRates;
     FCatanUserPreferences UserPreferences;
     TArray<TPair<TWeakObjectPtr<UCommonTextBlock>, FString>> LocalizedTexts;
+    TArray<TPair<TWeakObjectPtr<UButton>, FString>> AuditedActionButtons;
+    UPROPERTY(Transient) TArray<TObjectPtr<UWidget>> ResourcePaletteWidgets;
+    TArray<int32> ResourcePaletteIndices;
 
     void BuildLayout();
     void ConfigureComboBox(UComboBoxString* ComboBox, int32 FontSize);
@@ -161,6 +172,10 @@ private:
     FString Localize(const FString& Key) const;
     void RegisterLocalizedText(UCommonTextBlock* Widget, const FString& Key);
     void ApplyLanguage();
+    void ApplyAccessibilityPalette();
+    void RegisterResourcePalette(UWidget* Widget, int32 ResourceIndex);
+    void PopulateFinalDashboard(const FCatanGameView& View);
+    void AuditButtonAccessibility(const FGeometry& RootGeometry);
     void RefreshSavedGameOptions();
 
     UFUNCTION() void Refresh();

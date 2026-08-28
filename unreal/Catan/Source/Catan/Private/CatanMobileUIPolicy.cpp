@@ -21,3 +21,13 @@ bool CatanMobileUIPolicy::ShouldUsePopupRowLayout(bool bIsOpen,
     // the selected row height and moves the surrounding form.
     return bIsOpen && !bGeneratingSelectedContent;
 }
+
+float CatanMobileUIPolicy::MinimumTouchTargetHeight(bool bMobile)
+{
+    return bMobile ? 72.0f : 56.0f;
+}
+
+float CatanMobileUIPolicy::MinimumTouchTargetWidth(bool bMobile)
+{
+    return bMobile ? 128.0f : 112.0f;
+}

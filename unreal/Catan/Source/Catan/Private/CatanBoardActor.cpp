@@ -2,11 +2,14 @@
 
 #include "CatanCameraPawn.h"
 #include "CatanPerformancePolicy.h"
+#include "CatanUserSettings.h"
+#include "CatanAccessibilityPolicy.h"
 #include "CatanGameSubsystem.h"
 #include "CatanHexMeshBuilder.h"
 #include "CatanResourceVisualBuilder.h"
 #include "CatanResourceBankVisualPolicy.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/AudioComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
@@ -16,6 +19,7 @@
 #include "ProceduralMeshComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "HAL/PlatformTime.h"
+#include "HAL/PlatformMisc.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "RenderTimer.h"
@@ -159,27 +163,15 @@ TArray<FRoadPlacement> RoadCenters()
     return Result;
 }
 
-FLinearColor ResourceColor(ECatanResource Resource)
+FLinearColor ResourceColor(ECatanResource Resource, ECatanColorVisionMode Mode)
 {
-    switch (Resource)
-    {
-    case ECatanResource::Wood: return FLinearColor(0.04f, 0.34f, 0.08f);
-    case ECatanResource::Clay: return FLinearColor(0.55f, 0.16f, 0.06f);
-    case ECatanResource::Hay: return FLinearColor(0.92f, 0.68f, 0.08f);
-    case ECatanResource::Sheep: return FLinearColor(0.38f, 0.78f, 0.24f);
-    case ECatanResource::Stone: return FLinearColor(0.42f, 0.46f, 0.52f);
-    case ECatanResource::Desert: return FLinearColor(0.83f, 0.70f, 0.43f);
-    }
-    return FLinearColor::Black;
+    if (Resource == ECatanResource::Desert) return FLinearColor(0.83f, 0.70f, 0.43f);
+    return FCatanAccessibilityPolicy::BoardResourceColor(static_cast<int32>(Resource), Mode);
 }
 
-FLinearColor PlayerColor(size_t Id)
+FLinearColor PlayerColor(size_t Id, ECatanColorVisionMode Mode)
 {
-    constexpr FLinearColor Colors[] = {
-        FLinearColor(0.85f, 0.08f, 0.05f), FLinearColor(0.05f, 0.35f, 0.9f),
-        FLinearColor(0.95f, 0.72f, 0.04f), FLinearColor(0.1f, 0.7f, 0.25f)
-    };
-    return Colors[Id % UE_ARRAY_COUNT(Colors)];
+    return FCatanAccessibilityPolicy::PlayerColor(static_cast<int32>(Id), Mode);
 }
 
 UMaterialInstanceDynamic* ColoredMaterial(UObject* Owner, UMaterialInterface* Base, FLinearColor Color)
@@ -253,6 +245,11 @@ void ACatanBoardActor::BeginPlay()
     FParse::Value(FCommandLine::Get(), TEXT("CatanPerfDuration="), PerformanceSampleSeconds);
     PerformanceWarmupSeconds = FMath::Clamp(PerformanceWarmupSeconds, 1.0f, 60.0f);
     PerformanceSampleSeconds = FMath::Clamp(PerformanceSampleSeconds, 5.0f, 120.0f);
+    FCatanUserPreferences Preferences = FCatanUserSettings::Load();
+    FString ColorVisionOverride;
+    if (FParse::Value(FCommandLine::Get(), TEXT("CatanColorVision="), ColorVisionOverride))
+        Preferences.ColorVisionMode = FCatanUserSettings::ParseColorVisionMode(ColorVisionOverride);
+    ApplyUserPreferences(Preferences);
     if (UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>())
     {
         Subsystem->OnGameStateChanged.AddDynamic(this, &ACatanBoardActor::RefreshPieces);
@@ -266,7 +263,32 @@ void ACatanBoardActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
     {
         Subsystem->OnGameStateChanged.RemoveDynamic(this, &ACatanBoardActor::RefreshPieces);
     }
+    if (AmbientMusicComponent) AmbientMusicComponent->Stop();
+    if (bHapticsEnabled) FPlatformMisc::ReleaseMobileHaptics();
     Super::EndPlay(EndPlayReason);
+}
+
+void ACatanBoardActor::ApplyUserPreferences(const FCatanUserPreferences& Preferences)
+{
+    const bool bPaletteChanged = ColorVisionMode != Preferences.ColorVisionMode;
+    EffectsVolume = FCatanUserSettings::NormalizeVolume(Preferences.EffectsVolume);
+    MusicVolume = FCatanUserSettings::NormalizeVolume(Preferences.MusicVolume);
+    bHapticsEnabled = Preferences.bHapticsEnabled;
+    ColorVisionMode = Preferences.ColorVisionMode;
+    if (AmbientMusicComponent)
+    {
+        AmbientMusicComponent->SetVolumeMultiplier(MusicVolume);
+        if (MusicVolume <= 0.0f) AmbientMusicComponent->Stop();
+    }
+    if (bPaletteChanged && bBoardBuilt)
+    {
+        RenderedHexResources.Reset();
+        RefreshPieces();
+    }
+    UE_LOG(LogTemp, Display,
+        TEXT("CATAN_AUDIO effects=%.2f music=%.2f haptics=%d palette=%s live=1"),
+        EffectsVolume, MusicVolume, bHapticsEnabled,
+        *FCatanUserSettings::ColorVisionModeCode(ColorVisionMode));
 }
 
 void ACatanBoardActor::BuildBoard()
@@ -323,6 +345,9 @@ void ACatanBoardActor::Tick(float DeltaSeconds)
     if (!bBoardBuilt) TryBuildBoard();
     if (bBoardBuilt && bPerformanceCaptureRequested && !bPerformanceCaptureFinished)
         CapturePerformance(DeltaSeconds);
+    if (bBoardBuilt && MusicVolume > 0.0f
+        && (!AmbientMusicComponent || !AmbientMusicComponent->IsPlaying()))
+        StartAmbientMusic();
 #if PLATFORM_ANDROID
     MobileAnimationAccumulator += DeltaSeconds;
     constexpr float MobileAnimationStep = 1.0f / 30.0f;
@@ -559,7 +584,8 @@ void ACatanBoardActor::BuildHexes()
 
     for (int32 Index = 0; Index < Centers.Num(); ++Index)
     {
-        CreateHexSection(Index, Centers[Index], ResourceColor(View.Hexes[Index].Resource));
+        CreateHexSection(Index, Centers[Index],
+            ResourceColor(View.Hexes[Index].Resource, ColorVisionMode));
 
         UTextRenderComponent* Label = NewObject<UTextRenderComponent>(this, *FString::Printf(TEXT("HexLabel%d"), Index));
         Label->SetupAttachment(SceneRoot);
@@ -1120,7 +1146,8 @@ void ACatanBoardActor::BuildResourceBank()
             BankTableY, BankCardBaseZ + 55.0f);
         UStaticMeshComponent* Stack = AddDecoration(
             FString::Printf(TEXT("ResourceBankStack%d"), Index), Cube, Position,
-            FVector(3.45f, 2.46f, 1.10f), ResourceColor(Resources[Index]), FRotator(0, 90, 0));
+            FVector(3.45f, 2.46f, 1.10f),
+            ResourceColor(Resources[Index], ColorVisionMode), FRotator(0, 90, 0));
         Stack->SetCastShadow(true);
         BankCardStacks.Add(Stack);
 
@@ -1160,6 +1187,7 @@ void ACatanBoardActor::BuildResourceBank()
 
 void ACatanBoardActor::PlayFeedbackTone(float Frequency, float Duration, float Volume)
 {
+    if (EffectsVolume <= 0.0f) return;
     constexpr int32 SampleRate = 24000;
     const int32 SampleCount = FMath::Max(1, FMath::RoundToInt(SampleRate * Duration));
     TArray<int16> Samples;
@@ -1170,7 +1198,9 @@ void ACatanBoardActor::PlayFeedbackTone(float Frequency, float Duration, float V
         const float Envelope = FMath::Square(1.0f - static_cast<float>(Index) / SampleCount);
         const float Fundamental = FMath::Sin(2.0f * PI * Frequency * Time);
         const float Harmonic = 0.25f * FMath::Sin(2.0f * PI * Frequency * 2.0f * Time);
-        Samples[Index] = static_cast<int16>(FMath::Clamp((Fundamental + Harmonic) * Envelope * Volume, -1.0f, 1.0f) * 32767.0f);
+        Samples[Index] = static_cast<int16>(FMath::Clamp(
+            (Fundamental + Harmonic) * Envelope * Volume * EffectsVolume,
+            -1.0f, 1.0f) * 32767.0f);
     }
     FeedbackSound = NewObject<USoundWaveProcedural>(this);
     FeedbackSound->SetSampleRate(SampleRate);
@@ -1179,6 +1209,55 @@ void ACatanBoardActor::PlayFeedbackTone(float Frequency, float Duration, float V
     FeedbackSound->SoundGroup = SOUNDGROUP_UI;
     FeedbackSound->QueueAudio(reinterpret_cast<const uint8*>(Samples.GetData()), Samples.Num() * sizeof(int16));
     UGameplayStatics::PlaySound2D(this, FeedbackSound);
+}
+
+void ACatanBoardActor::StartAmbientMusic()
+{
+    if (MusicVolume <= 0.0f) return;
+    constexpr int32 SampleRate = 24000;
+    constexpr float Duration = 16.0f;
+    constexpr float Notes[] = {130.81f, 164.81f, 196.00f, 220.00f,
+        196.00f, 164.81f, 146.83f, 164.81f};
+    const int32 SampleCount = FMath::RoundToInt(SampleRate * Duration);
+    TArray<int16> Samples;
+    Samples.SetNumUninitialized(SampleCount);
+    for (int32 Index = 0; Index < SampleCount; ++Index)
+    {
+        const float Time = static_cast<float>(Index) / SampleRate;
+        const int32 NoteIndex = FMath::Clamp(FMath::FloorToInt(Time / 2.0f), 0, 7);
+        const float Frequency = Notes[NoteIndex];
+        const float Fade = FMath::Min(FMath::Clamp(Time / 0.7f, 0.0f, 1.0f),
+            FMath::Clamp((Duration - Time) / 0.7f, 0.0f, 1.0f));
+        const float Pad = FMath::Sin(2.0f * PI * Frequency * Time)
+            + 0.34f * FMath::Sin(2.0f * PI * Frequency * 1.5f * Time)
+            + 0.18f * FMath::Sin(2.0f * PI * Frequency * 2.0f * Time);
+        const float Pulse = 0.72f + 0.28f * FMath::Sin(2.0f * PI * 0.125f * Time);
+        Samples[Index] = static_cast<int16>(FMath::Clamp(
+            Pad * Fade * Pulse * 0.10f, -1.0f, 1.0f) * 32767.0f);
+    }
+    AmbientMusicSound = NewObject<USoundWaveProcedural>(this);
+    AmbientMusicSound->SetSampleRate(SampleRate);
+    AmbientMusicSound->NumChannels = 1;
+    AmbientMusicSound->Duration = Duration;
+    AmbientMusicSound->SoundGroup = SOUNDGROUP_Music;
+    AmbientMusicSound->QueueAudio(reinterpret_cast<const uint8*>(Samples.GetData()),
+        Samples.Num() * sizeof(int16));
+    AmbientMusicComponent = UGameplayStatics::SpawnSound2D(
+        this, AmbientMusicSound, MusicVolume, 1.0f, 0.0f, nullptr, false, true);
+    if (!bMusicStartedLogged)
+    {
+        bMusicStartedLogged = true;
+        UE_LOG(LogTemp, Display,
+            TEXT("CATAN_AUDIO music-started duration=16 volume=%.2f component=%d"),
+            MusicVolume, AmbientMusicComponent != nullptr);
+    }
+}
+
+void ACatanBoardActor::TriggerHaptic(EMobileHapticsType Type) const
+{
+    if (!bHapticsEnabled) return;
+    FPlatformMisc::PrepareMobileHaptics(Type);
+    FPlatformMisc::TriggerMobileHaptics();
 }
 
 void ACatanBoardActor::AnimateFeedback(float DeltaSeconds)
@@ -1370,15 +1449,38 @@ void ACatanBoardActor::RefreshPieces()
             DiceTargetRotations[1] = DieResultRotation(View.SecondDie, 1);
         }
         PlayFeedbackTone(135.0f, 0.16f, 0.22f);
+        TriggerHaptic(EMobileHapticsType::ImpactMedium);
     }
     if (!PreviousStatus.IsEmpty() && PreviousStatus != View.StatusMessage)
     {
-        if (View.StatusMessage.Contains(TEXT("built"), ESearchCase::IgnoreCase)) PlayFeedbackTone(420.0f, 0.18f);
-        else if (View.StatusMessage.Contains(TEXT("trade"), ESearchCase::IgnoreCase)) PlayFeedbackTone(620.0f, 0.12f);
-        else if (View.StatusMessage.Contains(TEXT("Robber"), ESearchCase::IgnoreCase)) PlayFeedbackTone(92.0f, 0.28f, 0.24f);
-        else if (View.StatusMessage.Contains(TEXT("card"), ESearchCase::IgnoreCase)) PlayFeedbackTone(760.0f, 0.14f);
+        if (View.StatusMessage.Contains(TEXT("built"), ESearchCase::IgnoreCase))
+        {
+            PlayFeedbackTone(420.0f, 0.18f);
+            TriggerHaptic(EMobileHapticsType::FeedbackSuccess);
+        }
+        else if (View.StatusMessage.Contains(TEXT("trade"), ESearchCase::IgnoreCase))
+        {
+            PlayFeedbackTone(620.0f, 0.12f);
+            TriggerHaptic(EMobileHapticsType::SelectionChanged);
+        }
+        else if (View.StatusMessage.Contains(TEXT("Robber"), ESearchCase::IgnoreCase))
+        {
+            PlayFeedbackTone(92.0f, 0.28f, 0.24f);
+            TriggerHaptic(EMobileHapticsType::FeedbackWarning);
+        }
+        else if (View.StatusMessage.Contains(TEXT("card"), ESearchCase::IgnoreCase))
+        {
+            PlayFeedbackTone(760.0f, 0.14f);
+            TriggerHaptic(EMobileHapticsType::ImpactLight);
+        }
     }
     PreviousStatus = View.StatusMessage;
+    if (!View.Winner.IsEmpty() && View.Winner != PreviousWinner)
+    {
+        PreviousWinner = View.Winner;
+        PlayFeedbackTone(523.25f, 0.46f, 0.24f);
+        TriggerHaptic(EMobileHapticsType::ImpactHeavy);
+    }
     if (PreviousNodeOwners.Num() != View.Nodes.Num()) PreviousNodeOwners.Init(INDEX_NONE, View.Nodes.Num());
     if (PreviousRoadOwners.Num() != View.Roads.Num()) PreviousRoadOwners.Init(INDEX_NONE, View.Roads.Num());
     BuildingBodyTargets.SetNum(View.Nodes.Num());
@@ -1391,7 +1493,8 @@ void ACatanBoardActor::RefreshPieces()
     {
         const TArray<FVector> Centers = HexCenters();
         for (int32 Index = 0; Index < Centers.Num() && Index < View.Hexes.Num(); ++Index)
-            CreateHexSection(Index, Centers[Index], ResourceColor(View.Hexes[Index].Resource));
+            CreateHexSection(Index, Centers[Index],
+                ResourceColor(View.Hexes[Index].Resource, ColorVisionMode));
         BuildResourceDecorations();
     }
     for (int32 Index=0; Index<Labels.Num() && Index<View.Hexes.Num(); ++Index)
@@ -1436,7 +1539,8 @@ void ACatanBoardActor::RefreshPieces()
         const bool bPendingTarget = Subsystem->HasPendingBuildTarget()
             && Subsystem->GetPendingBuildTargetId() == Index
             && Subsystem->GetPendingBuildAction() != ECatanBoardAction::BuildRoad;
-        FLinearColor Color = Node.OwnerId != INDEX_NONE ? PlayerColor(Node.OwnerId) : FLinearColor(0.08f,0.1f,0.12f);
+        FLinearColor Color = Node.OwnerId != INDEX_NONE
+            ? PlayerColor(Node.OwnerId, ColorVisionMode) : FLinearColor(0.08f,0.1f,0.12f);
         if (bPendingTarget) Color = FLinearColor(0.95f, 0.04f, 0.03f);
         else if (bValidTarget) Color = FMath::Lerp(Color, FLinearColor(0.05f, 0.95f, 0.85f), 0.72f);
         Cast<UMaterialInstanceDynamic>(NodeSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
@@ -1452,8 +1556,9 @@ void ACatanBoardActor::RefreshPieces()
             if (bOccupied)
             {
                 const FLinearColor BuildingColor = bValidTarget
-                    ? FMath::Lerp(PlayerColor(Node.OwnerId), FLinearColor(0.05f, 0.95f, 0.85f), 0.55f)
-                    : PlayerColor(Node.OwnerId);
+                    ? FMath::Lerp(PlayerColor(Node.OwnerId, ColorVisionMode),
+                        FLinearColor(0.05f, 0.95f, 0.85f), 0.55f)
+                    : PlayerColor(Node.OwnerId, ColorVisionMode);
                 Cast<UMaterialInstanceDynamic>(BuildingBodies[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), BuildingColor);
                 Cast<UMaterialInstanceDynamic>(BuildingRoofs[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), BuildingColor * 0.62f);
                 BuildingBodyTargets[Index] = Node.bIsCity ? FVector(0.42f, 0.34f, 0.48f) : FVector(0.25f, 0.25f, 0.32f);
@@ -1474,7 +1579,8 @@ void ACatanBoardActor::RefreshPieces()
         BuildingParts[Index]->SetHiddenInGame(!bShow);
         if (bShow)
         {
-            const FLinearColor Color = PlayerColor(Node.OwnerId) * BuildingPartShades[Index];
+            const FLinearColor Color = PlayerColor(Node.OwnerId, ColorVisionMode)
+                * BuildingPartShades[Index];
             Cast<UMaterialInstanceDynamic>(BuildingParts[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
         }
     }
@@ -1490,7 +1596,8 @@ void ACatanBoardActor::RefreshPieces()
         BuildingPrismParts[Index]->SetHiddenInGame(!bShow);
         if (bShow)
         {
-            const FLinearColor Color = PlayerColor(Node.OwnerId) * BuildingPrismShades[Index];
+            const FLinearColor Color = PlayerColor(Node.OwnerId, ColorVisionMode)
+                * BuildingPrismShades[Index];
             Cast<UMaterialInstanceDynamic>(BuildingPrismParts[Index]->GetMaterial(0))
                 ->SetVectorParameterValue(TEXT("Color"), Color);
         }
@@ -1505,7 +1612,8 @@ void ACatanBoardActor::RefreshPieces()
         const bool bPendingTarget = Subsystem->HasPendingBuildTarget()
             && Subsystem->GetPendingBuildAction() == ECatanBoardAction::BuildRoad
             && Subsystem->GetPendingBuildTargetId() == Index;
-        FLinearColor Color = Road.OwnerId != INDEX_NONE ? PlayerColor(Road.OwnerId) : FLinearColor(0.14f,0.15f,0.16f);
+        FLinearColor Color = Road.OwnerId != INDEX_NONE
+            ? PlayerColor(Road.OwnerId, ColorVisionMode) : FLinearColor(0.14f,0.15f,0.16f);
         if (bPendingTarget) Color = FLinearColor(0.95f, 0.04f, 0.03f);
         else if (bValidTarget) Color = FLinearColor(0.05f, 0.95f, 0.85f);
         Cast<UMaterialInstanceDynamic>(RoadSlots[Index]->GetMaterial(0))->SetVectorParameterValue(TEXT("Color"), Color);
@@ -1528,7 +1636,7 @@ void ACatanBoardActor::RefreshPieces()
         {
             const float Shade = 0.78f + (Index % 3) * 0.10f;
             Cast<UMaterialInstanceDynamic>(RoadPavingParts[Index]->GetMaterial(0))->SetVectorParameterValue(
-                TEXT("Color"), PlayerColor(Road.OwnerId) * Shade);
+                TEXT("Color"), PlayerColor(Road.OwnerId, ColorVisionMode) * Shade);
         }
     }
 }

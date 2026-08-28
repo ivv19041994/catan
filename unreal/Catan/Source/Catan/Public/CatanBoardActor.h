@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "InputCoreTypes.h"
 #include "CatanPerformancePolicy.h"
+#include "CatanUserSettings.h"
 
 #include "CatanBoardActor.generated.h"
 
@@ -13,6 +14,8 @@ class UProceduralMeshComponent;
 class UStaticMeshComponent;
 class UTextRenderComponent;
 class USoundWaveProcedural;
+class UAudioComponent;
+enum class EMobileHapticsType : uint8;
 
 UCLASS()
 class CATAN_API ACatanBoardActor final : public AActor
@@ -21,6 +24,7 @@ class CATAN_API ACatanBoardActor final : public AActor
 
 public:
     ACatanBoardActor();
+    void ApplyUserPreferences(const FCatanUserPreferences& Preferences);
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void Tick(float DeltaSeconds) override;
@@ -149,6 +153,19 @@ private:
     TObjectPtr<USoundWaveProcedural> FeedbackSound;
 
     UPROPERTY(Transient)
+    TObjectPtr<USoundWaveProcedural> AmbientMusicSound;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAudioComponent> AmbientMusicComponent;
+
+    float EffectsVolume = 0.75f;
+    float MusicVolume = 0.30f;
+    bool bHapticsEnabled = true;
+    ECatanColorVisionMode ColorVisionMode = ECatanColorVisionMode::Standard;
+    bool bMusicStartedLogged = false;
+    FString PreviousWinner;
+
+    UPROPERTY(Transient)
     TObjectPtr<UMaterialInterface> BasicMaterial;
 
     void BuildBoard();
@@ -167,6 +184,8 @@ private:
     void CapturePerformance(float DeltaSeconds);
     void AnimateFeedback(float DeltaSeconds);
     void PlayFeedbackTone(float Frequency, float Duration, float Volume = 0.18f);
+    void StartAmbientMusic();
+    void TriggerHaptic(EMobileHapticsType Type) const;
     UStaticMeshComponent* AddDecoration(const FString& Name, UStaticMesh* Mesh,
         const FVector& Location, const FVector& Scale, const FLinearColor& Color,
         const FRotator& Rotation = FRotator::ZeroRotator);
