@@ -135,6 +135,9 @@ private:
     TArray<TObjectPtr<UTextRenderComponent>> BankCardLabels;
 
     UPROPERTY(Transient)
+    TArray<TObjectPtr<UTextRenderComponent>> BankCardLabelOutlines;
+
+    UPROPERTY(Transient)
     TObjectPtr<USoundWaveProcedural> FeedbackSound;
 
     UPROPERTY(Transient)

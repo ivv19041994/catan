@@ -132,11 +132,34 @@ test_combo_preview() {
     (( combo_open )) && break
   done
   (( combo_open )) || fail "$mode dropdown did not open at $tap_x,$tap_y"
-  adb shell am broadcast -a android.intent.action.RUN -e cmd 'obj gc' >/dev/null
-  sleep 3
-  assert_running_without_fatal "$mode dropdown failed while open after garbage collection"
   adb exec-out screencap -p >"$output"
   [[ -s "$output" ]] || fail "$mode dropdown screenshot is empty"
+  if [[ "$mode" == "PlayerTrade" ]]; then
+    local compact_selection=0
+    # A successful attempt must produce the native lifecycle marker proving that
+    # selected content was regenerated with the compact layout while the popup
+    # was still reporting itself as open.
+    for attempt in {1..3}; do
+      # Android's immersive landscape viewport starts below the physical input
+      # origin; +160 reaches the second visible row (Player 2), not the already
+      # selected first row.
+      adb shell input tap "$tap_x" "$((tap_y + 160))"
+      sleep 1
+      capture_app_log
+      rg -q 'CATAN_COMBO_SELECTION compact=1 popupRowApplied=0' "$log_file" \
+        && compact_selection=1
+      (( compact_selection )) && break
+    done
+    (( compact_selection )) \
+      || fail "selected PlayerTrade value inherited popup row height"
+    assert_running_without_fatal "PlayerTrade layout failed after selecting a popup row"
+    adb exec-out screencap -p >"$log_dir/playertrade-selected.png"
+    [[ -s "$log_dir/playertrade-selected.png" ]] \
+      || fail "selected PlayerTrade screenshot is empty"
+  fi
+  adb shell am broadcast -a android.intent.action.RUN -e cmd 'obj gc' >/dev/null
+  sleep 3
+  assert_running_without_fatal "$mode dropdown failed after garbage collection"
 }
 
 test_bank_preview() {
@@ -165,6 +188,33 @@ test_bank_preview() {
   assert_running_without_fatal "bank rate labels failed"
   adb exec-out screencap -p >"$output"
   [[ -s "$output" ]] || fail "bank rate screenshot is empty"
+}
+
+test_resource_bank_visual() {
+  local output="$log_dir/resource-bank-outline.png"
+  print "Testing resource-bank stack number outline in a real game..."
+  adb logcat -c
+  adb shell am force-stop "$package_name"
+  adb shell am start -n "$activity" --es cmdline '-CatanAutoBots=1' >/dev/null \
+    || fail "resource-bank game launch failed"
+  local board_ready=0
+  local outline_ready=0
+  for attempt in {1..60}; do
+    capture_app_log
+    if rg -q "$fatal_pattern" "$log_file"; then
+      fail "resource-bank game crashed during startup"
+    fi
+    rg -q 'CATAN_SMOKE client board ready' "$log_file" && board_ready=1
+    rg -q 'CATAN_BANK_NUMBER_STYLE foreground=white outline=black' "$log_file" \
+      && outline_ready=1
+    (( board_ready && outline_ready )) && break
+    sleep 1
+  done
+  (( board_ready )) || fail "resource-bank board was not built"
+  (( outline_ready )) || fail "bank stack numbers do not have a black outline"
+  assert_running_without_fatal "resource-bank number outline failed"
+  adb exec-out screencap -p >"$output"
+  [[ -s "$output" ]] || fail "resource-bank outline screenshot is empty"
 }
 
 test_development_monopoly_preview() {
@@ -314,10 +364,10 @@ test_hud_graph() {
     if rg -q "$fatal_pattern" "$log_file"; then
       fail "HUD graph crashed"
     fi
-    rg -q 'CATAN_HUD_GRAPH PASS edges=37 failures=0' "$log_file" && break
+    rg -q 'CATAN_HUD_GRAPH PASS edges=38 failures=0' "$log_file" && break
     sleep 1
   done
-  rg -q 'CATAN_HUD_GRAPH PASS edges=37 failures=0' "$log_file" \
+  rg -q 'CATAN_HUD_GRAPH PASS edges=38 failures=0' "$log_file" \
     || fail "complete HUD graph did not pass"
   assert_running_without_fatal "HUD graph failed after traversal"
   adb exec-out screencap -p >"$output"
@@ -420,6 +470,7 @@ test_online_page_preview DedicatedServer
 test_local_network_page
 test_combo_preview Bots 1200 390
 test_bank_preview
+test_resource_bank_visual
 test_settings_preview
 test_hud_graph
 test_four_player_status_panel

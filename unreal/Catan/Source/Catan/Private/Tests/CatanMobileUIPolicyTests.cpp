@@ -21,6 +21,12 @@ bool FCatanMobileComboBoxMetricsTest::RunTest(const FString&)
     TestEqual(TEXT("desktop call sites keep their requested font size"), Desktop.ClosedFontSize, 20);
     TestTrue(TEXT("desktop rows remain smaller than mobile rows"),
         Desktop.MinimumRowHeight < Mobile.MinimumRowHeight);
+    TestTrue(TEXT("an open popup uses large row layout"),
+        CatanMobileUIPolicy::ShouldUsePopupRowLayout(true, false));
+    TestFalse(TEXT("selected content stays compact even before popup closes"),
+        CatanMobileUIPolicy::ShouldUsePopupRowLayout(true, true));
+    TestFalse(TEXT("closed combo content never inherits popup row size"),
+        CatanMobileUIPolicy::ShouldUsePopupRowLayout(false, false));
     return true;
 }
 #endif
