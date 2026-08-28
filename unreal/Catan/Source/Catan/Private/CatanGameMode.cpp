@@ -10,12 +10,15 @@
 #include "CatanNetworkSubsystem.h"
 #include "CatanPlayerController.h"
 #include "CatanLightingPolicy.h"
+#include "CatanPerformancePolicy.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/GameSession.h"
 #include "HAL/IConsoleManager.h"
+#include "HAL/PlatformFramePacer.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 
@@ -25,6 +28,13 @@ void ACatanGameMode::ConfigureBoardLighting()
 {
 #if PLATFORM_ANDROID
     constexpr bool bMobile = true;
+    if (GEngine) GEngine->SetMaxFPS(FCatanPerformancePolicy::AndroidTargetFps);
+    const int32 ActualFramePace = FPlatformRHIFramePacer::SetFramePace(
+        FCatanPerformancePolicy::AndroidTargetFps);
+    UE_LOG(LogCatanNetworkMode, Display,
+        TEXT("CATAN_MOBILE_PACING requested=%d actual=%d maxFps=%.0f"),
+        FCatanPerformancePolicy::AndroidTargetFps, ActualFramePace,
+        GEngine ? GEngine->GetMaxFPS() : 0.0f);
 #else
     constexpr bool bMobile = false;
 #endif

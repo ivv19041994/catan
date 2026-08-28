@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "InputCoreTypes.h"
+#include "CatanPerformancePolicy.h"
 
 #include "CatanBoardActor.generated.h"
 
@@ -109,6 +110,13 @@ private:
     int32 PreviousSecondDie = 0;
     bool bBoardBuilt = false;
     bool bPlacementCameraFocused = false;
+    bool bPerformanceCaptureRequested = false;
+    bool bPerformanceCaptureStarted = false;
+    bool bPerformanceCaptureFinished = false;
+    float PerformanceWarmupSeconds = 5.0f;
+    float PerformanceSampleSeconds = 20.0f;
+    float PerformanceElapsedSeconds = 0.0f;
+    TArray<FCatanPerformanceSample> PerformanceSamples;
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UTextRenderComponent>> Labels;
@@ -156,6 +164,7 @@ private:
     void BuildDice();
     void BuildResourceBank();
     void ConfigureLongRangeShadows();
+    void CapturePerformance(float DeltaSeconds);
     void AnimateFeedback(float DeltaSeconds);
     void PlayFeedbackTone(float Frequency, float Duration, float Volume = 0.18f);
     UStaticMeshComponent* AddDecoration(const FString& Name, UStaticMesh* Mesh,

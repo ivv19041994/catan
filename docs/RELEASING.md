@@ -55,3 +55,8 @@ gh release upload "v$(cat VERSION)" \
 
 Never publish development APKs, dedicated state files, player tokens, `Saved/`,
 `Intermediate/`, or local signing material.
+
+Before producing the Shipping APK, run the Development build through the
+[Android performance baseline](ANDROID_PERFORMANCE.md) on the emulator and at
+least one physical target phone. Keep the generated metrics with the release
+validation record; the Development APK itself must not be published.
