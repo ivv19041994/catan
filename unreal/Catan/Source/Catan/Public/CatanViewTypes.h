@@ -156,6 +156,9 @@ struct FCatanGameView
     UPROPERTY(BlueprintReadOnly) bool bHasSettlementTarget = false;
     UPROPERTY(BlueprintReadOnly) bool bHasCityTarget = false;
     UPROPERTY(BlueprintReadOnly) bool bHasRoadTarget = false;
+    UPROPERTY(BlueprintReadOnly) bool bHasSettlementLocation = false;
+    UPROPERTY(BlueprintReadOnly) bool bHasCityLocation = false;
+    UPROPERTY(BlueprintReadOnly) bool bHasRoadLocation = false;
     UPROPERTY(BlueprintReadOnly) TArray<FString> EventLog;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanPlayerView> Players;
     UPROPERTY(BlueprintReadOnly) TArray<FCatanHexView> Hexes;

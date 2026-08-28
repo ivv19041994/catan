@@ -70,6 +70,13 @@ float MissingCost(const FCatanResourceView& Have, const FCatanResourceView& Goal
 
 FCatanResourceView BestGoal(const FCatanPlayerView& Player, const FCatanGameView& View)
 {
+    const bool bCityLocation = View.bHasCityLocation || View.bHasCityTarget;
+    const bool bSettlementLocation = View.bHasSettlementLocation || View.bHasSettlementTarget;
+    const bool bRoadLocation = View.bHasRoadLocation || View.bHasRoadTarget;
+    if (Player.FreeSettlements <= 0 && Player.FreeCities > 0 && bCityLocation)
+        return Cost(0, 0, 2, 0, 3);
+    if (Player.FreeCities <= 0 && Player.FreeSettlements > 0 && bSettlementLocation)
+        return Cost(1, 1, 1, 1, 0);
     FCatanResourceView Best = Cost(0, 0, 1, 1, 1);
     float BestScore = TNumericLimits<float>::Max();
     auto Consider = [&Player, &Best, &BestScore](const FCatanResourceView& Goal, float Bias)
@@ -77,11 +84,11 @@ FCatanResourceView BestGoal(const FCatanPlayerView& Player, const FCatanGameView
         const float Score = MissingCost(Player.Resources, Goal) - Bias;
         if (Score < BestScore) { BestScore = Score; Best = Goal; }
     };
-    if (Player.FreeCities > 0 && View.bHasCityTarget)
+    if (Player.FreeCities > 0 && bCityLocation)
         Consider(Cost(0, 0, 2, 0, 3), 2.3f + Player.VictoryPoints * 0.08f);
-    if (Player.FreeSettlements > 0 && View.bHasSettlementTarget)
+    if (Player.FreeSettlements > 0 && bSettlementLocation)
         Consider(Cost(1, 1, 1, 1, 0), 1.25f + Player.VictoryPoints * 0.04f);
-    if (Player.FreeRoads > 0 && View.bHasRoadTarget)
+    if (Player.FreeRoads > 0 && bRoadLocation)
         Consider(Cost(1, 1, 0, 0, 0), 0.25f);
     Consider(Cost(0, 0, 1, 1, 1), 0.55f);
     return Best;
@@ -98,13 +105,44 @@ float ResourceUtility(const FCatanPlayerView& Player, const FCatanGameView& View
 
 int32 BuildingMultiplier(const FCatanNodeView& Node) { return Node.bIsCity ? 2 : 1; }
 
-float PortBonus(int32 NodeId)
+int32 SpecializedPortResource(int32 NodeId)
+{
+    if (NodeId == 50 || NodeId == 51) return 0;
+    if (NodeId == 45 || NodeId == 46) return 1;
+    if (NodeId == 28 || NodeId == 38) return 2;
+    if (NodeId == 3 || NodeId == 4) return 3;
+    if (NodeId == 7 || NodeId == 17) return 4;
+    return INDEX_NONE;
+}
+
+float StrategicPortBonus(const FCatanGameView& View, const FCatanBotTopology& Topology,
+    int32 NodeId, int32 PlayerId)
 {
     static const TSet<int32> Common{0, 1, 14, 15, 26, 37, 47, 48};
-    static const TSet<int32> Specialized{3, 4, 7, 17, 28, 38, 45, 46, 50, 51};
     if (Common.Contains(NodeId)) return 1.15f;
-    if (Specialized.Contains(NodeId)) return 0.9f;
-    return 0.0f;
+    const int32 PortResource = SpecializedPortResource(NodeId);
+    if (PortResource == INDEX_NONE) return 0.0f;
+    float Production[ResourceCount]{};
+    auto AddNode = [&View, &Topology, &Production](int32 CandidateNode, float Multiplier)
+    {
+        if (!Topology.NodeHexes.IsValidIndex(CandidateNode)) return;
+        for (int32 HexId : Topology.NodeHexes[CandidateNode])
+        {
+            if (!View.Hexes.IsValidIndex(HexId)) continue;
+            const int32 Resource = ResourceIndex(View.Hexes[HexId].Resource);
+            if (Resource != INDEX_NONE)
+                Production[Resource] += DicePips(View.Hexes[HexId].Dice) * Multiplier;
+        }
+    };
+    for (const FCatanNodeView& Node : View.Nodes)
+        if (Node.OwnerId == PlayerId)
+            AddNode(Node.Id, static_cast<float>(BuildingMultiplier(Node)));
+    AddNode(NodeId, 1.0f);
+    float Mean = 0.0f;
+    for (float Value : Production) Mean += Value;
+    Mean /= ResourceCount;
+    if (Mean <= 0.0f || Production[PortResource] <= 0.0f) return 0.15f;
+    return 0.30f + FMath::Clamp(Production[PortResource] / Mean, 0.0f, 2.0f) * 0.55f;
 }
 
 float ScarcityMultiplier(const FCatanGameView& View, int32 Resource)
@@ -128,16 +166,22 @@ float NodeProductionScore(const FCatanGameView& View, const FCatanBotTopology& T
     if (!Topology.NodeHexes.IsValidIndex(NodeId)) return -100000.0f;
     float Score = 0.0f;
     bool Seen[ResourceCount]{};
-    bool Existing[ResourceCount]{};
+    float ExistingProduction[ResourceCount]{};
+    int32 OwnedBuildings = 0;
     TSet<int32> ExistingNumbers;
     for (const FCatanNodeView& Node : View.Nodes)
     {
         if (Node.OwnerId != PlayerId || !Topology.NodeHexes.IsValidIndex(Node.Id)) continue;
+        ++OwnedBuildings;
         for (int32 HexId : Topology.NodeHexes[Node.Id])
             if (View.Hexes.IsValidIndex(HexId))
             {
                 const int32 Resource = ResourceIndex(View.Hexes[HexId].Resource);
-                if (Resource != INDEX_NONE) Existing[Resource] = true;
+                if (Resource != INDEX_NONE)
+                {
+                    ExistingProduction[Resource] += DicePips(View.Hexes[HexId].Dice)
+                        * BuildingMultiplier(Node);
+                }
                 if (View.Hexes[HexId].Dice > 0) ExistingNumbers.Add(View.Hexes[HexId].Dice);
             }
     }
@@ -150,7 +194,11 @@ float NodeProductionScore(const FCatanGameView& View, const FCatanBotTopology& T
         const float Pips = static_cast<float>(DicePips(Hex.Dice));
         Score += Pips * BaseResourceValue(Resource) * ScarcityMultiplier(View, Resource) * 1.45f;
         if (Hex.bHasRobber) Score -= Pips * 0.7f;
-        if (!Existing[Resource]) Score += 1.1f;
+        if (ExistingProduction[Resource] <= 0.0f)
+        {
+            const bool bMatureNetwork = OwnedBuildings >= 3;
+            Score += bMatureNetwork && (Resource == 2 || Resource == 4) ? 3.8f : 1.1f;
+        }
         if (!Seen[Resource]) { Seen[Resource] = true; Score += 0.35f; }
         if (!ExistingNumbers.Contains(Hex.Dice)) Score += 0.2f;
     }
@@ -165,7 +213,7 @@ float NodeProductionScore(const FCatanGameView& View, const FCatanBotTopology& T
         }
         Score += FMath::Min(OpenRoads, 3) * 0.35f;
     }
-    Score += PortBonus(NodeId);
+    if (bExpansion) Score += StrategicPortBonus(View, Topology, NodeId, PlayerId);
     return Score;
 }
 
@@ -440,9 +488,12 @@ bool FCatanBotStrategy::IsTacticalRoad(const FCatanGameView& View,
 }
 
 bool FCatanBotStrategy::ShouldFundRoad(const FCatanPlayerView& Player, ECatanBotPlan Plan,
-    bool bTacticalRoad)
+    bool bTacticalRoad, int32 OwnedBuildings)
 {
     if (bTacticalRoad) return true;
+    const int32 BuiltRoads = FMath::Max(0, 15 - Player.FreeRoads);
+    const int32 OrdinaryNetworkLimit = 2 + FMath::Max(1, OwnedBuildings) * 2;
+    if (BuiltRoads >= OrdinaryNetworkLimit) return false;
     const FCatanResourceView& Have = Player.Resources;
     const int32 Total = Have.Wood + Have.Clay + Have.Hay + Have.Sheep + Have.Stone;
     return Total >= 7 || (Plan == ECatanBotPlan::Expansion && Total >= 4);
@@ -458,10 +509,13 @@ bool FCatanBotStrategy::ShouldBuyDevelopmentCard(const FCatanPlayerView& Player,
     const int32 SettlementDeficit = FMath::Max(0, 1 - Have.Wood)
         + FMath::Max(0, 1 - Have.Clay) + FMath::Max(0, 1 - Have.Hay)
         + FMath::Max(0, 1 - Have.Sheep);
-    if (View.bHasCityTarget && Player.FreeCities > 0 && CityDeficit <= 2) return false;
-    if (View.bHasSettlementTarget && Player.FreeSettlements > 0
+    if (Player.VictoryPoints >= 7 && Total >= 6) return true;
+    if (Plan == ECatanBotPlan::CitiesAndArmy && Total >= 7) return true;
+    if ((View.bHasCityLocation || View.bHasCityTarget)
+        && Player.FreeCities > 0 && CityDeficit <= 2) return false;
+    if ((View.bHasSettlementLocation || View.bHasSettlementTarget)
+        && Player.FreeSettlements > 0
         && SettlementDeficit <= 1) return false;
-    if (Player.VictoryPoints >= 8) return Total >= 5;
     if (Plan == ECatanBotPlan::CitiesAndArmy) return Total >= 5;
     return Total >= 8;
 }
@@ -567,29 +621,55 @@ TPair<ECatanResource, ECatanResource> FCatanBotStrategy::ChooseYearOfPlenty(
     return {ResourceAt(Choices[0]), ResourceAt(Choices[1])};
 }
 
-ECatanResource FCatanBotStrategy::ChooseMonopoly(const FCatanGameView& View, int32 PlayerId)
+float FCatanBotStrategy::EstimateMonopolyGain(const FCatanGameView& View,
+    const FCatanBotTopology& Topology, int32 PlayerId, ECatanResource Resource)
 {
-    int32 Best = 0; float BestScore = -1.0f;
+    const int32 ResourceId = ResourceIndex(Resource);
+    if (ResourceId == INDEX_NONE) return 0.0f;
+    float Estimate = 0.0f;
+    for (const FCatanPlayerView& Opponent : View.Players)
+    {
+        if (Opponent.Id == PlayerId || Opponent.ResourceCards <= 0) continue;
+        float Production[ResourceCount]{};
+        float TotalProduction = 0.0f;
+        for (const FCatanNodeView& Node : View.Nodes)
+        {
+            if (Node.OwnerId != Opponent.Id || !Topology.NodeHexes.IsValidIndex(Node.Id)) continue;
+            for (int32 HexId : Topology.NodeHexes[Node.Id])
+            {
+                if (!View.Hexes.IsValidIndex(HexId)) continue;
+                const int32 Index = ResourceIndex(View.Hexes[HexId].Resource);
+                if (Index == INDEX_NONE) continue;
+                const float Weight = DicePips(View.Hexes[HexId].Dice) * BuildingMultiplier(Node);
+                Production[Index] += Weight;
+                TotalProduction += Weight;
+            }
+        }
+        const float Share = TotalProduction > 0.0f
+            ? Production[ResourceId] / TotalProduction : 1.0f / ResourceCount;
+        Estimate += Opponent.ResourceCards * Share;
+    }
+    return Estimate;
+}
+
+ECatanResource FCatanBotStrategy::ChooseMonopoly(const FCatanGameView& View,
+    const FCatanBotTopology& Topology, int32 PlayerId)
+{
+    const FCatanPlayerView* Player = View.Players.FindByPredicate(
+        [PlayerId](const FCatanPlayerView& Item) { return Item.Id == PlayerId; });
+    int32 Best = 0;
+    float BestScore = -1.0f;
     for (int32 Index = 0; Index < ResourceCount; ++Index)
     {
-        int32 Gain = 0;
-        for (const FCatanPlayerView& Player : View.Players)
-            if (Player.Id != PlayerId) Gain += GetResource(Player.Resources, Index);
-        const float Score = Gain * BaseResourceValue(Index);
+        const int32 TradeRate = Player
+            ? FMath::Clamp(GetResource(Player->TradeRates, Index), 2, 4) : 4;
+        const float PortMultiplier = 4.0f / TradeRate;
+        const float Score = EstimateMonopolyGain(
+            View, Topology, PlayerId, ResourceAt(Index))
+            * BaseResourceValue(Index) * PortMultiplier;
         if (Score > BestScore) { BestScore = Score; Best = Index; }
     }
     return ResourceAt(Best);
-}
-
-int32 FCatanBotStrategy::MonopolyGain(const FCatanGameView& View, int32 PlayerId,
-    ECatanResource Resource)
-{
-    const int32 Index = ResourceIndex(Resource);
-    int32 Result = 0;
-    if (Index == INDEX_NONE) return 0;
-    for (const FCatanPlayerView& Player : View.Players)
-        if (Player.Id != PlayerId) Result += GetResource(Player.Resources, Index);
-    return Result;
 }
 
 FCatanBotBankTrade FCatanBotStrategy::ChooseBankTrade(const FCatanPlayerView& Player,
@@ -669,6 +749,7 @@ FString FCatanBotStrategy::ChooseTradeTarget(const FCatanGameView& View,
     if (OfferedResource == INDEX_NONE || RequestedResource == INDEX_NONE) return FString();
     FString Best;
     float BestScore = -TNumericLimits<float>::Max();
+    float BestPublicSupply = 0.0f;
     for (const FCatanPlayerView& Candidate : View.Players)
     {
         if (Candidate.Id == PlayerId || Candidate.VictoryPoints >= 9
@@ -694,10 +775,22 @@ FString FCatanBotStrategy::ChooseTradeTarget(const FCatanGameView& View,
         if (Score > BestScore || (FMath::IsNearlyEqual(Score, BestScore) && Candidate.Name < Best))
         {
             BestScore = Score;
+            BestPublicSupply = PublicSupply;
             Best = Candidate.Name;
         }
     }
-    return Best;
+    return BestPublicSupply >= 4.0f ? Best : FString();
+}
+
+FString FCatanBotStrategy::TradeSignature(const FString& Offerer, const FString& Target,
+    const FCatanBotPlayerTrade& Trade)
+{
+    return FString::Printf(TEXT("%s|%s|%d,%d,%d,%d,%d|%d,%d,%d,%d,%d"),
+        *Offerer, *Target,
+        Trade.Offered.Wood, Trade.Offered.Clay, Trade.Offered.Hay,
+        Trade.Offered.Sheep, Trade.Offered.Stone,
+        Trade.Requested.Wood, Trade.Requested.Clay, Trade.Requested.Hay,
+        Trade.Requested.Sheep, Trade.Requested.Stone);
 }
 
 bool FCatanBotStrategy::ShouldAcceptTrade(const FCatanPlayerView& Recipient,
