@@ -31,6 +31,42 @@ cleanup() {
 }
 trap cleanup EXIT
 
+fail() {
+  echo "Dedicated server smoke failed: $1" >&2
+  exit 1
+}
+
+assert_equal() {
+  local label="$1" expected="$2" actual="$3"
+  if [[ "$actual" != "$expected" ]]; then
+    printf 'Dedicated server smoke failed: %s\nexpected: %.240s\nactual:   %.240s\n' \
+      "$label" "$expected" "$actual" >&2
+    exit 1
+  fi
+}
+
+assert_not_equal() {
+  local label="$1" left="$2" right="$3"
+  [[ "$left" != "$right" ]] || fail "$label"
+}
+
+assert_prefix() {
+  local label="$1" prefix="$2" actual="$3"
+  if [[ "$actual" != "$prefix"* ]]; then
+    printf 'Dedicated server smoke failed: %s\nexpected prefix: %.240s\nactual:          %.240s\n' \
+      "$label" "$prefix" "$actual" >&2
+    exit 1
+  fi
+}
+
+file_permissions() {
+  if stat -c '%a' "$1" >/dev/null 2>&1; then
+    stat -c '%a' "$1"
+  else
+    stat -f '%Lp' "$1"
+  fi
+}
+
 start_server() {
   : >"$log_file"
   "$server" --bind 127.0.0.1 --port 0 --state-file "$state_file" >"$log_file" 2>&1 &
@@ -68,7 +104,7 @@ request() {
   "$probe" --host 127.0.0.1 --port "$port" --timeout-ms 3000 --request "$1"
 }
 
-[[ "$(request PING)" == $'OK\tPONG' ]]
+assert_equal "PING response" $'OK\tPONG' "$(request PING)"
 
 first_request=$'CREATE2\tsmoke-create-first-0001\t416c696365\t466972737420726f6f6d'
 second_request=$'CREATE2\tsmoke-create-second-001\t4361726f6c\t5365636f6e6420726f6f6d'
@@ -76,7 +112,7 @@ first="$(request "$first_request")"
 second="$(request "$second_request")"
 IFS=$'\t' read -r _ _ first_lobby first_host _ <<<"$first"
 IFS=$'\t' read -r _ _ second_lobby second_host _ <<<"$second"
-[[ "$first_lobby" != "$second_lobby" ]]
+assert_not_equal "two CREATE requests returned the same lobby" "$first_lobby" "$second_lobby"
 
 first_join_request=$'JOIN2\tsmoke-join-first-000001\t'"$first_lobby"$'\t426f62'
 second_join_request=$'JOIN2\tsmoke-join-second-00001\t'"$second_lobby"$'\t44617665'
@@ -104,34 +140,34 @@ second_start="$(request "$second_start_request")"
 
 first_snapshot="$(request $'SNAPSHOT\t'"$first_lobby"$'\t'"$first_guest")"
 second_snapshot="$(request $'SNAPSHOT\t'"$second_lobby"$'\t'"$second_guest")"
-[[ "$first_snapshot" == $'OK\tSNAPSHOT\t'* ]]
-[[ "$second_snapshot" == $'OK\tSNAPSHOT\t'* ]]
-[[ "$first_snapshot" != "$second_snapshot" ]]
+assert_prefix "first lobby snapshot" $'OK\tSNAPSHOT\t' "$first_snapshot"
+assert_prefix "second lobby snapshot" $'OK\tSNAPSHOT\t' "$second_snapshot"
+assert_not_equal "isolated lobbies returned identical snapshots" "$first_snapshot" "$second_snapshot"
 
 stop_server
-[[ -s "$state_file" ]]
+[[ -s "$state_file" ]] || fail "state file is missing or empty"
 start_server
-grep -q 'lobbies=2' "$log_file"
+grep -q 'lobbies=2' "$log_file" || fail "restart did not restore two lobbies"
 
-[[ "$(request "$first_request")" == "$first" ]]
-[[ "$(request "$second_request")" == "$second" ]]
-[[ "$(request "$first_join_request")" == "$first_join" ]]
-[[ "$(request "$second_join_request")" == "$second_join" ]]
-[[ "$(request "$first_start_request")" == "$first_start" ]]
-[[ "$(request "$second_start_request")" == "$second_start" ]]
+assert_equal "first CREATE replay" "$first" "$(request "$first_request")"
+assert_equal "second CREATE replay" "$second" "$(request "$second_request")"
+assert_equal "first JOIN replay" "$first_join" "$(request "$first_join_request")"
+assert_equal "second JOIN replay" "$second_join" "$(request "$second_join_request")"
+assert_equal "first START replay" "$first_start" "$(request "$first_start_request")"
+assert_equal "second START replay" "$second_start" "$(request "$second_start_request")"
 
 restored_first="$(request $'SNAPSHOT\t'"$first_lobby"$'\t'"$first_guest")"
 restored_second="$(request $'SNAPSHOT\t'"$second_lobby"$'\t'"$second_host")"
-[[ "$restored_first" == $'OK\tSNAPSHOT\t'* ]]
-[[ "$restored_second" == $'OK\tSNAPSHOT\t'* ]]
+assert_prefix "restored first lobby snapshot" $'OK\tSNAPSHOT\t' "$restored_first"
+assert_prefix "restored second lobby snapshot" $'OK\tSNAPSHOT\t' "$restored_second"
 if request $'SNAPSHOT\t'"$first_lobby"$'\t'"$second_guest" >/dev/null 2>&1; then
   echo "Cross-lobby token was accepted after restart" >&2
   exit 1
 fi
 
 stop_server
-permissions="$(stat -f '%Lp' "$state_file" 2>/dev/null || stat -c '%a' "$state_file")"
-[[ "$permissions" == "600" ]]
+permissions="$(file_permissions "$state_file")"
+assert_equal "private state-file permissions" "600" "$permissions"
 printf 'corrupt' >>"$state_file"
 if "$server" --bind 127.0.0.1 --port 0 --state-file "$state_file" >"$log_file" 2>&1; then
   echo "Dedicated server accepted a corrupted state file" >&2
