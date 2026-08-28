@@ -42,8 +42,16 @@ public:
         const TArray<int32>& Targets, int32 PlayerId);
     static int32 ChooseRoad(const FCatanGameView& View, const FCatanBotTopology& Topology,
         const TArray<int32>& Targets, int32 PlayerId);
+    static bool IsTacticalRoad(const FCatanGameView& View, const FCatanBotTopology& Topology,
+        int32 RoadId, int32 PlayerId);
+    static bool ShouldFundRoad(const FCatanPlayerView& Player, ECatanBotPlan Plan,
+        bool bTacticalRoad);
+    static bool ShouldBuyDevelopmentCard(const FCatanPlayerView& Player,
+        const FCatanGameView& View, ECatanBotPlan Plan);
     static int32 ChooseRobberHex(const FCatanGameView& View, const FCatanBotTopology& Topology,
         const TArray<int32>& Targets, int32 PlayerId);
+    static bool ShouldPlayKnightBeforeRoll(const FCatanGameView& View,
+        const FCatanBotTopology& Topology, int32 PlayerId);
     static FString ChooseRobberVictim(const FCatanGameView& View);
     static FCatanResourceView ChooseDiscard(const FCatanPlayerView& Player, int32 Count,
         const FCatanGameView& View);
@@ -55,6 +63,9 @@ public:
         const FCatanGameView& View);
     static FCatanBotPlayerTrade ChoosePlayerTrade(const FCatanPlayerView& Player,
         const FCatanGameView& View);
+    static FString ChooseTradeTarget(const FCatanGameView& View,
+        const FCatanBotTopology& Topology, int32 PlayerId,
+        const FCatanBotPlayerTrade& Trade);
     static bool ShouldAcceptTrade(const FCatanPlayerView& Recipient,
         const FCatanPlayerView* Offerer, const FCatanResourceView& Offered,
         const FCatanResourceView& Requested, const FCatanGameView& View);

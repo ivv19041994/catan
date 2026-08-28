@@ -419,6 +419,53 @@ int32 FCatanBotStrategy::ChooseRoad(const FCatanGameView& View, const FCatanBotT
     return Best;
 }
 
+bool FCatanBotStrategy::IsTacticalRoad(const FCatanGameView& View,
+    const FCatanBotTopology& Topology, int32 RoadId, int32 PlayerId)
+{
+    if (!Topology.RoadNodes.IsValidIndex(RoadId)) return false;
+    const FCatanPlayerView* Player = View.Players.FindByPredicate(
+        [PlayerId](const FCatanPlayerView& Item) { return Item.Id == PlayerId; });
+    if (!Player) return false;
+    const int32 Before = LongestRoadLength(View, Topology, INDEX_NONE, PlayerId);
+    const int32 After = LongestRoadLength(View, Topology, RoadId, PlayerId);
+    if (After <= Before) return false;
+    int32 MaximumOpponent = 0;
+    for (const FCatanPlayerView& Opponent : View.Players)
+        if (Opponent.Id != PlayerId)
+            MaximumOpponent = FMath::Max(MaximumOpponent,
+                LongestRoadLength(View, Topology, INDEX_NONE, Opponent.Id));
+    const bool bClaimsAward = !Player->bHasLongestRoad && After >= 5 && After > MaximumOpponent;
+    const bool bDefendsAward = Player->bHasLongestRoad && MaximumOpponent + 1 >= Before;
+    return bClaimsAward || bDefendsAward;
+}
+
+bool FCatanBotStrategy::ShouldFundRoad(const FCatanPlayerView& Player, ECatanBotPlan Plan,
+    bool bTacticalRoad)
+{
+    if (bTacticalRoad) return true;
+    const FCatanResourceView& Have = Player.Resources;
+    const int32 Total = Have.Wood + Have.Clay + Have.Hay + Have.Sheep + Have.Stone;
+    return Total >= 7 || (Plan == ECatanBotPlan::Expansion && Total >= 4);
+}
+
+bool FCatanBotStrategy::ShouldBuyDevelopmentCard(const FCatanPlayerView& Player,
+    const FCatanGameView& View, ECatanBotPlan Plan)
+{
+    const FCatanResourceView& Have = Player.Resources;
+    if (Have.Hay <= 0 || Have.Sheep <= 0 || Have.Stone <= 0) return false;
+    const int32 Total = Have.Wood + Have.Clay + Have.Hay + Have.Sheep + Have.Stone;
+    const int32 CityDeficit = FMath::Max(0, 2 - Have.Hay) + FMath::Max(0, 3 - Have.Stone);
+    const int32 SettlementDeficit = FMath::Max(0, 1 - Have.Wood)
+        + FMath::Max(0, 1 - Have.Clay) + FMath::Max(0, 1 - Have.Hay)
+        + FMath::Max(0, 1 - Have.Sheep);
+    if (View.bHasCityTarget && Player.FreeCities > 0 && CityDeficit <= 2) return false;
+    if (View.bHasSettlementTarget && Player.FreeSettlements > 0
+        && SettlementDeficit <= 1) return false;
+    if (Player.VictoryPoints >= 8) return Total >= 5;
+    if (Plan == ECatanBotPlan::CitiesAndArmy) return Total >= 5;
+    return Total >= 8;
+}
+
 int32 FCatanBotStrategy::ChooseRobberHex(const FCatanGameView& View,
     const FCatanBotTopology& Topology, const TArray<int32>& Targets, int32 PlayerId)
 {
@@ -441,6 +488,26 @@ int32 FCatanBotStrategy::ChooseRobberHex(const FCatanGameView& View,
         if (Score > BestScore || (Score == BestScore && Target < Best)) { BestScore = Score; Best = Target; }
     }
     return Best;
+}
+
+bool FCatanBotStrategy::ShouldPlayKnightBeforeRoll(const FCatanGameView& View,
+    const FCatanBotTopology& Topology, int32 PlayerId)
+{
+    const FCatanPlayerView* Player = View.Players.FindByPredicate(
+        [PlayerId](const FCatanPlayerView& Item) { return Item.Id == PlayerId; });
+    if (!Player || Player->Knights <= 0) return false;
+    if (!Player->bHasLargestArmy) return true;
+    for (const FCatanPlayerView& Opponent : View.Players)
+        if (Opponent.Id != PlayerId && Opponent.VictoryPoints >= 8) return true;
+    for (const FCatanNodeView& Node : View.Nodes)
+    {
+        if (Node.OwnerId != PlayerId || !Topology.NodeHexes.IsValidIndex(Node.Id)) continue;
+        for (int32 HexId : Topology.NodeHexes[Node.Id])
+            if (View.Hexes.IsValidIndex(HexId) && View.Hexes[HexId].bHasRobber
+                && DicePips(View.Hexes[HexId].Dice) * BuildingMultiplier(Node) >= 4)
+                return true;
+    }
+    return false;
 }
 
 FString FCatanBotStrategy::ChooseRobberVictim(const FCatanGameView& View)
@@ -586,6 +653,51 @@ FCatanBotPlayerTrade FCatanBotStrategy::ChoosePlayerTrade(const FCatanPlayerView
         SetResource(Result.Offered, Offered, 1);
     SetResource(Result.Requested, Wanted, 1);
     return Result;
+}
+
+FString FCatanBotStrategy::ChooseTradeTarget(const FCatanGameView& View,
+    const FCatanBotTopology& Topology, int32 PlayerId, const FCatanBotPlayerTrade& Trade)
+{
+    if (!Trade.bValid) return FString();
+    int32 OfferedResource = INDEX_NONE;
+    int32 RequestedResource = INDEX_NONE;
+    for (int32 Index = 0; Index < ResourceCount; ++Index)
+    {
+        if (GetResource(Trade.Offered, Index) > 0) OfferedResource = Index;
+        if (GetResource(Trade.Requested, Index) > 0) RequestedResource = Index;
+    }
+    if (OfferedResource == INDEX_NONE || RequestedResource == INDEX_NONE) return FString();
+    FString Best;
+    float BestScore = -TNumericLimits<float>::Max();
+    for (const FCatanPlayerView& Candidate : View.Players)
+    {
+        if (Candidate.Id == PlayerId || Candidate.VictoryPoints >= 9
+            || Candidate.ResourceCards <= 0) continue;
+        float Production[ResourceCount]{};
+        for (const FCatanNodeView& Node : View.Nodes)
+        {
+            if (Node.OwnerId != Candidate.Id || !Topology.NodeHexes.IsValidIndex(Node.Id)) continue;
+            for (int32 HexId : Topology.NodeHexes[Node.Id])
+            {
+                if (!View.Hexes.IsValidIndex(HexId)) continue;
+                const int32 Resource = ResourceIndex(View.Hexes[HexId].Resource);
+                if (Resource != INDEX_NONE)
+                    Production[Resource] += DicePips(View.Hexes[HexId].Dice)
+                        * BuildingMultiplier(Node);
+            }
+        }
+        const float PublicSupply = Production[RequestedResource];
+        const float PublicNeed = FMath::Max(0.0f,
+            Production[RequestedResource] - Production[OfferedResource]);
+        const float Score = PublicSupply * 1.4f + PublicNeed * 0.45f
+            + Candidate.ResourceCards * 0.12f - Candidate.VictoryPoints * 0.75f;
+        if (Score > BestScore || (FMath::IsNearlyEqual(Score, BestScore) && Candidate.Name < Best))
+        {
+            BestScore = Score;
+            Best = Candidate.Name;
+        }
+    }
+    return Best;
 }
 
 bool FCatanBotStrategy::ShouldAcceptTrade(const FCatanPlayerView& Recipient,
