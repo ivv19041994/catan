@@ -63,6 +63,9 @@ cmake --build build-server --target catan-dedicated-server --parallel
 release pipeline. Единый номер версии, tag-релизы, checksum-манифесты и команды
 локальной UE-сборки описаны в [`docs/RELEASING.md`](docs/RELEASING.md).
 
+Воспроизводимый Android frame-time baseline и порядок проверки на физическом
+телефоне описаны в [`docs/ANDROID_PERFORMANCE.md`](docs/ANDROID_PERFORMANCE.md).
+
 Цели CMake:
 
 - `catan_engine` — библиотека игровой логики;

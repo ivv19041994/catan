@@ -289,7 +289,9 @@ void UCatanGameSubsystem::StartBotGame(const FString& HumanName, int32 BotCount)
     LocalPlayerName = Names[0];
     for (int32 Index = 1; Index < Names.Num(); ++Index) BotPlayers.Add(Names[Index]);
     bBotAutoplay = FParse::Param(FCommandLine::Get(), TEXT("CatanBotAutoplay"));
-    if (bBotAutoplay) BotPlayers.Add(Names[0]);
+    const bool bPerformanceAutoplay = FParse::Param(
+        FCommandLine::Get(), TEXT("CatanPerformanceBaseline"));
+    if (bBotAutoplay || bPerformanceAutoplay) BotPlayers.Add(Names[0]);
     FParse::Value(FCommandLine::Get(), TEXT("CatanBotMaxActions="), BotE2EMaxActions);
     BotE2EMaxActions = FMath::Max(100, BotE2EMaxActions);
     BotE2EActions = 0;
@@ -297,6 +299,9 @@ void UCatanGameSubsystem::StartBotGame(const FString& HumanName, int32 BotCount)
     bBotE2EExitRequested = false;
     BotRandom.Initialize(FMath::Rand());
     BotActionDelay = 0.75f;
+    if (bPerformanceAutoplay)
+        UE_LOG(LogTemp, Display,
+            TEXT("CATAN_PERF_SCENARIO autoplay=1 players=%d delay=0.48"), Names.Num());
     StatusMessage = FString::Printf(TEXT("Single-player game started with %d bot%s"),
         SafeBotCount, SafeBotCount == 1 ? TEXT("") : TEXT("s"));
     AppendEvent(StatusMessage);

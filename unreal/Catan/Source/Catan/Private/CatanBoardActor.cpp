@@ -1,6 +1,7 @@
 #include "CatanBoardActor.h"
 
 #include "CatanCameraPawn.h"
+#include "CatanPerformancePolicy.h"
 #include "CatanGameSubsystem.h"
 #include "CatanHexMeshBuilder.h"
 #include "CatanResourceVisualBuilder.h"
@@ -14,6 +15,11 @@
 #include "Materials/MaterialInterface.h"
 #include "ProceduralMeshComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "HAL/PlatformTime.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
+#include "RenderTimer.h"
+#include "DynamicRHI.h"
 #include "Sound/SoundWaveProcedural.h"
 #include "Algo/Reverse.h"
 
@@ -241,6 +247,12 @@ void ACatanBoardActor::BeginPlay()
     Super::BeginPlay();
     BasicMaterial = LoadObject<UMaterialInterface>(nullptr,
         TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+    bPerformanceCaptureRequested = FParse::Param(
+        FCommandLine::Get(), TEXT("CatanPerformanceBaseline"));
+    FParse::Value(FCommandLine::Get(), TEXT("CatanPerfWarmup="), PerformanceWarmupSeconds);
+    FParse::Value(FCommandLine::Get(), TEXT("CatanPerfDuration="), PerformanceSampleSeconds);
+    PerformanceWarmupSeconds = FMath::Clamp(PerformanceWarmupSeconds, 1.0f, 60.0f);
+    PerformanceSampleSeconds = FMath::Clamp(PerformanceSampleSeconds, 5.0f, 120.0f);
     if (UCatanGameSubsystem* Subsystem = GetGameInstance()->GetSubsystem<UCatanGameSubsystem>())
     {
         Subsystem->OnGameStateChanged.AddDynamic(this, &ACatanBoardActor::RefreshPieces);
@@ -309,6 +321,8 @@ void ACatanBoardActor::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     if (!bBoardBuilt) TryBuildBoard();
+    if (bBoardBuilt && bPerformanceCaptureRequested && !bPerformanceCaptureFinished)
+        CapturePerformance(DeltaSeconds);
 #if PLATFORM_ANDROID
     MobileAnimationAccumulator += DeltaSeconds;
     constexpr float MobileAnimationStep = 1.0f / 30.0f;
@@ -317,6 +331,50 @@ void ACatanBoardActor::Tick(float DeltaSeconds)
     MobileAnimationAccumulator = 0.0f;
 #endif
     AnimateFeedback(DeltaSeconds);
+}
+
+void ACatanBoardActor::CapturePerformance(float DeltaSeconds)
+{
+    PerformanceElapsedSeconds += DeltaSeconds;
+    if (PerformanceElapsedSeconds < PerformanceWarmupSeconds) return;
+    if (!bPerformanceCaptureStarted)
+    {
+        bPerformanceCaptureStarted = true;
+        PerformanceSamples.Reserve(FMath::CeilToInt(PerformanceSampleSeconds * 60.0f));
+        int32 QueryCollisionComponents = 0;
+        TInlineComponentArray<UPrimitiveComponent*> Components(this);
+        for (const UPrimitiveComponent* Component : Components)
+            QueryCollisionComponents += Component
+                && Component->GetCollisionEnabled() != ECollisionEnabled::NoCollision ? 1 : 0;
+        UE_LOG(LogTemp, Display,
+            TEXT("CATAN_PERF_BEGIN warmup=%.1f duration=%.1f targetFps=%d components=%d animated=%d collision=%d"),
+            PerformanceWarmupSeconds, PerformanceSampleSeconds,
+            FCatanPerformancePolicy::AndroidTargetFps, Components.Num(),
+            AnimatedResourceParts.Num(), QueryCollisionComponents);
+    }
+
+    FCatanPerformanceSample& Sample = PerformanceSamples.Emplace_GetRef();
+    Sample.FrameMs = DeltaSeconds * 1000.0f;
+    Sample.GameThreadMs = static_cast<float>(FPlatformTime::ToMilliseconds(GGameThreadTime));
+    Sample.RenderThreadMs = static_cast<float>(FPlatformTime::ToMilliseconds(GRenderThreadTime));
+    Sample.GpuMs = static_cast<float>(FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles()));
+    if (PerformanceElapsedSeconds < PerformanceWarmupSeconds + PerformanceSampleSeconds) return;
+
+    bPerformanceCaptureFinished = true;
+    const FCatanPerformanceThresholds Thresholds = FCatanPerformancePolicy::AndroidBaseline();
+    const FCatanPerformanceSummary Summary =
+        FCatanPerformancePolicy::Summarize(PerformanceSamples, Thresholds);
+    UE_LOG(LogTemp, Display,
+        TEXT("CATAN_PERF_RESULT samples=%d avgFps=%.2f frameP50Ms=%.2f frameP95Ms=%.2f frameP99Ms=%.2f gameP95Ms=%.2f renderP95Ms=%.2f gpuP95Ms=%.2f gpuAvailable=%d hitchPct=%.2f pass=%d"),
+        Summary.Samples, Summary.AverageFps, Summary.FrameP50Ms, Summary.FrameP95Ms,
+        Summary.FrameP99Ms, Summary.GameThreadP95Ms, Summary.RenderThreadP95Ms,
+        Summary.GpuP95Ms, Summary.bGpuTimingAvailable, Summary.HitchPercent, Summary.bPassed);
+    UE_LOG(LogTemp, Display,
+        TEXT("CATAN_PERF_LIMITS minSamples=%d minAvgFps=%.1f maxFrameP95Ms=%.1f maxFrameP99Ms=%.1f maxHitchPct=%.1f maxGameP95Ms=%.1f maxRenderP95Ms=%.1f maxGpuP95Ms=%.1f"),
+        Thresholds.MinimumSamples, Thresholds.MinimumAverageFps, Thresholds.MaximumFrameP95Ms,
+        Thresholds.MaximumFrameP99Ms, Thresholds.MaximumHitchPercent,
+        Thresholds.MaximumGameThreadP95Ms, Thresholds.MaximumRenderThreadP95Ms,
+        Thresholds.MaximumGpuP95Ms);
 }
 
 UStaticMeshComponent* ACatanBoardActor::AddDecoration(const FString& Name, UStaticMesh* Mesh,
