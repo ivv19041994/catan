@@ -746,10 +746,19 @@ void UCatanHUDWidget::BuildLayout()
     AddText(DedicatedServerPanel, TEXT("DEDICATED SERVER"), 27);
     AddText(DedicatedServerPanel, TEXT("Create a new game or join an existing lobby by token."), 15);
     DedicatedAddressInput = WidgetTree->ConstructWidget<UEditableTextBox>();
-    DedicatedAddressInput->SetText(FText::FromString(TEXT("127.0.0.1:17777")));
+    const FCatanDedicatedSession SavedDedicated = NetworkSubsystem
+        ? NetworkSubsystem->GetSavedDedicatedSession() : FCatanDedicatedSession{};
+    DedicatedAddressInput->SetText(FText::FromString(SavedDedicated.IsValid()
+        ? SavedDedicated.Address : TEXT("127.0.0.1:17777")));
     DedicatedAddressInput->SetHintText(FText::FromString(TEXT("Server IP, e.g. 192.168.1.20:17777")));
     DedicatedAddressInput->SetForegroundColor(FLinearColor(0.04f, 0.055f, 0.075f, 1.0f));
     DedicatedServerPanel->AddChildToVerticalBox(DedicatedAddressInput);
+    ResumeDedicatedButton = AddButton(DedicatedServerPanel, SavedDedicated.IsValid()
+        ? FString::Printf(TEXT("RECONNECT AS %s"), *SavedDedicated.PlayerName)
+        : TEXT("RECONNECT TO SAVED GAME"));
+    ResumeDedicatedButton->OnClicked.AddDynamic(this, &UCatanHUDWidget::ResumeDedicatedLobby);
+    ResumeDedicatedButton->SetVisibility(SavedDedicated.IsValid()
+        ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     UButton* CreateDedicated = AddButton(DedicatedServerPanel, TEXT("CREATE GAME ON SERVER"));
     CreateDedicated->OnClicked.AddDynamic(this, &UCatanHUDWidget::CreateDedicatedLobby);
     DedicatedLobbyTokenInput = WidgetTree->ConstructWidget<UEditableTextBox>();
@@ -1085,6 +1094,17 @@ void UCatanHUDWidget::Refresh()
     SetModalPosition(FVector2D::ZeroVector);
     if (NetworkSubsystem)
     {
+        if (ResumeDedicatedButton)
+        {
+            const bool bCanResume = NetworkSubsystem->HasSavedDedicatedSession()
+                && !NetworkSubsystem->IsDedicatedActive();
+            ResumeDedicatedButton->SetVisibility(bCanResume
+                ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+            if (bCanResume)
+                if (UCommonTextBlock* Label = Cast<UCommonTextBlock>(ResumeDedicatedButton->GetChildAt(0)))
+                    Label->SetText(FText::FromString(FString::Printf(TEXT("RECONNECT AS %s"),
+                        *NetworkSubsystem->GetSavedDedicatedSession().PlayerName)));
+        }
         for (UCommonTextBlock* NetworkStatusText : NetworkStatusTexts)
             if (NetworkStatusText)
                 NetworkStatusText->SetText(FText::FromString(NetworkSubsystem->GetStatus()));
@@ -1372,7 +1392,8 @@ void UCatanHUDWidget::Refresh()
         else if (SetupPage == SetupLocalNetworkIndex)
             SetModalSize(900.0f, 720.0f);
         else if (SetupPage == SetupDedicatedServerIndex)
-            SetModalSize(760.0f, 590.0f);
+            SetModalSize(760.0f, NetworkSubsystem
+                && NetworkSubsystem->HasSavedDedicatedSession() ? 680.0f : 590.0f);
         else if (SetupPage == SetupBotsIndex)
             SetModalSize(760.0f, 540.0f);
         else if (SetupPage == SetupSettingsIndex)
@@ -1790,6 +1811,9 @@ void UCatanHUDWidget::RunHUDGraphSmoke()
     Verify(TEXT("dedicated-empty-join-address-rejected"), NetworkSubsystem
         && NetworkSubsystem->GetStatus().Contains(TEXT("Enter server IP")));
     DedicatedAddressInput->SetText(SavedDedicatedAddress);
+    Verify(TEXT("dedicated-resume-availability"), ResumeDedicatedButton
+        && (ResumeDedicatedButton->GetVisibility() == ESlateVisibility::Visible)
+            == NetworkSubsystem->HasSavedDedicatedSession());
     Verify(TEXT("dedicated-back-online"), (ShowOnlineSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupOnlineIndex));
     Verify(TEXT("online-back-main"), (ShowMainSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupMainIndex));
     Verify(TEXT("main-bots"), (ShowBotSetup(), SetupSwitcher->GetActiveWidgetIndex() == SetupBotsIndex));
@@ -2032,6 +2056,11 @@ void UCatanHUDWidget::JoinDedicatedLobby()
         || !DedicatedAddressInput || !DedicatedLobbyTokenInput) return;
     NetworkSubsystem->JoinDedicatedLobby(DedicatedAddressInput->GetText().ToString(),
         DedicatedLobbyTokenInput->GetText().ToString(), PlayerName);
+}
+
+void UCatanHUDWidget::ResumeDedicatedLobby()
+{
+    if (NetworkSubsystem) NetworkSubsystem->ResumeSavedDedicatedLobby();
 }
 
 void UCatanHUDWidget::CopyDedicatedLobbyToken()

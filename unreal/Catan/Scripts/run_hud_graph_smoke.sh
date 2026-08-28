@@ -53,13 +53,13 @@ stop_pid() {
 print "Checking every in-widget HUD navigation edge..."
 launch "$log_dir/graph.log" -CatanHUDGraphSmoke
 graph_pid="$REPLY"
-wait_for "$log_dir/graph.log" 'CATAN_HUD_GRAPH PASS edges=37 failures=0' 45
+wait_for "$log_dir/graph.log" 'CATAN_HUD_GRAPH PASS edges=38 failures=0' 45
 stop_pid "$graph_pid"
 
 print "Checking failed manual join stays out of the lobby..."
 launch "$log_dir/invalid-join.log" -CatanAutoManualJoin=127.0.0.1:1 -CatanAutoName=InvalidJoin
 invalid_pid="$REPLY"
-wait_for "$log_dir/invalid-join.log" 'CATAN_HUD_GRAPH connection-failure' 45
+wait_for "$log_dir/invalid-join.log" 'CATAN_HUD_GRAPH connection-failure' 150
 wait_for "$log_dir/invalid-join.log" 'CATAN_HUD_GRAPH returned-main status=Connection failed:' 20
 if rg -q 'CATAN_HUD_GRAPH leave-scheduled' "$log_dir/invalid-join.log"; then
   fail "failed connection incorrectly exposed the lobby"

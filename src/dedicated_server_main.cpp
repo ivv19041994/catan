@@ -44,7 +44,8 @@ bool SendAll(int socket, const std::string& message)
 void Usage()
 {
     std::cout << "Usage: catan-dedicated-server [--bind ADDRESS] [--port PORT] "
-                 "[--max-lobbies COUNT] [--state-file PATH | --no-persistence]\n";
+                 "[--max-lobbies COUNT] [--state-file PATH | --no-persistence] "
+                 "[--drop-response-once OPERATION]\n";
 }
 
 bool ReadStateFile(const std::filesystem::path& path, std::string& state, std::string& error)
@@ -104,14 +105,21 @@ bool WriteStateFile(const std::filesystem::path& path, std::string_view state, s
     return true;
 }
 
+std::string_view RequestOperation(std::string_view request)
+{
+    while (!request.empty() && (request.back() == '\n' || request.back() == '\r')) request.remove_suffix(1);
+    const std::size_t separator = request.find('\t');
+    return request.substr(0, separator);
+}
+
 bool IsSuccessfulMutation(std::string_view request, std::string_view response)
 {
     if (!response.starts_with("OK\t")) return false;
-    while (!request.empty() && (request.back() == '\n' || request.back() == '\r')) request.remove_suffix(1);
-    const std::size_t separator = request.find('\t');
-    const std::string_view operation = request.substr(0, separator);
+    const std::string_view operation = RequestOperation(request);
     return operation == "CREATE" || operation == "JOIN" || operation == "LEAVE"
-        || operation == "READY" || operation == "START" || operation == "COMMAND";
+        || operation == "READY" || operation == "START" || operation == "COMMAND"
+        || operation == "CREATE2" || operation == "JOIN2" || operation == "LEAVE2"
+        || operation == "READY2" || operation == "START2" || operation == "COMMAND2";
 }
 
 } // namespace
@@ -120,13 +128,15 @@ int main(int argc, char** argv)
 {
     std::string bind_address = "0.0.0.0";
     std::optional<std::filesystem::path> state_file = std::filesystem::path("catan-dedicated.state");
+    std::string drop_response_once;
+    bool response_dropped = false;
     int port = 17777;
     int max_lobbies = 128;
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if (argument == "--help") { Usage(); return 0; }
         if ((argument == "--bind" || argument == "--port" || argument == "--max-lobbies"
-            || argument == "--state-file")
+            || argument == "--state-file" || argument == "--drop-response-once")
             && index + 1 >= argc) {
             std::cerr << "Missing value for " << argument << '\n'; return 2;
         }
@@ -135,6 +145,7 @@ int main(int argc, char** argv)
             else if (argument == "--port") port = std::stoi(argv[++index]);
             else if (argument == "--max-lobbies") max_lobbies = std::stoi(argv[++index]);
             else if (argument == "--state-file") state_file = std::filesystem::path(argv[++index]);
+            else if (argument == "--drop-response-once") drop_response_once = argv[++index];
             else if (argument == "--no-persistence") state_file.reset();
             else { std::cerr << "Unknown option: " << argument << '\n'; return 2; }
         } catch (...) { std::cerr << "Invalid value for " << argument << '\n'; return 2; }
@@ -144,6 +155,9 @@ int main(int argc, char** argv)
     }
     if (state_file && state_file->empty()) {
         std::cerr << "State file path cannot be empty\n"; return 2;
+    }
+    if (drop_response_once.size() > 32) {
+        std::cerr << "Dropped-response operation is invalid\n"; return 2;
     }
 
     ivv::catan::dedicated::Service service(static_cast<std::size_t>(max_lobbies));
@@ -222,6 +236,14 @@ int main(int argc, char** argv)
                 response = "ERR\t50657273697374656e6365206661696c6564";
                 running = 0;
             }
+        }
+        if (!response_dropped && !drop_response_once.empty()
+            && RequestOperation(request) == drop_response_once) {
+            response_dropped = true;
+            std::cout << "CATAN_DEDICATED_DEBUG dropped_response operation="
+                      << drop_response_once << std::endl;
+            close(client);
+            continue;
         }
         response.push_back('\n');
         SendAll(client, response);

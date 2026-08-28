@@ -166,13 +166,19 @@ public:
     explicit Service(std::size_t max_lobbies = 128, TokenFactory token_factory = {});
     ~Service();
 
-    IdentityResult CreateLobby(std::string player_name, std::string lobby_name);
-    IdentityResult JoinLobby(std::string_view lobby_token, std::string player_name);
-    Result LeaveLobby(std::string_view lobby_token, std::string_view player_token);
-    Result SetReady(std::string_view lobby_token, std::string_view player_token, bool ready);
-    Result StartGame(std::string_view lobby_token, std::string_view player_token);
+    IdentityResult CreateLobby(std::string player_name, std::string lobby_name,
+        std::string_view request_id = {});
+    IdentityResult JoinLobby(std::string_view lobby_token, std::string player_name,
+        std::string_view request_id = {});
+    IdentityResult ResumeLobby(std::string_view lobby_token, std::string_view player_token);
+    Result LeaveLobby(std::string_view lobby_token, std::string_view player_token,
+        std::string_view request_id = {});
+    Result SetReady(std::string_view lobby_token, std::string_view player_token, bool ready,
+        std::string_view request_id = {});
+    Result StartGame(std::string_view lobby_token, std::string_view player_token,
+        std::string_view request_id = {});
     Result Execute(std::string_view lobby_token, std::string_view player_token,
-        Command command, const CommandArgs& args = {});
+        Command command, const CommandArgs& args = {}, std::string_view request_id = {});
     std::optional<Snapshot> GetSnapshot(std::string_view lobby_token,
         std::string_view player_token, std::string& error);
     std::size_t LobbyCount() const;
@@ -184,12 +190,22 @@ public:
 
 private:
     struct Lobby;
+    struct ReplayEntry;
     std::size_t max_lobbies_;
     TokenFactory token_factory_;
     mutable std::mutex mutex_;
     std::unordered_map<std::string, std::unique_ptr<Lobby>> lobbies_;
+    std::vector<ReplayEntry> replay_entries_;
 
     std::string NewToken(std::size_t length, bool lobby);
+    bool TryReplayIdentity(std::string_view request_id, std::string_view fingerprint,
+        IdentityResult& output) const;
+    bool TryReplayResult(std::string_view request_id, std::string_view fingerprint,
+        Result& output) const;
+    void RememberIdentity(std::string_view request_id, std::string fingerprint,
+        const IdentityResult& result);
+    void RememberResult(std::string_view request_id, std::string fingerprint,
+        const Result& result);
 };
 
 } // namespace ivv::catan::dedicated

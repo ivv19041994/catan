@@ -70,14 +70,18 @@ request() {
 
 [[ "$(request PING)" == $'OK\tPONG' ]]
 
-first="$(request $'CREATE\t416c696365\t466972737420726f6f6d')"
-second="$(request $'CREATE\t4361726f6c\t5365636f6e6420726f6f6d')"
+first_request=$'CREATE2\tsmoke-create-first-0001\t416c696365\t466972737420726f6f6d'
+second_request=$'CREATE2\tsmoke-create-second-001\t4361726f6c\t5365636f6e6420726f6f6d'
+first="$(request "$first_request")"
+second="$(request "$second_request")"
 IFS=$'\t' read -r _ _ first_lobby first_host _ <<<"$first"
 IFS=$'\t' read -r _ _ second_lobby second_host _ <<<"$second"
 [[ "$first_lobby" != "$second_lobby" ]]
 
-first_join="$(request $'JOIN\t'"$first_lobby"$'\t426f62')"
-second_join="$(request $'JOIN\t'"$second_lobby"$'\t44617665')"
+first_join_request=$'JOIN2\tsmoke-join-first-000001\t'"$first_lobby"$'\t426f62'
+second_join_request=$'JOIN2\tsmoke-join-second-00001\t'"$second_lobby"$'\t44617665'
+first_join="$(request "$first_join_request")"
+second_join="$(request "$second_join_request")"
 IFS=$'\t' read -r _ _ _ first_guest _ <<<"$first_join"
 IFS=$'\t' read -r _ _ _ second_guest _ <<<"$second_join"
 
@@ -86,13 +90,17 @@ if request $'SNAPSHOT\t'"$first_lobby"$'\t'"$second_host" >/dev/null 2>&1; then
   exit 1
 fi
 
+ready_index=0
 for item in "$first_lobby:$first_host" "$first_lobby:$first_guest" \
             "$second_lobby:$second_host" "$second_lobby:$second_guest"; do
   lobby="${item%%:*}"; player="${item#*:}"
-  request $'READY\t'"$lobby"$'\t'"$player"$'\t1' >/dev/null
+  (( ready_index += 1 ))
+  request $'READY2\t'"$lobby"$'\t'"$player"$'\tsmoke-ready-000'"$ready_index"$'\t1' >/dev/null
 done
-request $'START\t'"$first_lobby"$'\t'"$first_host" >/dev/null
-request $'START\t'"$second_lobby"$'\t'"$second_host" >/dev/null
+first_start_request=$'START2\t'"$first_lobby"$'\t'"$first_host"$'\tsmoke-start-first-0001'
+second_start_request=$'START2\t'"$second_lobby"$'\t'"$second_host"$'\tsmoke-start-second-001'
+first_start="$(request "$first_start_request")"
+second_start="$(request "$second_start_request")"
 
 first_snapshot="$(request $'SNAPSHOT\t'"$first_lobby"$'\t'"$first_guest")"
 second_snapshot="$(request $'SNAPSHOT\t'"$second_lobby"$'\t'"$second_guest")"
@@ -104,6 +112,13 @@ stop_server
 [[ -s "$state_file" ]]
 start_server
 grep -q 'lobbies=2' "$log_file"
+
+[[ "$(request "$first_request")" == "$first" ]]
+[[ "$(request "$second_request")" == "$second" ]]
+[[ "$(request "$first_join_request")" == "$first_join" ]]
+[[ "$(request "$second_join_request")" == "$second_join" ]]
+[[ "$(request "$first_start_request")" == "$first_start" ]]
+[[ "$(request "$second_start_request")" == "$second_start" ]]
 
 restored_first="$(request $'SNAPSHOT\t'"$first_lobby"$'\t'"$first_guest")"
 restored_second="$(request $'SNAPSHOT\t'"$second_lobby"$'\t'"$second_host")"

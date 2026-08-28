@@ -39,6 +39,13 @@ explicitly disposable server. On restart the same lobby tokens, private player
 tokens, ready flags and in-progress `GameController` states are restored, so
 existing clients can continue using their credentials.
 
+The UE client stores only its own address/lobby/player credential in the
+platform user-settings area and exposes **Reconnect as _name_** on the
+Dedicated Server page. `RESUME` authenticates that existing identity without
+adding a duplicate player and works for both waiting and active games. An
+explicit successful lobby leave or an invalid saved credential removes the
+local reconnect record; a temporary outage keeps it.
+
 The state file contains every player's private authentication token. It is
 created with owner-only permissions on macOS and Linux and must not be served as
 public content or included in diagnostics. A malformed, truncated, unsupported
@@ -55,12 +62,24 @@ unreal/Catan/Scripts/run_android_dedicated_e2e.sh \
 ```
 
 The Android E2E starts two virtual phones, connects both through the host
-machine's `10.0.2.2` gateway, completes initial placement and verifies normal
-turns. Logs and screenshots from both clients are retained under `/tmp`.
+machine's `10.0.2.2` gateway, drops the first create response, completes initial
+placement and normal turns, then restarts the server and verifies both clients
+recover the persisted game. Logs and post-reconnect screenshots from both
+clients are retained under `/tmp`.
 
-The wire protocol is a version-one request/response TCP protocol with one
-newline-terminated request per connection. `catan-dedicated-probe` is provided
-for diagnostics and smoke automation.
+The wire protocol is newline-delimited request/response TCP. Legacy V1 verbs
+remain accepted. UE clients use `CREATE2`, `JOIN2`, `READY2`, `START2`,
+`COMMAND2` and `LEAVE2`, each carrying a random request ID. Successful replies
+are cached in the private server state and an identical retry returns the
+original result—even after restart—without applying the mutation again. Reuse
+of an ID with a different operation or payload is rejected. Clients use the
+same ID for up to three bounded network attempts; connect, send and receive
+each have a three-second deadline. `RESUME` and `SNAPSHOT` are read-only.
+
+`catan-dedicated-probe` is provided for diagnostics and smoke automation. The
+test-only `--drop-response-once OPERATION` option applies and persists the first
+matching request but closes its connection before replying, allowing an E2E to
+prove the lost-response path.
 
 ## Hidden victory cards
 

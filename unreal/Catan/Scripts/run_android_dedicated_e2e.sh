@@ -12,11 +12,15 @@ sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/opt/homebrew/share/android-comman
 emulator="$sdk_root/emulator/emulator"
 build_dir="${CATAN_DEDICATED_BUILD:-/tmp/catan-android-dedicated-e2e-build}"
 log_dir="$(mktemp -d /tmp/catan-android-dedicated-e2e.XXXXXX)"
+state_dir="$(mktemp -d /tmp/catan-android-dedicated-state.XXXXXX)"
+state_file="$state_dir/server.state"
 server_pid=""
 second_emulator_pid=""
 
 cleanup() {
   [[ -n "$server_pid" ]] && kill "$server_pid" 2>/dev/null || true
+  rm -f "$state_file" "$state_file.tmp"
+  rmdir "$state_dir" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -66,7 +70,8 @@ done
 
 cmake -S "$repo_dir" -B "$build_dir" -DCATAN_BUILD_CONSOLE=OFF -DCATAN_BUILD_TESTS=ON
 cmake --build "$build_dir" --target catan-dedicated-server -j 4
-"$build_dir/catan-dedicated-server" --bind 0.0.0.0 --port 0 --no-persistence >"$log_dir/server.log" 2>&1 &
+"$build_dir/catan-dedicated-server" --bind 0.0.0.0 --port 0 \
+  --state-file "$state_file" --drop-response-once CREATE2 >"$log_dir/server.log" 2>&1 &
 server_pid="$!"
 port=""
 for _ in {1..100}; do
@@ -110,6 +115,39 @@ for _ in {1..180}; do
 done
 (( connected == 2 )) || fail "both Android clients did not join the dedicated game"
 (( normal_turns >= 2 )) || fail "Android clients did not complete setup and normal turns"
+rg -q 'CATAN_DEDICATED_DEBUG dropped_response operation=CREATE2' "$log_dir/server.log" \
+  || fail "Android client did not retry the dropped CREATE2 response"
+
+kill -TERM "$server_pid"
+wait "$server_pid"
+server_pid=""
+reconnect_waiting=0
+for _ in {1..60}; do
+  adb -s "$host_serial" logcat -d >"$log_dir/host.log"
+  adb -s "$guest_serial" logcat -d >"$log_dir/guest.log"
+  reconnect_waiting="$(rg -l 'CATAN_DEDICATED_RECONNECT waiting' \
+    "$log_dir/host.log" "$log_dir/guest.log" | wc -l | tr -d ' ' || true)"
+  (( reconnect_waiting == 2 )) && break
+  sleep 1
+done
+(( reconnect_waiting == 2 )) || fail "both Android clients did not observe the server outage"
+
+"$build_dir/catan-dedicated-server" --bind 0.0.0.0 --port "$port" \
+  --state-file "$state_file" >"$log_dir/server-restarted.log" 2>&1 &
+server_pid="$!"
+for _ in {1..60}; do
+  adb -s "$host_serial" logcat -d >"$log_dir/host.log"
+  adb -s "$guest_serial" logcat -d >"$log_dir/guest.log"
+  reconnected="$(rg -l 'CATAN_DEDICATED_RECONNECTED' \
+    "$log_dir/host.log" "$log_dir/guest.log" | wc -l | tr -d ' ' || true)"
+  (( reconnected == 2 )) && break
+  if rg -q 'Assertion failed|Fatal error|FATAL EXCEPTION|Fatal signal' \
+      "$log_dir/host.log" "$log_dir/guest.log"; then
+    fail "Android client crashed during reconnect"
+  fi
+  sleep 1
+done
+(( ${reconnected:-0} == 2 )) || fail "both Android clients did not reconnect after server restart"
 
 for serial in "$host_serial" "$guest_serial"; do
   top_activity="$(adb -s "$serial" shell dumpsys activity activities | rg -m1 topResumedActivity || true)"
@@ -119,7 +157,7 @@ done
 adb -s "$host_serial" exec-out screencap -p >"$log_dir/host.png"
 adb -s "$guest_serial" exec-out screencap -p >"$log_dir/guest.png"
 
-print "PASS: two Android virtual phones created/joined lobby $lobby_token, completed setup and normal turns."
+print "PASS: two Android phones retried a lost response, played, and reconnected after server restart."
 print "Server: $android_address"
 print "APK: $apk"
 print "Artifacts: $log_dir"
