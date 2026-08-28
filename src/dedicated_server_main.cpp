@@ -135,6 +135,7 @@ int main(int argc, char** argv)
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if (argument == "--help") { Usage(); return 0; }
+        if (argument == "--version") { std::cout << "catan-dedicated-server " CATAN_VERSION "\n"; return 0; }
         if ((argument == "--bind" || argument == "--port" || argument == "--max-lobbies"
             || argument == "--state-file" || argument == "--drop-response-once")
             && index + 1 >= argc) {

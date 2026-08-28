@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(catan_engine VERSION 0.1.0 LANGUAGES CXX)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" CATAN_VERSION LIMIT_COUNT 1)
+if(NOT CATAN_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must contain one semantic version such as 1.2.3")
+endif()
+
+project(catan_engine VERSION ${CATAN_VERSION} LANGUAGES CXX)
+
+include(GNUInstallDirs)
 
 option(CATAN_BUILD_CONSOLE "Build the experimental console application" ON)
 option(CATAN_BUILD_TESTS "Build unit tests" ON)
@@ -37,9 +44,16 @@ if(CATAN_BUILD_DEDICATED_SERVER)
 
     add_executable(catan-dedicated-server src/dedicated_server_main.cpp)
     target_link_libraries(catan-dedicated-server PRIVATE catan_dedicated)
+    target_compile_definitions(catan-dedicated-server PRIVATE CATAN_VERSION="${PROJECT_VERSION}")
 
     add_executable(catan-dedicated-probe src/dedicated_probe_main.cpp)
     target_compile_features(catan-dedicated-probe PRIVATE cxx_std_20)
+    target_compile_definitions(catan-dedicated-probe PRIVATE CATAN_VERSION="${PROJECT_VERSION}")
+
+    install(TARGETS catan-dedicated-server catan-dedicated-probe
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES VERSION docs/DEDICATED_SERVER.md docs/RELEASING.md
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/catan)
 endif()
 
 add_library(catan_render
