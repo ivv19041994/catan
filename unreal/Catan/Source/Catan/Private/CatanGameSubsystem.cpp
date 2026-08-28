@@ -296,6 +296,8 @@ void UCatanGameSubsystem::StartBotGame(const FString& HumanName, int32 BotCount)
     BotE2EMaxActions = FMath::Max(100, BotE2EMaxActions);
     BotE2EActions = 0;
     BotE2EUnchangedActions = 0;
+    BotDecisionSerial = 0;
+    BotRejectedTradeUntil.Reset();
     bBotE2EExitRequested = false;
     BotRandom.Initialize(FMath::Rand());
     BotActionDelay = 0.75f;
@@ -335,6 +337,15 @@ void UCatanGameSubsystem::TickBots(float DeltaSeconds)
             [&View](const FCatanPlayerView& Player) { return Player.Name == View.ActiveDeal.OfferingPlayer; });
         const bool bAccept = Recipient && FCatanBotStrategy::ShouldAcceptTrade(*Recipient, Offerer,
             View.ActiveDeal.Offered, View.ActiveDeal.Requested, View);
+        FCatanBotPlayerTrade RespondedTrade;
+        RespondedTrade.bValid = true;
+        RespondedTrade.Offered = View.ActiveDeal.Offered;
+        RespondedTrade.Requested = View.ActiveDeal.Requested;
+        const FString TradeKey = FCatanBotStrategy::TradeSignature(
+            View.ActiveDeal.OfferingPlayer, View.ActiveDeal.TargetPlayer, RespondedTrade);
+        if (bAccept) BotRejectedTradeUntil.Remove(TradeKey);
+        else if (IsBotPlayer(View.ActiveDeal.OfferingPlayer))
+            BotRejectedTradeUntil.Add(TradeKey, BotDecisionSerial + 40);
         if (bBotAutoplay || FParse::Param(FCommandLine::Get(), TEXT("CatanBotDecisionTrace")))
             UE_LOG(LogTemp, Display,
                 TEXT("CATAN_BOT_TRADE_RESPONSE target=%s offerer=%s accept=%d"),
@@ -717,6 +728,7 @@ bool UCatanGameSubsystem::CanLocalPlayerAct(const FCatanGameView& View) const
 
 void UCatanGameSubsystem::PerformBotAction()
 {
+    ++BotDecisionSerial;
     const FCatanGameView View = BuildAuthoritativeSnapshot();
     if (BotTurnPlayer != View.CurrentPlayer)
     {
@@ -886,8 +898,10 @@ void UCatanGameSubsystem::PerformBotAction()
         }
         if (Player->MonopolyCards > 0)
         {
-            const ECatanResource Resource = FCatanBotStrategy::ChooseMonopoly(View, PlayerId);
-            if (FCatanBotStrategy::MonopolyGain(View, PlayerId, Resource) >= 3)
+            const ECatanResource Resource = FCatanBotStrategy::ChooseMonopoly(
+                View, Topology, PlayerId);
+            if (FCatanBotStrategy::EstimateMonopolyGain(
+                View, Topology, PlayerId, Resource) >= 2.5f)
             {
                 bBotDevelopmentAttempted = true;
                 TraceDecision(TEXT("play-monopoly"), static_cast<int32>(Resource));
@@ -922,8 +936,15 @@ void UCatanGameSubsystem::PerformBotAction()
             { return Candidate.Name == TargetName; });
         if (Trade.bValid && Target && !TargetName.IsEmpty())
         {
-            TraceDecision(TEXT("player-trade"), Target->Id);
-            if (TryOfferTrade(Trade.Offered, Trade.Requested, Target->Name, Error)) return;
+            const FString TradeKey = FCatanBotStrategy::TradeSignature(
+                View.CurrentPlayer, TargetName, Trade);
+            const int32* RejectedUntil = BotRejectedTradeUntil.Find(TradeKey);
+            if (!RejectedUntil || BotDecisionSerial >= *RejectedUntil)
+            {
+                TraceDecision(TEXT("player-trade"), Target->Id);
+                if (TryOfferTrade(Trade.Offered, Trade.Requested, Target->Name, Error)) return;
+            }
+            else TraceDecision(TEXT("player-trade-cooldown"), Target->Id);
         }
     }
 
@@ -942,8 +963,11 @@ void UCatanGameSubsystem::PerformBotAction()
             RoadPreview.ValidRoadTargets, PlayerId);
         const bool bTacticalRoad = FCatanBotStrategy::IsTacticalRoad(
             RoadPreview, Topology, RoadTarget, PlayerId);
+        int32 OwnedBuildings = 0;
+        for (const FCatanNodeView& Node : View.Nodes)
+            if (Node.OwnerId == PlayerId) ++OwnedBuildings;
         const bool bFundedExpansion = FCatanBotStrategy::ShouldFundRoad(
-            *Player, StrategicPlan, bTacticalRoad);
+            *Player, StrategicPlan, bTacticalRoad, OwnedBuildings);
         if (RoadTarget != INDEX_NONE && bFundedExpansion)
         {
             TraceDecision(bTacticalRoad ? TEXT("select-road-tactical") : TEXT("select-road"),
@@ -1087,12 +1111,22 @@ FCatanGameView UCatanGameSubsystem::BuildAuthoritativeSnapshot() const
     }
     if (View.Phase == ECatanGamePhase::CommonPlay)
     {
+        const ivv::catan::Player& CorePlayer = Game->GetPlayer(Game->GetCurrentPlayer());
         for (int32 Index = 0; Index < static_cast<int32>(View.Nodes.Num()); ++Index)
         {
             View.bHasSettlementTarget = View.bHasSettlementTarget || Game->CanBuildSettlement(Index);
             View.bHasCityTarget = View.bHasCityTarget || Game->CanBuildCastle(Index);
-            if (View.bHasSettlementTarget && View.bHasCityTarget) break;
+            View.bHasSettlementLocation = View.bHasSettlementLocation
+                || (CorePlayer.getFreeSettlementCount() > 0
+                    && Game->GetMap().canPlaceBuilding(Index, CorePlayer));
+            View.bHasCityLocation = View.bHasCityLocation
+                || (CorePlayer.getFreeCastleCount() > 0
+                    && Game->GetMap().canPlaceCastle(Index, CorePlayer));
         }
+        for (int32 Index = 0; Index < static_cast<int32>(View.Roads.Num()); ++Index)
+            View.bHasRoadLocation = View.bHasRoadLocation
+                || (CorePlayer.getFreeRoadCount() > 0
+                    && Game->GetMap().canPlaceRoad(Index, &CorePlayer));
     }
     else if (View.Phase == ECatanGamePhase::SetupSettlement)
     {

@@ -36,6 +36,28 @@ bool FCatanBotPlacementTest::RunTest(const FString&)
         FCatanBotStrategy::ChooseSettlement(View, Topology, {0, 1}, 0), 0);
     TestEqual(TEXT("road aims toward the stronger future settlement"),
         FCatanBotStrategy::ChooseRoad(View, Topology, {0, 1}, 0), 0);
+
+    View.Hexes = {Hex(0, ECatanResource::Wood, 6), Hex(1, ECatanResource::Hay, 6)};
+    View.Nodes.SetNum(52);
+    for (int32 Index = 0; Index < View.Nodes.Num(); ++Index) View.Nodes[Index].Id = Index;
+    View.Nodes[2].OwnerId = 0;
+    Topology.NodeHexes.SetNum(52);
+    Topology.NodeHexes[2] = {0};
+    Topology.NodeHexes[3] = {1};
+    Topology.NodeHexes[50] = {1};
+    TestEqual(TEXT("specialized port matches the bot's actual production portfolio"),
+        FCatanBotStrategy::ChooseSettlement(View, Topology, {3, 50}, 0), 50);
+
+    View.Hexes = {Hex(0, ECatanResource::Wood, 6), Hex(1, ECatanResource::Stone, 10)};
+    View.Nodes.SetNum(6);
+    for (int32 Index = 0; Index < View.Nodes.Num(); ++Index)
+    {
+        View.Nodes[Index].Id = Index;
+        View.Nodes[Index].OwnerId = Index < 3 ? 0 : INDEX_NONE;
+    }
+    Topology.NodeHexes = {{0}, {0}, {0}, {0}, {1}, {}};
+    TestEqual(TEXT("mature network fills missing ore instead of duplicating high-pip wood"),
+        FCatanBotStrategy::ChooseSettlement(View, Topology, {3, 4}, 0), 4);
     return true;
 }
 
@@ -93,14 +115,19 @@ bool FCatanBotPurposefulRoadTest::RunTest(const FString&)
     FCatanPlayerView RoadBudget = Bot;
     RoadBudget.Resources.Wood = 1; RoadBudget.Resources.Clay = 1;
     TestFalse(TEXT("ordinary road is not funded from an otherwise empty hand"),
-        FCatanBotStrategy::ShouldFundRoad(RoadBudget, ECatanBotPlan::Balanced, false));
+        FCatanBotStrategy::ShouldFundRoad(RoadBudget, ECatanBotPlan::Balanced, false, 2));
     TestTrue(TEXT("an award road bypasses the expansion budget"),
-        FCatanBotStrategy::ShouldFundRoad(RoadBudget, ECatanBotPlan::Balanced, true));
+        FCatanBotStrategy::ShouldFundRoad(RoadBudget, ECatanBotPlan::Balanced, true, 2));
     RoadBudget.Resources.Hay = 1; RoadBudget.Resources.Sheep = 1;
     TestTrue(TEXT("expansion plan may invest once half a settlement hand is ready"),
-        FCatanBotStrategy::ShouldFundRoad(RoadBudget, ECatanBotPlan::Expansion, false));
+        FCatanBotStrategy::ShouldFundRoad(RoadBudget, ECatanBotPlan::Expansion, false, 2));
     TestFalse(TEXT("balanced plan preserves the same four cards for its primary goal"),
-        FCatanBotStrategy::ShouldFundRoad(RoadBudget, ECatanBotPlan::Balanced, false));
+        FCatanBotStrategy::ShouldFundRoad(RoadBudget, ECatanBotPlan::Balanced, false, 2));
+    RoadBudget.FreeRoads = 9; RoadBudget.Resources.Wood = 4;
+    TestFalse(TEXT("ordinary road network is capped relative to owned buildings"),
+        FCatanBotStrategy::ShouldFundRoad(RoadBudget, ECatanBotPlan::Expansion, false, 2));
+    TestTrue(TEXT("tactical award road still bypasses the network cap"),
+        FCatanBotStrategy::ShouldFundRoad(RoadBudget, ECatanBotPlan::Expansion, true, 2));
 
     View.Nodes.SetNum(6);
     for (int32 Index = 0; Index < View.Nodes.Num(); ++Index)
@@ -201,6 +228,11 @@ bool FCatanBotResourcePlanningTest::RunTest(const FString&)
     TestFalse(TEXT("development card does not consume a hand two cards from a city"),
         FCatanBotStrategy::ShouldBuyDevelopmentCard(
             Bot, View, ECatanBotPlan::CitiesAndArmy));
+    Bot.VictoryPoints = 7; Bot.Resources.Wood = 1; Bot.Resources.Clay = 1;
+    TestTrue(TEXT("late-game contender may diversify into a development card"),
+        FCatanBotStrategy::ShouldBuyDevelopmentCard(
+            Bot, View, ECatanBotPlan::CitiesAndArmy));
+    Bot.VictoryPoints = 0; Bot.Resources.Wood = Bot.Resources.Clay = 0;
     Bot.Resources.Wood = 1; Bot.Resources.Clay = 1; Bot.Resources.Stone = 1;
     TestTrue(TEXT("cities-and-army plan buys a card when the city remains distant"),
         FCatanBotStrategy::ShouldBuyDevelopmentCard(
@@ -223,6 +255,17 @@ bool FCatanBotResourcePlanningTest::RunTest(const FString&)
     TestTrue(TEXT("bank trade uses a surplus to complete the nearest build"), Trade.bValid);
     TestEqual(TEXT("bank trade sells wood surplus"), Trade.From, ECatanResource::Wood);
     TestEqual(TEXT("bank trade buys missing clay"), Trade.To, ECatanResource::Clay);
+
+    View.bHasCityTarget = false; View.bHasCityLocation = true;
+    View.bHasSettlementTarget = false;
+    Bot.FreeSettlements = 0;
+    Bot.Resources = {}; Bot.Resources.Wood = 4; Bot.Resources.Hay = 1;
+    Bot.Resources.Sheep = 1; Bot.Resources.Stone = 1;
+    const FCatanBotBankTrade CityTrade = FCatanBotStrategy::ChooseBankTrade(Bot, View);
+    TestTrue(TEXT("bot plans toward a structural city location before it can afford it"),
+        CityTrade.bValid);
+    TestTrue(TEXT("forced city plan buys wheat or ore"),
+        CityTrade.To == ECatanResource::Hay || CityTrade.To == ECatanResource::Stone);
     return true;
 }
 
@@ -236,11 +279,24 @@ bool FCatanBotCardsAndTradeTest::RunTest(const FString&)
     FCatanPlayerView Offerer = Player(1, TEXT("Player"));
     FCatanPlayerView Third = Player(2, TEXT("Third"));
     Offerer.Resources.Stone = 4; Third.Resources.Stone = 2; Third.Resources.Clay = 3;
+    Offerer.ResourceCards = 6; Third.ResourceCards = 5;
     View.Players = {Bot, Offerer, Third};
-    TestEqual(TEXT("Monopoly targets the largest weighted opponent holding"),
-        FCatanBotStrategy::ChooseMonopoly(View, Bot.Id), ECatanResource::Stone);
-    TestEqual(TEXT("Monopoly gain counts all opponents"),
-        FCatanBotStrategy::MonopolyGain(View, Bot.Id, ECatanResource::Stone), 6);
+    View.Hexes = {Hex(0, ECatanResource::Stone, 6), Hex(1, ECatanResource::Stone, 8)};
+    View.Nodes.SetNum(3);
+    for (int32 Index = 0; Index < 3; ++Index) View.Nodes[Index].Id = Index;
+    View.Nodes[1].OwnerId = Offerer.Id; View.Nodes[2].OwnerId = Third.Id;
+    FCatanBotTopology MonopolyTopology; MonopolyTopology.NodeHexes = {{}, {0}, {1}};
+    TestEqual(TEXT("Monopoly follows public production rather than private hand composition"),
+        FCatanBotStrategy::ChooseMonopoly(View, MonopolyTopology, Bot.Id),
+        ECatanResource::Stone);
+    TestEqual(TEXT("Monopoly estimates public card share from production"),
+        FCatanBotStrategy::EstimateMonopolyGain(
+            View, MonopolyTopology, Bot.Id, ECatanResource::Stone), 11.0f);
+    View.Hexes[1].Resource = ECatanResource::Wood;
+    Bot.TradeRates.Wood = 2; View.Players[0] = Bot;
+    TestEqual(TEXT("specialized caller port can make a bulk Monopoly resource optimal"),
+        FCatanBotStrategy::ChooseMonopoly(View, MonopolyTopology, Bot.Id),
+        ECatanResource::Wood);
 
     FCatanResourceView Offered; Offered.Clay = 1;
     FCatanResourceView Requested; Requested.Wood = 1;
@@ -258,6 +314,15 @@ bool FCatanBotCardsAndTradeTest::RunTest(const FString&)
     TestTrue(TEXT("bot proposes a player trade when a surplus can complete its goal"), Proposal.bValid);
     TestEqual(TEXT("proposal offers the surplus resource"), Proposal.Offered.Wood, 1);
     TestEqual(TEXT("proposal requests the missing resource"), Proposal.Requested.Clay, 1);
+    const FString Signature = FCatanBotStrategy::TradeSignature(
+        TEXT("Bot"), TEXT("Player"), Proposal);
+    TestTrue(TEXT("trade retry signature includes both parties"),
+        Signature.StartsWith(TEXT("Bot|Player|")));
+    FCatanBotPlayerTrade DifferentProposal = Proposal;
+    DifferentProposal.Requested.Clay = 0; DifferentProposal.Requested.Stone = 1;
+    TestNotEqual(TEXT("materially different offer bypasses rejected-offer cooldown"),
+        FCatanBotStrategy::TradeSignature(TEXT("Bot"), TEXT("Player"), DifferentProposal),
+        Signature);
     Offerer.VictoryPoints = 4; Offerer.ResourceCards = 4;
     Third.VictoryPoints = 4; Third.ResourceCards = 4;
     View.Players = {Bot, Offerer, Third};
@@ -270,9 +335,9 @@ bool FCatanBotCardsAndTradeTest::RunTest(const FString&)
         FCatanBotStrategy::ChooseTradeTarget(View, TradeTopology, Bot.Id, Proposal),
         Offerer.Name);
     View.Players[1].VictoryPoints = 9;
-    TestEqual(TEXT("trade never helps an opponent already on match point"),
+    TestEqual(TEXT("trade never helps a match-point leader or guesses at an unsupported hand"),
         FCatanBotStrategy::ChooseTradeTarget(View, TradeTopology, Bot.Id, Proposal),
-        Third.Name);
+        FString());
     return true;
 }
 

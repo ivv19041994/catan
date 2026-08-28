@@ -138,6 +138,8 @@ private:
     int32 BotE2EActions = 0;
     int32 BotE2EUnchangedActions = 0;
     int32 BotE2EMaxActions = 12000;
+    int32 BotDecisionSerial = 0;
+    TMap<FString, int32> BotRejectedTradeUntil;
     FString BotTurnPlayer;
     bool bBotDevelopmentAttempted = false;
     bool bBotTradeAttempted = false;
